@@ -36,17 +36,15 @@ function DashboardContent() {
     if (!explorerSearch.trim()) return tree;
 
     const filterNodes = (nodes: FileNode[]): FileNode[] => {
-      return nodes
-        .map((node) => {
-          const matchesSelf = node.name.toLowerCase().includes(explorerSearch.toLowerCase());
-          const filteredChildren = node.children ? filterNodes(node.children) : [];
+      return nodes.flatMap((node) => {
+        const matchesSelf = node.name.toLowerCase().includes(explorerSearch.toLowerCase());
+        const filteredChildren = node.children ? filterNodes(node.children) : [];
 
-          if (matchesSelf || filteredChildren.length > 0) {
-            return { ...node, children: filteredChildren };
-          }
-          return null;
-        })
-        .filter((node): node is FileNode => node !== null);
+        if (matchesSelf || filteredChildren.length > 0) {
+          return [{ ...node, children: filteredChildren }];
+        }
+        return [];
+      });
     };
 
     return filterNodes(tree);
