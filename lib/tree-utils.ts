@@ -12,6 +12,7 @@ export interface FileNode {
     hiddenColumns?: string[];
     columnOrder?: string[];
     selectedYear?: string;
+    columnWidths?: Record<string, number>; // Add column widths
   };
   children?: FileNode[];
 }

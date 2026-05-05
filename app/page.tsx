@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw } from 'lucide-react';
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -17,6 +17,7 @@ function DashboardContent() {
   const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [rowFilter, setRowFilter] = useState<string>('');
   const [newColName, setNewColName] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('2020');
@@ -26,6 +27,41 @@ function DashboardContent() {
   const [isMetadataVisible, setIsMetadataVisible] = useState(true);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  const resizingRef = useRef<{ header: string; startX: number; startWidth: number } | null>(null);
+
+  const startResizing = useCallback((header: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const th = (e.target as HTMLElement).closest('th');
+    if (!th) return;
+
+    resizingRef.current = {
+      header,
+      startX: e.pageX,
+      startWidth: th.offsetWidth,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = moveEvent.pageX - resizingRef.current.startX;
+      const newWidth = Math.max(80, resizingRef.current.startWidth + delta);
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizingRef.current!.header]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+  }, []);
 
   const scrollToTop = () => {
     tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -322,6 +358,12 @@ function DashboardContent() {
     }
   };
 
+  const handleResetWidths = () => {
+    if (window.confirm('Reset all column widths? This will allow columns to auto-fit based on their content.')) {
+      setColumnWidths({});
+    }
+  };
+
   const removeTableRow = (index: number) => {
     try {
       const data = JSON.parse(editedContent || '[]');
@@ -341,6 +383,7 @@ function DashboardContent() {
       setCellAlignments(activeNode.display_settings?.cellAlignments || {});
       setColumnOrder(activeNode.display_settings?.columnOrder || []);
       setHiddenColumns(activeNode.display_settings?.hiddenColumns || []);
+      setColumnWidths(activeNode.display_settings?.columnWidths || {});
       setSelectedYear(activeNode.display_settings?.selectedYear || '2020');
       setRowFilter('');
       setShowBackToTop(false);
@@ -363,7 +406,7 @@ function DashboardContent() {
     setIsSaving(true);
     try {
       const content = JSON.parse(editedContent);
-      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder };
+      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths };
       const { error } = await supabase.from('nodes').update({ content, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
@@ -471,6 +514,9 @@ function DashboardContent() {
               <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm">
                 <Plus size={14} className="text-green-600" /> Add Section
               </button>
+              <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm text-slate-700" title="Reset all columns to auto-width">
+                <RefreshCcw size={14} /> Reset Widths
+              </button>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm text-slate-700">
@@ -484,13 +530,20 @@ function DashboardContent() {
             onScroll={(e) => setShowBackToTop(e.currentTarget.scrollTop > 300)}
             className="flex-1 overflow-auto relative"
           >
-            <table className="w-full border-separate border-spacing-0 table-fixed min-w-full">
+            <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
               <thead className="sticky top-0 z-30 bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
                 <tr>
                   {visibleHeaders.map(header => (
-                    <th key={header} className={`group/header px-2 py-2 text-xs font-bold text-slate-600 uppercase tracking-tight border-r border-b border-slate-200 relative bg-slate-100 ${
-                      header === "Title / Item" ? "sticky left-0 z-40 shadow-[1px_0_0_0_#e2e8f0]" : ""
-                    }`}>
+                    <th 
+                      key={header} 
+                      style={{ 
+                        width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                        minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
+                      }}
+                      className={`group/header px-2 py-2 text-xs font-bold text-slate-600 uppercase tracking-tight border-r border-b border-slate-200 relative bg-slate-100 ${
+                        header === "Title / Item" ? "sticky left-0 z-40 shadow-[1px_0_0_0_#e2e8f0]" : ""
+                      }`}
+                    >
                       <div className="flex items-center gap-1">
                         <input
                           defaultValue={header}
@@ -524,6 +577,11 @@ function DashboardContent() {
                           <X size={12} />
                         </button>
                       </div>
+                      <div 
+                        onMouseDown={(e) => startResizing(header, e)}
+                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 z-50 transition-colors group-hover/header:bg-slate-300"
+                        title="Drag to resize"
+                      />
                     </th>
                   ))}
                   <th className="p-2 min-w-[140px] border-r border-b border-slate-200 bg-slate-50/50">
@@ -889,7 +947,7 @@ function DashboardContent() {
                       disabled={isSaving}
                       className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm"
                     >
-                      <Save size={16} />
+                      {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                       {isSaving ? 'Saving...' : 'Save Changes'}
                     </button>
                   </div>
