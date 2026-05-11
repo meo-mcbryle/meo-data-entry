@@ -12,7 +12,7 @@ function DashboardContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [editedContent, setEditedContent] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'code' | 'table'>('table');
+  const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -31,9 +31,10 @@ function DashboardContent() {
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
   const formulaBarRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
+  const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'Image' | 'File' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
+  const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [dragFillRange, setDragFillRange] = useState<{ startRow: number; endRow: number; col: string } | null>(null);
   const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
@@ -764,6 +765,151 @@ function DashboardContent() {
     } catch (err: any) {
       alert('Failed to delete file from storage: ' + err.message);
     }
+  };
+
+  const toggleComparisonId = (id: string) => {
+    setComparisonIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const renderComparisonTable = () => {
+    const nodesToCompare = comparisonIds.map(id => findNodeById(tree, id)).filter(Boolean);
+    
+    const allFiles = (() => {
+      const files: FileNode[] = [];
+      const traverse = (nodes: FileNode[]) => {
+        nodes.forEach(node => {
+          if (node.type === 'file') files.push(node);
+          if (node.children) traverse(node.children);
+        });
+      };
+      traverse(tree);
+      return files;
+    })();
+
+    if (nodesToCompare.length < 2) {
+      return (
+        <div className="p-8 bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col">
+          <div className="mb-6">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <Share2 className="text-blue-500" size={20} />
+              Project Comparison Setup
+            </h3>
+            <p className="text-sm text-slate-500">Select at least two files from the list below to compare their project data side-by-side.</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 overflow-y-auto pr-2">
+            {allFiles.map(file => (
+              <label 
+                key={file.id} 
+                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:border-blue-300 ${
+                  comparisonIds.includes(file.id) ? 'bg-blue-50 border-blue-400 ring-1 ring-blue-400' : 'bg-white border-slate-200'
+                }`}
+              >
+                <input 
+                  type="checkbox" 
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  checked={comparisonIds.includes(file.id)}
+                  onChange={() => toggleComparisonId(file.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-slate-800 truncate">{file.name}</p>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-tighter">
+                    {file.display_settings?.selectedYear || 'No Year Set'}
+                  </p>
+                </div>
+                <FileText size={16} className={comparisonIds.includes(file.id) ? 'text-blue-500' : 'text-slate-300'} />
+              </label>
+            ))}
+          </div>
+          
+          {comparisonIds.length === 1 && (
+            <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700 text-xs">
+              <div className="p-1 bg-amber-200 rounded-full"><Plus size={12} /></div>
+              Select one more file to enable the side-by-side comparison.
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Get all unique Project Titles from all files
+    const allProjectsSet = new Set<string>();
+    nodesToCompare.forEach(n => {
+      const content = Array.isArray(n?.content) ? n.content : [];
+      content.forEach((row: any) => {
+        if (row["Title / Item"]) allProjectsSet.add(row["Title / Item"]);
+      });
+    });
+
+    const uniqueProjects = Array.from(allProjectsSet).sort();
+
+    return (
+      <div className="flex flex-col h-full border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
+        <div className="p-3 bg-slate-50 border-b flex justify-between items-center">
+          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Side-by-Side Comparison</h3>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setComparisonIds([])}
+              className="px-2 py-1 bg-white border border-slate-300 text-slate-600 text-[10px] font-bold rounded hover:bg-red-50 hover:text-red-600 transition-colors mr-2"
+            >
+              Clear Selection
+            </button>
+            {nodesToCompare.map(n => (
+              <span key={n!.id} className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded capitalize">{n!.name}</span>
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full border-collapse text-left">
+            <thead className="sticky top-0 bg-slate-100 z-10 shadow-sm">
+              <tr>
+                <th className="p-3 text-[11px] font-bold border-r border-b text-slate-600 w-64">Title / Item</th>
+                {nodesToCompare.map(n => (
+                  <Fragment key={n!.id}>
+                    <th className="p-3 text-[11px] font-bold border-r border-b text-blue-600 text-right">Amount ({n!.name})</th>
+                    <th className="p-3 text-[11px] font-bold border-r border-b text-slate-400">Status/Loc</th>
+                  </Fragment>
+                ))}
+                <th className="p-3 text-[11px] font-bold border-b bg-green-50 text-green-700 text-right">Variance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {uniqueProjects.map(title => {
+                const values = nodesToCompare.map(n => {
+                  const data = Array.isArray(n?.content) ? n.content : [];
+                  return data.find((r: any) => r["Title / Item"] === title);
+                });
+
+                const amount1 = Number(values[0]?.Amount || 0);
+                const amount2 = Number(values[1]?.Amount || 0);
+                const variance = amount2 - amount1;
+
+                return (
+                  <tr key={title} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
+                    <td className="p-3 text-sm font-medium text-slate-800 border-r bg-slate-50/30 sticky left-0">{title}</td>
+                    {values.map((v, idx) => (
+                      <Fragment key={idx}>
+                        <td className="p-3 text-sm font-mono text-right border-r">
+                          {v ? Number(v.Amount).toLocaleString() : <span className="text-slate-300">-</span>}
+                        </td>
+                        <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-[120px]">
+                          {v?.Location || v?.Allocation || ""}
+                        </td>
+                      </Fragment>
+                    ))}
+                    <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                      {variance === 0 ? "0" : (variance > 0 ? "+" : "") + variance.toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
   const handleMergeCells = useCallback((visibleHeaders: string[], isHeaderMerge: boolean = false) => {
@@ -1517,15 +1663,25 @@ function DashboardContent() {
                           ) : isMedia ? (
                             <div className="flex items-center group/media relative min-h-[34px] w-full">
                               <div className="flex-1 min-w-0 px-3 py-1.5">
-                                {meta.attachments && meta.attachments.length > 0 && (
-                                  <button 
-                                    onClick={() => setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header })}
-                                    className={`text-xs text-blue-600 hover:underline font-medium block leading-tight w-full font-sans ${alignClass}`}
-                                  >
-                                    [View attachment{meta.attachments.length > 1 ? 's' : ''}]
-                                    {meta.attachments.length > 1 && <span className="ml-1 opacity-60">({meta.attachments.length})</span>}
-                                  </button>
-                                )}
+                                {meta.attachments && meta.attachments.length > 0 && (() => {
+                                  const atts = meta.attachments;
+                                  const hasImages = atts.some((a: any) => a.type === 'image');
+                                  const hasFiles = atts.some((a: any) => a.type === 'file');
+                                  let label = 'Attachment';
+                                  if (hasImages && !hasFiles) label = 'Image';
+                                  else if (hasFiles && !hasImages) label = 'File';
+                                  const plural = atts.length > 1 ? 's' : '';
+                                  
+                                  return (
+                                    <button 
+                                      onClick={() => setViewingMedia({ attachments: atts, row: globalIndex, col: header })}
+                                      className={`text-xs text-blue-600 hover:underline font-medium block leading-tight w-full ${alignClass}`}
+                                    >
+                                      [View {label}{plural}]
+                                      {atts.length > 1 && <span className="ml-1 opacity-60">({atts.length})</span>}
+                                    </button>
+                                  );
+                                })()}
                               </div>
                               <button 
                                 onClick={(e) => {
@@ -1715,6 +1871,8 @@ function DashboardContent() {
                 onSelect={(node) => setSelectedId(node.id)}
                 selectedId={selectedId ?? undefined}
                 searchTerm={explorerSearch}
+                comparisonIds={comparisonIds}
+                onToggleCompare={toggleComparisonId}
               />
             ))
           )}
@@ -1822,6 +1980,15 @@ function DashboardContent() {
                         <Code size={14} />
                         JSON Code
                       </button>
+                      <button 
+                        onClick={() => setViewMode('compare')}
+                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                          viewMode === 'compare' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <RefreshCcw size={14} />
+                        Compare Mode {comparisonIds.length > 0 && `(${comparisonIds.length})`}
+                      </button>
                     </div>
                   </div>
                   <div className="flex gap-2 print:hidden">
@@ -1845,6 +2012,8 @@ function DashboardContent() {
                   />
                 ) : viewMode === 'table' ? (
                   renderTableEditor()
+                ) : viewMode === 'compare' ? (
+                  renderComparisonTable()
                 ) : null}
               </div>
             )}

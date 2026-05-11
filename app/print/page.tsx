@@ -1,14 +1,24 @@
 'use client';
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { FileNode } from '@/lib/tree-utils';
-import { FileText } from 'lucide-react';
+import { FileText, Printer, Check, Table } from 'lucide-react';
 
 function PrintContent() {
   const searchParams = useSearchParams();
   const [node, setNode] = useState<FileNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleSections, setVisibleSections] = useState<string[]>([]);
+  const [printHiddenColumns, setPrintHiddenColumns] = useState<string[]>([]);
+
+  // Handle cases where content might be an object (uninitialized) or null
+  const rawContent = node?.content;
+  const data = Array.isArray(rawContent) ? (rawContent as any[]) : [];
+
+  const allAvailableSections = useMemo(() => {
+    return Array.from(new Set(data.map((r: any) => r.section || "Uncategorized"))) as string[];
+  }, [data]);
 
   useEffect(() => {
     const id = searchParams.get('id');
@@ -18,10 +28,6 @@ function PrintContent() {
       const { data, error } = await supabase.from('nodes').select('*').eq('id', id).single();
       if (!error && data) {
         setNode(data as FileNode);
-        // Allow extra time for complex table calculation before freezing the frame
-        if (Array.isArray(data.content) && data.content.length > 0) {
-          setTimeout(() => window.print(), 1000);
-        }
       }
       setIsLoading(false);
     };
@@ -29,12 +35,18 @@ function PrintContent() {
     fetchNode();
   }, [searchParams]);
 
+  useEffect(() => {
+    if (node?.content && Array.isArray(node.content)) {
+      const all = Array.from(new Set(node.content.map((r: any) => r.section || "Uncategorized"))) as string[];
+      setVisibleSections(all);
+    }
+    if (node?.display_settings?.hiddenColumns) {
+      setPrintHiddenColumns(node.display_settings.hiddenColumns);
+    }
+  }, [node]);
+
   if (isLoading) return <div className="p-10 text-center font-sans text-slate-400">Preparing document...</div>;
   if (!node) return <div className="p-10 text-center font-sans text-red-500">File not found.</div>;
-
-  // Handle cases where content might be an object (uninitialized) or null
-  const rawContent = node.content;
-  const data = Array.isArray(rawContent) ? rawContent : [];
 
   if (data.length === 0) {
     return (
@@ -51,8 +63,12 @@ function PrintContent() {
     );
   }
 
-  const sections = Array.from(new Set(data.map((r: any) => r.section || "Uncategorized")));
-  const grandTotal = data.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
+  const sectionsToRender = allAvailableSections.filter(s => visibleSections.includes(s));
+
+  const grandTotal = data
+    .filter((r: any) => visibleSections.includes(r.section || "Uncategorized"))
+    .reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
+
   const cellMetadata = node.display_settings?.cellMetadata || {};
 
   const formatDateDisplay = (value: string, formatId: string = 'long') => {
@@ -119,14 +135,13 @@ function PrintContent() {
   const year = node.display_settings?.selectedYear || '2020';
   
   // Logic to handle dynamic headers just like the Excel view
-  const hiddenColumns = node.display_settings?.hiddenColumns || [];
   const columnOrder = node.display_settings?.columnOrder || [];
   const allHeaders = Object.keys(data[0]);
   const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
   const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
   const finalOrder = [...baseOrder, ...uniqueObjectKeys];
   const visibleHeaders = finalOrder.filter(header => 
-    !hiddenColumns.includes(header) && 
+    !printHiddenColumns.includes(header) && 
     header !== 'section' && 
     allHeaders.includes(header)
   );
@@ -143,6 +158,70 @@ function PrintContent() {
           .no-print { display: none; }
         }
       `}} />
+
+      {/* Print Configuration Panel (Visible only on screen) */}
+      <div className="no-print mb-8 p-6 bg-slate-50 border border-slate-200 rounded-xl shadow-sm font-sans">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Table className="text-blue-600" size={20} />
+            <h3 className="font-bold text-slate-800 text-lg tracking-tight">Report Configuration</h3>
+          </div>
+          <button 
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all shadow-md active:scale-95"
+          >
+            <Printer size={18} />
+            Generate PDF / Print
+          </button>
+        </div>
+        
+        <p className="text-sm text-slate-500 mb-4">Toggle the project sections you wish to include in the printed report:</p>
+        
+        <div className="flex flex-wrap gap-3">
+          {allAvailableSections.map(section => (
+            <button
+              key={section}
+              onClick={() => {
+                setVisibleSections(prev => 
+                  prev.includes(section) ? prev.filter(s => s !== section) : [...prev, section]
+                );
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                visibleSections.includes(section)
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-100'
+                  : 'bg-white border-slate-200 text-slate-400 hover:border-blue-300'
+              }`}
+            >
+              {visibleSections.includes(section) && <Check size={12} />}
+              {section}
+            </button>
+          ))}
+        </div>
+
+        <div className="h-px bg-slate-200 my-6" />
+
+        <p className="text-sm text-slate-500 mb-4">Toggle the columns you wish to include in the printed report:</p>
+        <div className="flex flex-wrap gap-3">
+          {allHeaders.filter(h => h !== 'section').map(header => (
+            <button
+              key={header}
+              onClick={() => {
+                setPrintHiddenColumns(prev => 
+                  prev.includes(header) ? prev.filter(h => h !== header) : [...prev, header]
+                );
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
+                !printHiddenColumns.includes(header)
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-100'
+                  : 'bg-white border-slate-200 text-slate-400 hover:border-blue-300'
+              }`}
+            >
+              {!printHiddenColumns.includes(header) && <Check size={12} />}
+              {header}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Professional Header */}
       <div className="border-b-4 border-double border-slate-900 pb-3 mb-6 flex justify-between items-end">
@@ -181,7 +260,7 @@ function PrintContent() {
           </tr>
         </thead>
         <tbody>
-          {sections.map((sectionName: any) => {
+          {sectionsToRender.map((sectionName: any) => {
             const sectionRows = data.filter((r: any) => r.section === sectionName);
             const sectionTotal = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
 
@@ -215,7 +294,17 @@ function PrintContent() {
                       if (meta.type === 'date') content = formatDateDisplay(content, meta.format);
                       if (meta.type === 'media') {
                         const atts = meta.attachments || [];
-                        content = atts.length === 0 ? '' : `[Attachment${atts.length > 1 ? 's' : ''}${atts.length > 1 ? ` (${atts.length})` : ''}]`;
+                        if (atts.length === 0) {
+                          content = '';
+                        } else {
+                          const hasImages = atts.some((a: any) => a.type === 'image');
+                          const hasFiles = atts.some((a: any) => a.type === 'file');
+                          let label = 'Attachment';
+                          if (hasImages && !hasFiles) label = 'Image';
+                          else if (hasFiles && !hasImages) label = 'File';
+                          const plural = atts.length > 1 ? 's' : '';
+                          content = `[${label}${plural}${atts.length > 1 ? ` (${atts.length})` : ''}]`;
+                        }
                       }
                       if (meta.type === 'formula') content = evaluateFormula(content, row, meta.format);
 
