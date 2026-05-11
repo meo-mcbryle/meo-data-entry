@@ -13,6 +13,7 @@ export interface FileNode {
     columnOrder?: string[];
     selectedYear?: string;
     columnWidths?: Record<string, number>; // Add column widths
+    cellMetadata?: Record<string, any>; // Stores cell types, formulas, and media info
   };
   children?: FileNode[];
 }

@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon } from 'lucide-react';
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -18,6 +18,7 @@ function DashboardContent() {
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [cellMetadata, setCellMetadata] = useState<Record<string, any>>({});
   const [rowFilter, setRowFilter] = useState<string>('');
   const [newColName, setNewColName] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('2020');
@@ -27,6 +28,108 @@ function DashboardContent() {
   const [isMetadataVisible, setIsMetadataVisible] = useState(true);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
+  const formulaBarRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
+  const [viewingMedia, setViewingMedia] = useState<any | null>(null);
+
+  const toggleAlignment = useCallback((header: string) => {
+    setColumnAlignments(prev => {
+      const current = prev[header] || 'left';
+      const nextMap: Record<string, 'left' | 'center' | 'right'> = {
+        left: 'center',
+        center: 'right',
+        right: 'left'
+      };
+      return { ...prev, [header]: nextMap[current] };
+    });
+  }, []);
+
+  // Auto-expand formula bar height based on content
+  useEffect(() => {
+    if (formulaBarRef.current) {
+      formulaBarRef.current.style.height = 'auto';
+      formulaBarRef.current.style.height = `${formulaBarRef.current.scrollHeight}px`;
+    }
+  }, [activeCell, editedContent]);
+
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header', showFormats?: boolean, showFormulaFormats?: boolean } | null>(null);
+
+  const DATE_FORMATS = [
+    { id: 'long', label: 'Monday, May 5, 2026' },
+    { id: 'medium', label: 'May 5, 2026' },
+    { id: 'short', label: '05/05/2026' },
+    { id: 'iso', label: '2026-05-05' },
+  ];
+
+  const formatDateDisplay = (value: string, formatId: string = 'long') => {
+    if (!value) return '';
+    const [y, m, d] = value.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (isNaN(date.getTime())) return value;
+
+    switch (formatId) {
+      case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+      case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
+      case 'iso': return value;
+      default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    }
+  };
+
+  const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
+    if (typeof value !== 'string' || !value.startsWith('=')) return value;
+
+    try {
+      // Helper to find column value regardless of case
+      const getColumnValue = (colName: string) => {
+        const actualKey = Object.keys(rowData).find(
+          key => key.toLowerCase() === colName.toLowerCase()
+        );
+        return actualKey ? rowData[actualKey] : null;
+      };
+
+      // Basic SUM implementation: =SUM(Col1, Col2)
+      if (value.toUpperCase().startsWith('=SUM(')) {
+        const match = value.match(/\=SUM\((.*)\)/);
+        if (!match) return '#ERROR!';
+        const args = match[1].split(',').map(s => s.trim());
+        return args.reduce((acc, colName) => acc + (Number(getColumnValue(colName)) || 0), 0);
+      }
+
+      // Add Days to Date: =ADD_DAYS(DateColumn, DaysColumn)
+      if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
+        const match = value.match(/\=ADD_DAYS\((.*)\)/i);
+        if (!match) return '#ERROR!';
+        const args = match[1].split(',').map(s => s.trim());
+        if (args.length !== 2) return '#ARGS!';
+
+        const startDateRaw = getColumnValue(args[0]);
+        // Support both column names and direct numbers for the second argument
+        const daysToAdd = Number(getColumnValue(args[1]) ?? args[1]) || 0;
+
+        if (!startDateRaw) return '';
+
+        // Robust Date Parsing
+        let date: Date;
+        if (typeof startDateRaw === 'string' && startDateRaw.includes('-')) {
+          const [y, m, d] = startDateRaw.split('-').map(Number);
+          date = new Date(y, m - 1, d);
+        } else {
+          date = new Date(startDateRaw);
+        }
+
+        if (isNaN(date.getTime())) return '#DATE!';
+
+        date.setDate(date.getDate() + daysToAdd);
+        const iso = date.toISOString().split('T')[0];
+        return formatDateDisplay(iso, formatId);
+      }
+    } catch (e) {
+      return '#ERR!';
+    }
+    return value;
+  }, []);
 
   const resizingRef = useRef<{ header: string; startX: number; startWidth: number } | null>(null);
 
@@ -85,6 +188,14 @@ function DashboardContent() {
 
     return filterNodes(tree);
   }, [tree, explorerSearch]);
+
+  // Dismiss context menu on click elsewhere
+  useEffect(() => {
+    const handleGlobalClick = () => setContextMenu(null);
+    window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('scroll', handleGlobalClick, true);
+    return () => { window.removeEventListener('click', handleGlobalClick); window.removeEventListener('scroll', handleGlobalClick, true); };
+  }, []);
 
   // Handle incoming share link ID from URL
   useEffect(() => {
@@ -289,6 +400,37 @@ function DashboardContent() {
         const { [oldKey]: value, ...rest } = row;
         return { ...rest, [newKey]: value };
       });
+
+      // Migrate alignments and metadata to the new column name
+      setColumnAlignments(prev => {
+        const next = { ...prev };
+        if (next[oldKey]) {
+          next[newKey] = next[oldKey];
+          delete next[oldKey];
+        }
+        return next;
+      });
+      setColumnWidths(prev => {
+        const next = { ...prev };
+        if (next[oldKey]) {
+          next[newKey] = next[oldKey];
+          delete next[oldKey];
+        }
+        return next;
+      });
+      const migrateKeys = (prev: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach(key => {
+          if (key.endsWith(`:${oldKey}`)) {
+            const [r] = key.split(':');
+            next[`${r}:${newKey}`] = prev[key];
+          } else { next[key] = prev[key]; }
+        });
+        return next;
+      };
+      setCellMetadata(migrateKeys);
+      setCellAlignments(migrateKeys);
+
       setColumnOrder(prev => prev.map(col => col === oldKey ? newKey : col));
       setEditedContent(JSON.stringify(newData, null, 2));
     } catch (e) {
@@ -318,10 +460,57 @@ function DashboardContent() {
         const { [keyToDelete]: _, ...rest } = row;
         return rest;
       });
+
+      // Cleanup metadata and alignments for the deleted column
+      setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
+      setColumnWidths(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
+      const filterKeys = (prev: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach(key => {
+          if (!key.endsWith(`:${keyToDelete}`)) next[key] = prev[key];
+        });
+        return next;
+      };
+      setCellMetadata(filterKeys);
+      setCellAlignments(filterKeys);
+
       setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
       setEditedContent(JSON.stringify(newData, null, 2));
     } catch (e) {
       console.error("Failed to delete column");
+    }
+  };
+
+  const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
+    const colName = window.prompt(`Enter new column name:`);
+    if (!colName || !colName.trim()) return;
+
+    try {
+      const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+      
+      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+      if (allHeaders.includes(colName)) {
+        alert("A column with this name already exists.");
+        return;
+      }
+
+      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+      const index = baseOrder.indexOf(relativeCol);
+      const newOrder = [...baseOrder];
+      if (index !== -1) {
+        newOrder.splice(position === 'before' ? index : index + 1, 0, colName);
+      } else {
+        newOrder.push(colName);
+      }
+
+      const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
+      if (newData.length === 0) newData.push({ [colName]: "" });
+      
+      setColumnOrder(newOrder);
+      setEditedContent(JSON.stringify(newData, null, 2));
+    } catch (e) {
+      console.error("Failed to insert column", e);
     }
   };
 
@@ -364,11 +553,186 @@ function DashboardContent() {
     }
   };
 
-  const removeTableRow = (index: number) => {
+  const setCellType = (row: number, col: string, type: string, format: string = 'long') => {
+    const key = `${row}:${col}`;
+    setCellMetadata(prev => ({
+      ...prev,
+      [key]: { ...prev[key], type, format }
+    }));
+    setContextMenu(null);
+  };
+
+  const insertMedia = (row: number, col: string, mediaType: 'image' | 'file') => {
+    setPendingMedia({ row, col, type: mediaType });
+    setContextMenu(null);
+    // Use timeout to ensure state update doesn't interfere with the click event
+    setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 0);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !pendingMedia || !activeNode) return;
+
+    const { row, col, type } = pendingMedia;
+    const key = `${row}:${col}`;
+    
+    setIsSaving(true);
+    try {
+      const existing = cellMetadata[key] || {};
+      const currentAttachments = existing.attachments || [];
+      
+      if (currentAttachments.length >= 10) {
+        alert("Maximum limit of 10 attachments reached for this cell.");
+        return;
+      }
+
+      // Generate a unique path in the storage bucket
+      const filePath = `${activeNode.id}/${Date.now()}_${file.name}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(filePath);
+
+      setCellMetadata(prev => ({
+        ...prev,
+        [key]: { 
+          ...existing, 
+          type: 'media', 
+          attachments: [
+            ...currentAttachments,
+            { 
+              type, 
+              name: file.name, 
+              url: publicUrl, 
+              path: filePath, // Store the path for deletion cleanup
+              size: file.size,
+              contentType: file.type
+            } 
+          ]
+        }
+      }));
+    } catch (err: any) {
+      if (err.message?.includes('violates row-level security policy')) {
+        alert('Upload failed: Security Policy Error. Please ensure Storage RLS policies are configured in Supabase.');
+      } else {
+        alert('Upload failed: ' + err.message);
+      }
+    } finally {
+      setIsSaving(false);
+      setPendingMedia(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeCellMetadata = async (row: number, col: string) => {
+    if (!window.confirm("Are you sure you want to remove all attachments and formatting from this cell?")) return;
+
+    const key = `${row}:${col}`;
+    const meta = cellMetadata[key];
+
+    // Cleanup all files in this cell from storage
+    if (meta?.attachments) {
+      const paths = meta.attachments.map((a: any) => a.path).filter(Boolean);
+      if (paths.length > 0) {
+        await supabase.storage.from('attachments').remove(paths);
+      }
+    }
+
+    setCellMetadata(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setContextMenu(null);
+  };
+
+  const deleteAttachment = async (row: number, col: string, index: number) => {
+    if (!window.confirm("Are you sure you want to permanently delete this attachment?")) return;
+
+    const key = `${row}:${col}`;
+    const existing = cellMetadata[key];
+    if (!existing || !existing.attachments) return;
+
+    const attachmentToDelete = existing.attachments[index];
+
+    try {
+      // Remove from Supabase storage if path exists
+      if (attachmentToDelete.path) {
+        await supabase.storage.from('attachments').remove([attachmentToDelete.path]);
+      }
+
+      setCellMetadata(prev => {
+        const innerExisting = prev[key];
+        const newAttachments = innerExisting.attachments.filter((_: any, i: number) => i !== index);
+
+        if (newAttachments.length === 0) {
+          const next = { ...prev };
+          delete next[key];
+          setViewingMedia(null); // Close modal if last item deleted
+          return next;
+        }
+
+        const updated = {
+          ...prev,
+          [key]: { ...innerExisting, attachments: newAttachments }
+        };
+        setViewingMedia({ attachments: newAttachments, row, col });
+        return updated;
+      });
+    } catch (err: any) {
+      alert('Failed to delete file from storage: ' + err.message);
+    }
+  };
+
+  const removeTableRow = async (index: number) => {
+    if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
+
+    // Identify all attachments in this row to cleanup storage
+    const rowPrefix = `${index}:`;
+    const pathsToDelete: string[] = [];
+    Object.keys(cellMetadata).forEach(key => {
+      if (key.startsWith(rowPrefix)) {
+        const meta = cellMetadata[key];
+        if (meta?.attachments) {
+          meta.attachments.forEach((a: any) => { if (a.path) pathsToDelete.push(a.path); });
+        }
+      }
+    });
+
+    if (pathsToDelete.length > 0) {
+      try {
+        await supabase.storage.from('attachments').remove(pathsToDelete);
+      } catch (err) { console.error("Storage cleanup failed:", err); }
+    }
+
     try {
       const data = JSON.parse(editedContent || '[]');
       if (!Array.isArray(data)) return;
       const newData = data.filter((_, i) => i !== index);
+
+      // Shift metadata and alignments for all rows following the deleted one
+      const shiftKeys = (prev: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach(key => {
+          const [rStr, ...cParts] = key.split(':');
+          const r = parseInt(rStr);
+          const col = cParts.join(':');
+          if (r < index) next[key] = prev[key];
+          else if (r > index) next[`${r - 1}:${col}`] = prev[key];
+        });
+        return next;
+      };
+      setCellMetadata(shiftKeys);
+      setCellAlignments(shiftKeys);
+
       setEditedContent(JSON.stringify(newData, null, 2));
     } catch (e) {
       console.error("Failed to remove row");
@@ -384,7 +748,9 @@ function DashboardContent() {
       setColumnOrder(activeNode.display_settings?.columnOrder || []);
       setHiddenColumns(activeNode.display_settings?.hiddenColumns || []);
       setColumnWidths(activeNode.display_settings?.columnWidths || {});
+      setCellMetadata(activeNode.display_settings?.cellMetadata || {});
       setSelectedYear(activeNode.display_settings?.selectedYear || '2020');
+      setActiveCell(null);
       setRowFilter('');
       setShowBackToTop(false);
       tableContainerRef.current?.scrollTo({ top: 0 });
@@ -394,6 +760,8 @@ function DashboardContent() {
       setCellAlignments({});
       setColumnOrder([]);
       setHiddenColumns([]);
+      setCellMetadata({});
+      setActiveCell(null);
       setSelectedYear('2020');
       setRowFilter('');
       setShowBackToTop(false);
@@ -406,7 +774,7 @@ function DashboardContent() {
     setIsSaving(true);
     try {
       const content = JSON.parse(editedContent);
-      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths };
+      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata };
       const { error } = await supabase.from('nodes').update({ content, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
@@ -457,16 +825,6 @@ function DashboardContent() {
           )
         );
       }
-
-      const toggleAlignment = (header: string) => {
-        const current = columnAlignments[header] || 'left';
-        const nextMap: Record<string, 'left' | 'center' | 'right'> = {
-          left: 'center',
-          center: 'right',
-          right: 'left'
-        };
-        setColumnAlignments({ ...columnAlignments, [header]: nextMap[current] });
-      };
 
       const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
       
@@ -525,6 +883,147 @@ function DashboardContent() {
             </div>
           </div>
           
+          {/* Cell Context Menu */}
+          {contextMenu && (
+            <div 
+              className="fixed z-[100] bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100"
+              style={{ left: contextMenu.x, top: contextMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {contextMenu.type === 'header' ? (
+                <>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Column Options</div>
+                  <button 
+                    onClick={() => { toggleAlignment(contextMenu.col); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    {columnAlignments[contextMenu.col] === 'center' ? <AlignCenter size={14} /> :
+                     columnAlignments[contextMenu.col] === 'right' ? <AlignRight size={14} /> : <AlignLeft size={14} />}
+                    Toggle Alignment
+                  </button>
+                  <button 
+                    onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <EyeOff size={14} /> Hide Column
+                  </button>
+                  <button 
+                    onClick={() => { handleInsertColumn(contextMenu.col, 'before'); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <Plus size={14} className="text-blue-500" /> Insert Column Before
+                  </button>
+                  <button 
+                    onClick={() => { handleInsertColumn(contextMenu.col, 'after'); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <Plus size={14} className="text-blue-500" /> Insert Column After
+                  </button>
+                  <div className="h-px bg-slate-100 my-1"></div>
+                  <button 
+                    onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2"
+                  >
+                    <Trash2 size={14} /> Delete Column
+                  </button>
+                </>
+              ) : (
+                <>
+                  {cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.type === 'media' && (
+                    <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2 border-b border-slate-100 font-bold"><Trash2 size={14} /> Remove Attachment</button>
+                  )}
+
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100">Format Cell</div>
+                  <button 
+                    onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)}
+                    onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'text')} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><FileText size={14} className="text-slate-400" /> Default Text</button>
+                  
+                  <div className="relative group/sub">
+                    <button 
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: true, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="flex items-center gap-2"><Calendar size={14} className="text-blue-500" /> Format as Calendar</span>
+                      <ChevronRightIcon size={12} className="text-slate-300" />
+                    </button>
+                    
+                    {contextMenu.showFormats && (
+                      <div className="absolute left-full top-0 ml-px bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48">
+                        {DATE_FORMATS.map(f => (
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 hover:text-blue-700">{f.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative group/sub">
+                    <button 
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormulaFormats: true, showFormats: false } : null)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="flex items-center gap-2"><Sigma size={14} className="text-purple-500" /> Formula Support</span>
+                      <ChevronRightIcon size={12} className="text-slate-300" />
+                    </button>
+                    
+                    {contextMenu.showFormulaFormats && (
+                      <div className="absolute left-full top-0 ml-px bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48">
+                        <button 
+                          onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula')} 
+                          className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 hover:text-purple-700 font-bold"
+                        >
+                          Standard (Sum/Number)
+                        </button>
+                        <div className="h-px bg-slate-100 my-1"></div>
+                        <div className="px-3 py-1 text-[9px] font-bold text-slate-400 tracking-widest">Date Result Format</div>
+                        {DATE_FORMATS.map(f => (
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 hover:text-purple-700">{f.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest">Media</div>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Hidden File Input for Media Uploads */}
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileSelect} 
+            className="hidden" 
+            accept={pendingMedia?.type === 'image' ? "image/*" : "*/*"}
+          />
+
+          {/* Formula Bar - Relocated for a cleaner grid view */}
+          <div className="flex items-start gap-2 p-1.5 bg-white border-b border-slate-200 shadow-inner z-20">
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 rounded border border-slate-200 text-[10px] font-black text-slate-500 tracking-tighter min-w-[120px] justify-center shadow-sm mt-0.5">
+              {activeCell ? `${activeCell.col} : Row ${activeCell.row + 1}` : 'Select a cell'}
+            </div>
+            <div className="h-4 w-px bg-slate-300 mx-1 self-center"></div>
+            <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
+              <Sigma size={14} className="shrink-0" />
+              <span className="text-[10px] font-bold tracking-widest opacity-50">Formula</span>
+            </div>
+            <textarea
+              ref={formulaBarRef}
+              rows={1}
+              placeholder="Enter formula (e.g., =SUM(A,B)) or value..."
+              value={activeCell ? (data[activeCell.row][activeCell.col] || '') : ''}
+              onChange={(e) => {
+                if (activeCell) {
+                  handleUpdateCell(activeCell.row, activeCell.col, e.target.value);
+                }
+              }}
+              className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-slate-700 placeholder:text-slate-300 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
+            />
+          </div>
+
           <div 
             ref={tableContainerRef}
             onScroll={(e) => setShowBackToTop(e.currentTarget.scrollTop > 300)}
@@ -533,14 +1032,24 @@ function DashboardContent() {
             <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
               <thead className="sticky top-0 z-30 bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
                 <tr>
-                  {visibleHeaders.map(header => (
-                    <th 
+                  {visibleHeaders.map(header => {
+                    const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
+                    const align = columnAlignments[header] || defaultAlign;
+                    const alignClass = align === 'center' ? 'text-center' : 
+                                     align === 'right' ? 'text-right' : 'text-left';
+
+                    return (
+                      <th 
                       key={header} 
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ x: e.pageX, y: e.pageY, col: header, type: 'header' });
+                    }}
                       style={{ 
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
-                      }}
-                      className={`group/header px-2 py-2 text-xs font-bold text-slate-600 uppercase tracking-tight border-r border-b border-slate-200 relative bg-slate-100 ${
+                    }}
+                    className={`group/header px-3 py-2 text-[11px] font-bold text-slate-500 tracking-tight border-r border-b border-slate-200 relative bg-slate-100/50 ${
                         header === "Title / Item" ? "sticky left-0 z-40 shadow-[1px_0_0_0_#e2e8f0]" : ""
                       }`}
                     >
@@ -548,42 +1057,17 @@ function DashboardContent() {
                         <input
                           defaultValue={header}
                           onBlur={(e) => handleRenameColumn(header, e.target.value)}
-                          className="w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none truncate hover:bg-slate-100 transition-colors"
+                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none truncate hover:bg-slate-100 transition-colors ${alignClass}`}
                         />
-                        <button 
-                          onClick={() => toggleAlignment(header)}
-                          className="opacity-0 group-hover/header:opacity-100 p-1 text-slate-400 hover:text-blue-600 transition-all"
-                          title="Toggle Alignment"
-                        >
-                          {columnAlignments[header] === 'center' ? (
-                            <AlignCenter size={12} />
-                          ) : columnAlignments[header] === 'right' ? (
-                            <AlignRight size={12} />
-                          ) : (
-                            <AlignLeft size={12} />
-                          )}
-                        </button>
-                        <button 
-                          onClick={() => toggleColumnVisibility(header)}
-                          className="opacity-0 group-hover/header:opacity-100 p-1 text-slate-400 hover:text-slate-600 transition-all"
-                          title="Hide Column"
-                        >
-                          <Eye size={12} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteColumn(header)}
-                          className="opacity-0 group-hover/header:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all"
-                        >
-                          <X size={12} />
-                        </button>
                       </div>
                       <div 
                         onMouseDown={(e) => startResizing(header, e)}
                         className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 z-50 transition-colors group-hover/header:bg-slate-300"
                         title="Drag to resize"
                       />
-                    </th>
-                  ))}
+                      </th>
+                    );
+                  })}
                   <th className="p-2 min-w-[140px] border-r border-b border-slate-200 bg-slate-50/50">
                     <div className="flex items-center gap-1">
                       <input
@@ -596,7 +1080,7 @@ function DashboardContent() {
                           }
                         }}
                         placeholder="Add Column..."
-                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none text-sm font-bold text-blue-600 uppercase placeholder:text-blue-300"
+                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none text-sm font-bold text-blue-600 placeholder:text-blue-300"
                       />
                       <Plus size={14} className="text-blue-400" />
                     </div>
@@ -616,7 +1100,7 @@ function DashboardContent() {
                             <input
                               defaultValue={sectionName}
                               onBlur={(e) => handleRenameSection(sectionName, e.target.value)}
-                              className="bg-transparent border-0 font-black text-slate-800 uppercase tracking-widest text-xs outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 flex-1"
+                              className="bg-transparent border-0 font-black text-slate-800 tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 flex-1"
                             />
                             <button 
                               onClick={() => handleDeleteSection(sectionName)}
@@ -635,21 +1119,30 @@ function DashboardContent() {
                           <tr key={globalIndex} className="hover:bg-slate-50 transition-colors group relative">
                     {visibleHeaders.map((header, colIndex) => {
                       const cellKey = `${globalIndex}:${header}`;
-                      const defaultAlign = header === "Title / Item" ? "right" : "left";
+                      const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
                       const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || defaultAlign;
                       const alignClass = cellAlign === 'center' ? 'text-center' : 
                                        cellAlign === 'right' ? 'text-right' : 'text-left';
+                      
+                      const meta = cellMetadata[cellKey] || {};
+                      const isFormula = meta.type === 'formula';
+                      const isDate = meta.type === 'date';
+                      const isMedia = meta.type === 'media';
 
                       return (
                         <td 
                           key={header} 
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ x: e.pageX, y: e.pageY, row: globalIndex, col: header, type: 'cell' });
+                          }}
                           className={`p-0 border-r border-slate-200 bg-white group/cell relative align-top ${
                             header === "Title / Item" ? "sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]" : ""
                           }`}
                         >
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }}
-                            className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-slate-300 hover:text-blue-500 bg-white/90 rounded shadow-sm z-10 transition-all"
+                            className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-slate-300 hover:text-blue-500 bg-white/90 rounded shadow-sm z-30 transition-all"
                             title="Cell Alignment"
                           >
                             {cellAlign === 'center' ? <AlignCenter size={10} /> :
@@ -660,20 +1153,79 @@ function DashboardContent() {
                             <select
                               value={row[header] ?? ''}
                               onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
-                              className={`grid-input w-full px-3 py-2 text-sm text-slate-900 font-medium bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 ${alignClass}`}
+                              className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 font-sans ${alignClass}`}
                             >
                               <option value="">Select...</option>
                               {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => (
                                 <option key={opt} value={opt}>{opt}</option>
                               ))}
                             </select>
+                          ) : isDate ? (
+                        <div className="relative w-full h-full flex items-center group/date min-h-[34px]">
+                              <input
+                                type="date"
+                                value={row[header] || ''}
+                                onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
+                                onClick={(e) => {
+                                  try {
+                                    e.currentTarget.showPicker();
+                                  } catch (err) {
+                                    // Fallback for older browsers
+                                  }
+                                }}
+                            className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
+                              />
+                          <div className={`w-full px-3 py-1.5 text-sm text-slate-800 !normal-case font-sans ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
+                            cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
+                          }`}>
+                            {row[header] 
+                              ? formatDateDisplay(row[header], meta.format) 
+                              : <span className="text-slate-400 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
+                              </div>
+                            </div>
+                          ) : isMedia ? (
+                            <div className="flex items-center group/media relative min-h-[34px] w-full">
+                              <div className="flex-1 min-w-0 px-3 py-1.5">
+                                {meta.attachments && meta.attachments.length > 0 && (
+                                  <button 
+                                    onClick={() => setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header })}
+                                    className={`text-xs text-blue-600 hover:underline font-medium block leading-tight w-full font-sans ${alignClass}`}
+                                  >
+                                    [View attachment{meta.attachments.length > 1 ? 's' : ''}]
+                                    {meta.attachments.length > 1 && <span className="ml-1 opacity-60">({meta.attachments.length})</span>}
+                                  </button>
+                                )}
+                              </div>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeCellMetadata(globalIndex, header);
+                                }}
+                                className="opacity-0 group-hover/media:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-all absolute right-1 top-1 bg-white/80 rounded shadow-sm"
+                                title="Remove Attachment"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : isFormula ? (
+                            <div 
+                              onClick={() => setActiveCell({ row: globalIndex, col: header })}
+                              className={`w-full px-3 py-1.5 text-sm text-slate-800 cursor-text transition-all !normal-case font-sans min-h-[34px] flex items-center ${
+                                activeCell?.row === globalIndex && activeCell?.col === header 
+                                  ? 'bg-purple-50/50 ring-2 ring-inset ring-purple-400' 
+                                  : 'hover:bg-purple-50/50'
+                              } ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}
+                            >
+                              {evaluateFormula(row[header], row, meta.format)}
+                            </div>
                           ) : (
                             <input
                               type={header === 'Amount' ? 'number' : 'text'}
                               value={row[header] ?? ''}
+                              onFocus={() => setActiveCell({ row: globalIndex, col: header })}
                               onChange={(e) => handleUpdateCell(globalIndex, header, header === 'Amount' ? parseFloat(e.target.value) : e.target.value)}
                               onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                              className={`grid-input w-full px-3 py-2 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none ${alignClass}`}
+                              className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
                             />
                           )}
                         </td>
@@ -695,7 +1247,7 @@ function DashboardContent() {
 
                           if (header === "Title / Item") {
                             return (
-                              <td key="total-label" className="px-4 py-1.5 text-xs font-bold text-slate-500 uppercase text-right border-r border-slate-200 sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                              <td key="total-label" className="px-4 py-1.5 text-xs font-bold text-slate-500 text-right border-r border-slate-200 sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
                                 Subtotal:
                               </td>
                             );
@@ -790,7 +1342,7 @@ function DashboardContent() {
             >
               <PanelLeftClose size={18} />
             </button>
-            <h1 className="font-bold text-slate-800 text-sm tracking-tight uppercase opacity-70 line-clamp-1">Explorer</h1>
+            <h1 className="font-bold text-slate-800 text-sm tracking-tight opacity-70 line-clamp-1">Explorer</h1>
           </div>
           <div className="flex items-center gap-0.5">
             <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors" title="New Folder">
@@ -860,7 +1412,7 @@ function DashboardContent() {
                 onClick={() => setIsMetadataVisible(!isMetadataVisible)}
                 className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors"
               >
-                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Metadata</h3>
+                <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Metadata</h3>
                 {isMetadataVisible ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
               </button>
 
@@ -903,7 +1455,7 @@ function DashboardContent() {
               <div className="mt-8 flex flex-col gap-4 flex-1 min-h-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Data Editor</h3>
+                    <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Data Editor</h3>
                     <div className="flex bg-slate-200 p-1 rounded-lg">
                       <button 
                         onClick={() => setViewMode('table')}
@@ -970,6 +1522,102 @@ function DashboardContent() {
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
             <Folder size={48} className="mb-4 opacity-20" />
             <p>Select a file to start data entry.</p>
+          </div>
+        )}
+
+        {/* Media Preview Modal */}
+        {viewingMedia && (
+          <div 
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" 
+            onClick={() => setViewingMedia(null)}
+          >
+            <div 
+              className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" 
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                  <Paperclip size={18} className="text-blue-500" />
+                  Cell Attachments ({viewingMedia.attachments.length})
+                </h3>
+                <button onClick={() => setViewingMedia(null)} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
+                {/* Images Section */}
+                {viewingMedia.attachments.some((m: any) => m.type === 'image') && (
+                  <div className="mb-8">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <ImageIcon size={14} className="text-green-500" /> Images
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {viewingMedia.attachments.map((img: any, idx: number) => {
+                        if (img.type !== 'image') return null;
+                        return (
+                          <div key={idx} className="group relative bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                            <div className="relative aspect-video rounded-lg bg-slate-50 overflow-hidden">
+                              <img src={img.url} alt={img.name} className="w-full h-full object-contain" />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <a href={img.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-white hover:underline">Open Full Size</a>
+                                <button 
+                                  onClick={() => deleteAttachment(viewingMedia.row, viewingMedia.col, idx)}
+                                  className="p-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors shadow-lg"
+                                  title="Delete Image"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-2 px-1">
+                              <p className="text-[10px] font-bold text-slate-700 truncate">{img.name}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Files Section */}
+                {viewingMedia.attachments.some((m: any) => m.type === 'file') && (
+                  <div>
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <FileIcon size={14} className="text-amber-500" /> Documents & Files
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {viewingMedia.attachments.map((file: any, idx: number) => {
+                        if (file.type !== 'file') return null;
+                        return (
+                          <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:bg-slate-100 transition-colors group">
+                            <div className="p-2 bg-amber-50 rounded-lg text-amber-500">
+                              <FileIcon size={20} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] font-bold text-slate-800 truncate leading-tight">{file.name}</p>
+                              <p className="text-[9px] text-slate-400 uppercase tracking-tighter">{formatSize(file.size || 0)}</p>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <a href={file.url} download={file.name} className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Download">
+                                <Save size={14} />
+                              </a>
+                              <button 
+                                onClick={() => deleteAttachment(viewingMedia.row, viewingMedia.col, idx)}
+                                className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                                title="Delete Attachment"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
