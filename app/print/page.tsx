@@ -163,6 +163,9 @@ function PrintContent() {
         <thead>
           <tr className="bg-slate-100 text-[9px] tracking-widest text-slate-900 font-black border-b-2 border-slate-400">
             {visibleHeaders.map(header => {
+              const headerMeta = cellMetadata[`header:${header}`] || {};
+              if (headerMeta.mergedIn) return null;
+
               const columnAlignments = node.display_settings?.columnAlignments || {};
               const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
               const align = columnAlignments[header] || defaultAlign;
@@ -170,7 +173,7 @@ function PrintContent() {
                                align === 'right' ? 'text-right' : 'text-left';
               
               return (
-                <th key={header} className={`py-2 px-3 border-r border-slate-400 last:border-0 whitespace-nowrap ${alignClass}`}>
+                <th key={header} colSpan={headerMeta.colSpan} className={`py-2 px-3 border-r border-slate-400 last:border-0 whitespace-nowrap ${alignClass}`}>
                   {header}
                 </th>
               );
@@ -195,6 +198,8 @@ function PrintContent() {
                       const cellKey = `${data.indexOf(row)}:${header}`;
                       const meta = cellMetadata[cellKey] || {};
 
+                      if (meta.mergedIn) return null;
+
                       const columnAlignments = node.display_settings?.columnAlignments || {};
                       const cellAlignments = node.display_settings?.cellAlignments || {};
                       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
@@ -215,7 +220,7 @@ function PrintContent() {
                       if (meta.type === 'formula') content = evaluateFormula(content, row, meta.format);
 
                       return (
-                        <td key={header} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
+                        <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
                           isAmount || isTitle ? "font-mono bg-slate-50/20" : "text-slate-700 normal-case font-sans"
                         }`}>
                           {content}

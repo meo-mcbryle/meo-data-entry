@@ -33,6 +33,84 @@ function DashboardContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
+  const [codeViewContent, setCodeViewContent] = useState<string>('');
+  const [dragFillRange, setDragFillRange] = useState<{ startRow: number; endRow: number; col: string } | null>(null);
+  const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+
+  const activeNode = useMemo(() => 
+    selectedId ? findNodeById(tree, selectedId) : null
+  , [tree, selectedId]);
+
+  // End selection on global mouse up
+  useEffect(() => {
+    const handleGlobalMouseUp = () => setIsSelecting(false);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
+  // Synchronize code view content when switching to code mode or selecting a node
+  useEffect(() => {
+    // If we are currently editing the code, don't overwrite the user's input
+    // unless the view mode or active node has actually changed.
+    if (viewMode !== 'code') return;
+
+    if (viewMode === 'code' && activeNode) {
+      try {
+        const fullData = {
+          content: JSON.parse(editedContent || '[]'),
+          display_settings: {
+            columnAlignments,
+            cellAlignments,
+            hiddenColumns,
+            selectedYear,
+            columnOrder,
+            columnWidths,
+            cellMetadata
+          }
+        };
+        const newCode = JSON.stringify(fullData, null, 2);
+        // Only update if it's actually different to avoid cursor jumps
+        if (newCode !== codeViewContent) {
+          setCodeViewContent(newCode);
+        }
+      } catch (e) {
+        // Do not overwrite codeViewContent with editedContent here, 
+        // as it would strip the display_settings wrapper during syntax errors.
+      }
+    }
+  }, [viewMode, activeNode?.id, editedContent, columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata]);
+
+  const handleCodeChange = (val: string) => {
+    setCodeViewContent(val);
+    try {
+      const parsed = JSON.parse(val);
+      
+      // If user pasted/typed the full document structure
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.content) {
+        setEditedContent(JSON.stringify(parsed.content, null, 2));
+        if (parsed.display_settings) {
+          const ds = parsed.display_settings;
+          setColumnAlignments(ds.columnAlignments || {});
+          setCellAlignments(ds.cellAlignments || {});
+          setHiddenColumns(ds.hiddenColumns || []);
+          setSelectedYear(ds.selectedYear || '2020');
+          setColumnOrder(ds.columnOrder || []);
+          setColumnWidths(ds.columnWidths || {});
+          setCellMetadata(ds.cellMetadata || {});
+        }
+      } 
+      // If user pasted/typed just the data array (backward compatibility)
+      else if (Array.isArray(parsed)) {
+        setEditedContent(val);
+      }
+    } catch (e) {
+      // While typing, the JSON might be invalid. 
+      // We update editedContent directly so switching back to Table View 
+      // triggers the JSON Syntax Error boundary if the input is broken.
+      setEditedContent(val);
+    }
+  };
 
   const toggleAlignment = useCallback((header: string) => {
     setColumnAlignments(prev => {
@@ -91,7 +169,7 @@ function DashboardContent() {
 
       // Basic SUM implementation: =SUM(Col1, Col2)
       if (value.toUpperCase().startsWith('=SUM(')) {
-        const match = value.match(/\=SUM\((.*)\)/);
+        const match = value.match(/\=SUM\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
         return args.reduce((acc, colName) => acc + (Number(getColumnValue(colName)) || 0), 0);
@@ -276,10 +354,6 @@ function DashboardContent() {
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
   };
-
-  const activeNode = useMemo(() => 
-    selectedId ? findNodeById(tree, selectedId) : null
-  , [tree, selectedId]);
 
   const handleUpdateCell = (index: number, key: string, value: any) => {
     try {
@@ -692,6 +766,135 @@ function DashboardContent() {
     }
   };
 
+  const handleMergeCells = useCallback((visibleHeaders: string[], isHeaderMerge: boolean = false) => {
+    if (!selection) return;
+    const { startRow, endRow, startCol, endCol } = selection;
+    
+    const isHeaderSelection = startRow === -1 || isHeaderMerge;
+
+    const startColIdx = visibleHeaders.indexOf(startCol);
+    const endColIdx = visibleHeaders.indexOf(endCol);
+    if (startColIdx === -1 || endColIdx === -1) return;
+
+    const minColIdx = Math.min(startColIdx, endColIdx);
+    const maxColIdx = Math.max(startColIdx, endColIdx);
+    const minRow = isHeaderSelection ? -1 : Math.min(startRow, endRow);
+    const maxRow = isHeaderSelection ? -1 : Math.max(startRow, endRow);
+
+    const rowSpan = isHeaderSelection ? 1 : maxRow - minRow + 1;
+    const colSpan = maxColIdx - minColIdx + 1;
+
+    if (rowSpan === 1 && colSpan === 1) return;
+
+    if (!window.confirm(`Merge ${isHeaderSelection ? colSpan : rowSpan * colSpan} ${isHeaderSelection ? 'headers' : 'cells'}?`)) return;
+
+    const hostCol = visibleHeaders[minColIdx];
+    const hostKey = isHeaderSelection ? `header:${hostCol}` : `${minRow}:${hostCol}`;
+    const newMetadata = { ...cellMetadata };
+
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minColIdx; c <= maxColIdx; c++) {
+        const key = isHeaderSelection ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        const m = { ...newMetadata[key] };
+        delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
+        newMetadata[key] = m;
+      }
+    }
+
+    newMetadata[hostKey] = { 
+      ...newMetadata[hostKey], 
+      colSpan,
+      ...(isHeaderSelection ? {} : { rowSpan })
+    };
+    
+    for (let r = minRow; r <= maxRow; r++) {
+      for (let c = minColIdx; c <= maxColIdx; c++) {
+        const currentKey = isHeaderSelection ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        if (currentKey !== hostKey) {
+          newMetadata[currentKey] = { ...newMetadata[currentKey], mergedIn: hostKey };
+        }
+      }
+    }
+    setCellMetadata(newMetadata);
+    setSelection(null);
+  }, [selection, cellMetadata]);
+
+  const handleUnmergeCells = useCallback((row: number, col: string, visibleHeaders: string[]) => {
+    const isHeader = row === -1;
+    const key = isHeader ? `header:${col}` : `${row}:${col}`;
+    const meta = cellMetadata[key];
+    if (!meta || (!meta.rowSpan && !meta.colSpan)) return;
+
+    const newMetadata = { ...cellMetadata };
+    const { rowSpan = 1, colSpan = 1 } = meta;
+    const colIdx = visibleHeaders.indexOf(col);
+    
+    const startR = isHeader ? -1 : row;
+    const endR = isHeader ? -1 : row + rowSpan - 1;
+
+    for (let r = startR; r <= endR; r++) {
+      for (let c = colIdx; c < colIdx + colSpan; c++) {
+        const currentKey = isHeader ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        const m = { ...newMetadata[currentKey] };
+        delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
+        if (Object.keys(m).length === 0) delete newMetadata[currentKey];
+        else newMetadata[currentKey] = m;
+      }
+    }
+    setCellMetadata(newMetadata);
+  }, [cellMetadata]);
+
+  const handleDragFillStart = (e: React.MouseEvent, row: number, col: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragFillRange({ startRow: row, endRow: row, col });
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mouseup', handleMouseUp);
+      setDragFillRange(currentRange => {
+        if (currentRange) {
+          applyDragFill(currentRange);
+        }
+        return null;
+      });
+    };
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const applyDragFill = (range: { startRow: number; endRow: number; col: string }) => {
+    const { startRow, endRow, col } = range;
+    if (startRow === endRow) return;
+
+    try {
+      const data = JSON.parse(editedContent || '[]');
+      const sourceValue = data[startRow][col];
+      const sourceMeta = cellMetadata[`${startRow}:${col}`];
+      
+      const newData = [...data];
+      const newMetadata = { ...cellMetadata };
+
+      const min = Math.min(startRow, endRow);
+      const max = Math.max(startRow, endRow);
+
+      for (let i = min; i <= max; i++) {
+        if (i === startRow) continue;
+        
+        newData[i] = { ...newData[i], [col]: sourceValue };
+        const targetKey = `${i}:${col}`;
+        if (sourceMeta) {
+          newMetadata[targetKey] = { ...sourceMeta };
+        } else {
+          delete newMetadata[targetKey];
+        }
+      }
+
+      setEditedContent(JSON.stringify(newData, null, 2));
+      setCellMetadata(newMetadata);
+    } catch (e) {
+      console.error("Failed to apply drag fill", e);
+    }
+  };
+
   const removeTableRow = async (index: number) => {
     if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
 
@@ -902,6 +1105,20 @@ function DashboardContent() {
                     Toggle Alignment
                   </button>
                   <button 
+                    onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <TableIcon size={14} className="text-blue-500" /> Merge Selected Headers
+                  </button>
+                  {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
+                    <button 
+                      onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <X size={14} className="text-orange-500" /> Unmerge Header
+                    </button>
+                  )}
+                  <button 
                     onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
                   >
@@ -929,6 +1146,26 @@ function DashboardContent() {
                 </>
               ) : (
                 <>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Selection Actions</div>
+                  <button 
+                    onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    <TableIcon size={14} className="text-blue-500" /> Merge Selected Cells
+                  </button>
+                  
+                  {/* Unmerge only shows if the specific cell clicked is a merge host */}
+                  {(cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.rowSpan > 1 || cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.colSpan > 1) && (
+                    <button 
+                      onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <X size={14} className="text-orange-500" /> Unmerge Cells
+                    </button>
+                  )}
+
+                  <div className="h-px bg-slate-100 my-1"></div>
+
                   {cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.type === 'media' && (
                     <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2 border-b border-slate-100 font-bold"><Trash2 size={14} /> Remove Attachment</button>
                   )}
@@ -1032,18 +1269,44 @@ function DashboardContent() {
             <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
               <thead className="sticky top-0 z-30 bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
                 <tr>
-                  {visibleHeaders.map(header => {
+                  {visibleHeaders.map((header, colIdx) => {
+                    const headerMeta = cellMetadata[`header:${header}`] || {};
+                    if (headerMeta.mergedIn) return null;
+
                     const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
                     const align = columnAlignments[header] || defaultAlign;
                     const alignClass = align === 'center' ? 'text-center' : 
                                      align === 'right' ? 'text-right' : 'text-left';
 
+                    const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
+                    const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
+                    
+                    const isInHeaderSelection = selection && selection.startRow === -1 && 
+                      colIdx >= Math.min(startColIdx, endColIdx) &&
+                      colIdx <= Math.max(startColIdx, endColIdx);
+
                     return (
                       <th 
                       key={header} 
+                      colSpan={headerMeta.colSpan}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setContextMenu({ x: e.pageX, y: e.pageY, col: header, type: 'header' });
+                    }}
+                    onMouseDown={(e) => {
+                      if (e.button === 0) {
+                        setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                        setIsSelecting(true);
+                      } else if (e.button === 2) {
+                        if (!isInHeaderSelection) {
+                          setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                        }
+                      }
+                    }}
+                    onMouseEnter={() => {
+                      if (isSelecting && selection?.startRow === -1) {
+                        setSelection(prev => prev ? { ...prev, endCol: header } : null);
+                      }
                     }}
                       style={{ 
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
@@ -1051,7 +1314,7 @@ function DashboardContent() {
                     }}
                     className={`group/header px-3 py-2 text-[11px] font-bold text-slate-500 tracking-tight border-r border-b border-slate-200 relative bg-slate-100/50 ${
                         header === "Title / Item" ? "sticky left-0 z-40 shadow-[1px_0_0_0_#e2e8f0]" : ""
-                      }`}
+                      } ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
                     >
                       <div className="flex items-center gap-1">
                         <input
@@ -1129,17 +1392,85 @@ function DashboardContent() {
                       const isDate = meta.type === 'date';
                       const isMedia = meta.type === 'media';
 
+                      if (meta.mergedIn) return null;
+
+                      const isInSelection = selection && 
+                        selection.startRow !== -1 &&
+                        globalIndex >= Math.min(selection.startRow, selection.endRow) &&
+                        globalIndex <= Math.max(selection.startRow, selection.endRow) &&
+                        visibleHeaders.indexOf(header) >= Math.min(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) &&
+                        visibleHeaders.indexOf(header) <= Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol));
+
                       return (
                         <td 
                           key={header} 
+                          rowSpan={meta.rowSpan}
+                          colSpan={meta.colSpan}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setContextMenu({ x: e.pageX, y: e.pageY, row: globalIndex, col: header, type: 'cell' });
                           }}
+                          onMouseDown={(e) => {
+                            if (e.button === 0) { // Left click only for selecting
+                              setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
+                              setIsSelecting(true);
+                            } else if (e.button === 2) { // Right click
+                              // Only reset selection if right-clicking outside current selection
+                              const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
+                              const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
+                              const currentColIdx = visibleHeaders.indexOf(header);
+                              
+                              const isInsideSelection = selection && 
+                                globalIndex >= Math.min(selection.startRow, selection.endRow) &&
+                                globalIndex <= Math.max(selection.startRow, selection.endRow) &&
+                                currentColIdx >= Math.min(startColIdx, endColIdx) &&
+                                currentColIdx <= Math.max(startColIdx, endColIdx);
+
+                              if (!isInsideSelection) {
+                                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
+                              }
+                            }
+                          }}
+                          onMouseEnter={() => {
+                            if (dragFillRange && dragFillRange.col === header) {
+                              setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
+                            }
+                            if (isSelecting) {
+                              setSelection(prev => prev ? { ...prev, endRow: globalIndex, endCol: header } : null);
+                            }
+                          }}
+                          onClick={() => { 
+                            setActiveCell({ row: globalIndex, col: header }); 
+                            // Only clear selection if it's a single cell click (no drag range)
+                            if (selection && selection.startRow === selection.endRow && selection.startCol === selection.endCol) {
+                              setSelection(null); 
+                            }
+                          }}
                           className={`p-0 border-r border-slate-200 bg-white group/cell relative align-top ${
                             header === "Title / Item" ? "sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]" : ""
+                          } ${
+                            activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-blue-500 z-20' : ''
+                          } ${
+                            isInSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''
                           }`}
                         >
+                          {/* Fill Handle */}
+                          {activeCell?.row === globalIndex && activeCell?.col === header && (
+                            <div 
+                              onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)}
+                              className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-blue-600 border border-white cursor-crosshair z-30 -mb-1 -mr-1 shadow-sm rounded-sm hover:scale-125 transition-transform" 
+                              title="Drag to fill"
+                            />
+                          )}
+
+                          {/* Drag Selection Overlay */}
+                          {dragFillRange && dragFillRange.col === header && (
+                            globalIndex >= Math.min(dragFillRange.startRow, dragFillRange.endRow) &&
+                            globalIndex <= Math.max(dragFillRange.startRow, dragFillRange.endRow)
+                          ) && (
+                            <div className="absolute inset-0 pointer-events-none bg-blue-500/10 border-x-2 border-blue-500/30 z-10" />
+                          )}
+
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }}
                             className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-slate-300 hover:text-blue-500 bg-white/90 rounded shadow-sm z-30 transition-all"
@@ -1212,7 +1543,7 @@ function DashboardContent() {
                               onClick={() => setActiveCell({ row: globalIndex, col: header })}
                               className={`w-full px-3 py-1.5 text-sm text-slate-800 cursor-text transition-all !normal-case font-sans min-h-[34px] flex items-center ${
                                 activeCell?.row === globalIndex && activeCell?.col === header 
-                                  ? 'bg-purple-50/50 ring-2 ring-inset ring-purple-400' 
+                                  ? 'bg-purple-50/80' 
                                   : 'hover:bg-purple-50/50'
                               } ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}
                             >
@@ -1507,10 +1838,10 @@ function DashboardContent() {
 
                 {viewMode === 'code' ? (
                   <textarea
-                    value={editedContent}
-                    onChange={(e) => setEditedContent(e.target.value)}
+                    value={codeViewContent}
+                    onChange={(e) => handleCodeChange(e.target.value)}
                     className="w-full h-[500px] p-4 font-mono text-sm bg-slate-900 text-slate-100 rounded-lg border border-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none shadow-inner"
-                    placeholder='{ "key": "value" }'
+                    placeholder='{ "content": [...], "display_settings": {...} }'
                   />
                 ) : viewMode === 'table' ? (
                   renderTableEditor()
