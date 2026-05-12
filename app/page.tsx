@@ -31,7 +31,7 @@ function DashboardContent() {
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
   const formulaBarRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'Image' | 'File' } | null>(null);
+  const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
@@ -468,19 +468,34 @@ function DashboardContent() {
   };
 
   const handleRenameColumn = (oldKey: string, newKey: string) => {
-    if (!newKey || oldKey === newKey) return;
+    const trimmedNewKey = newKey?.trim();
+    if (!trimmedNewKey || oldKey === trimmedNewKey) return;
+
+    if (trimmedNewKey.toLowerCase() === 'section') {
+      alert("'section' is a reserved column name used for categorization.");
+      return;
+    }
+
     try {
       const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+
+      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+      if (allHeaders.includes(trimmedNewKey)) {
+        alert(`A column named "${trimmedNewKey}" already exists.`);
+        return;
+      }
+
       const newData = data.map((row: any) => {
         const { [oldKey]: value, ...rest } = row;
-        return { ...rest, [newKey]: value };
+        return { ...rest, [trimmedNewKey]: value };
       });
 
       // Migrate alignments and metadata to the new column name
       setColumnAlignments(prev => {
         const next = { ...prev };
         if (next[oldKey]) {
-          next[newKey] = next[oldKey];
+          next[trimmedNewKey] = next[oldKey];
           delete next[oldKey];
         }
         return next;
@@ -488,7 +503,7 @@ function DashboardContent() {
       setColumnWidths(prev => {
         const next = { ...prev };
         if (next[oldKey]) {
-          next[newKey] = next[oldKey];
+          next[trimmedNewKey] = next[oldKey];
           delete next[oldKey];
         }
         return next;
@@ -498,7 +513,7 @@ function DashboardContent() {
         Object.keys(prev).forEach(key => {
           if (key.endsWith(`:${oldKey}`)) {
             const [r] = key.split(':');
-            next[`${r}:${newKey}`] = prev[key];
+            next[`${r}:${trimmedNewKey}`] = prev[key];
           } else { next[key] = prev[key]; }
         });
         return next;
@@ -506,24 +521,45 @@ function DashboardContent() {
       setCellMetadata(migrateKeys);
       setCellAlignments(migrateKeys);
 
-      setColumnOrder(prev => prev.map(col => col === oldKey ? newKey : col));
+      setColumnOrder(prev => {
+        const currentOrder = prev.length > 0 ? prev : allHeaders;
+        return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
+      });
       setEditedContent(JSON.stringify(newData, null, 2));
     } catch (e) {
-      console.error("Failed to rename column");
+      alert("Cannot rename column: The data is currently invalid JSON. Please fix it in the Code View first.");
     }
   };
 
   const handleAddColumn = (name?: string) => {
-    const colName = typeof name === 'string' ? name : window.prompt("Enter new column name:");
+    const colName = (typeof name === 'string' ? name : window.prompt("Enter new column name:"))?.trim();
     if (!colName) return;
+
+    if (colName.toLowerCase() === 'section') {
+      alert("'section' is a reserved column name used for categorization.");
+      return;
+    }
+
     try {
       const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+
+      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+      if (allHeaders.includes(colName)) {
+        alert(`A column named "${colName}" already exists.`);
+        return;
+      }
+
       const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
       if (newData.length === 0) newData.push({ [colName]: "" });
-      setColumnOrder(prev => [...prev, colName]);
+      
+      setColumnOrder(prev => {
+        const currentOrder = prev.length > 0 ? prev : allHeaders;
+        return [...currentOrder, colName];
+      });
       setEditedContent(JSON.stringify(newData, null, 2));
     } catch (e) {
-      setEditedContent(JSON.stringify([{ [colName]: "" }], null, 2));
+      alert("Cannot add column: The data is currently invalid JSON. Please fix it in the Code View first.");
     }
   };
 
@@ -557,8 +593,13 @@ function DashboardContent() {
   };
 
   const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
-    const colName = window.prompt(`Enter new column name:`);
-    if (!colName || !colName.trim()) return;
+    const colName = window.prompt(`Enter new column name:`)?.trim();
+    if (!colName) return;
+
+    if (colName.toLowerCase() === 'section') {
+      alert("'section' is a reserved column name used for categorization.");
+      return;
+    }
 
     try {
       const data = JSON.parse(editedContent || '[]');
@@ -799,7 +840,7 @@ function DashboardContent() {
             <p className="text-sm text-slate-500">Select at least two files from the list below to compare their project data side-by-side.</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 overflow-y-auto pr-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2">
             {allFiles.map(file => (
               <label 
                 key={file.id} 
@@ -834,16 +875,21 @@ function DashboardContent() {
       );
     }
 
-    // Get all unique Project Titles from all files
-    const allProjectsSet = new Set<string>();
+    // Map sections to their unique projects
+    const sectionMap = new Map<string, Set<string>>();
     nodesToCompare.forEach(n => {
       const content = Array.isArray(n?.content) ? n.content : [];
       content.forEach((row: any) => {
-        if (row["Title / Item"]) allProjectsSet.add(row["Title / Item"]);
+        const section = row.section || "Uncategorized";
+        const title = row["Title / Item"];
+        if (title) {
+          if (!sectionMap.has(section)) sectionMap.set(section, new Set());
+          sectionMap.get(section)!.add(title);
+        }
       });
     });
 
-    const uniqueProjects = Array.from(allProjectsSet).sort();
+    const sortedSections = Array.from(sectionMap.keys()).sort();
 
     return (
       <div className="flex flex-col h-full border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
@@ -862,10 +908,10 @@ function DashboardContent() {
           </div>
         </div>
         <div className="flex-1 overflow-auto">
-          <table className="w-full border-collapse text-left">
+          <table className="min-w-full border-separate border-spacing-0 text-left">
             <thead className="sticky top-0 bg-slate-100 z-10 shadow-sm">
               <tr>
-                <th className="p-3 text-[11px] font-bold border-r border-b text-slate-600 w-64">Title / Item</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b text-slate-600 w-72 sticky left-0 bg-slate-100 z-20 shadow-[1px_0_0_0_#e2e8f0]">Title / Item</th>
                 {nodesToCompare.map(n => (
                   <Fragment key={n!.id}>
                     <th className="p-3 text-[11px] font-bold border-r border-b text-blue-600 text-right">Amount ({n!.name})</th>
@@ -876,33 +922,46 @@ function DashboardContent() {
               </tr>
             </thead>
             <tbody>
-              {uniqueProjects.map(title => {
-                const values = nodesToCompare.map(n => {
-                  const data = Array.isArray(n?.content) ? n.content : [];
-                  return data.find((r: any) => r["Title / Item"] === title);
-                });
-
-                const amount1 = Number(values[0]?.Amount || 0);
-                const amount2 = Number(values[1]?.Amount || 0);
-                const variance = amount2 - amount1;
-
+              {sortedSections.map(sectionName => {
+                const projectsInSection = Array.from(sectionMap.get(sectionName)!).sort();
+                
                 return (
-                  <tr key={title} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
-                    <td className="p-3 text-sm font-medium text-slate-800 border-r bg-slate-50/30 sticky left-0">{title}</td>
-                    {values.map((v, idx) => (
-                      <Fragment key={idx}>
-                        <td className="p-3 text-sm font-mono text-right border-r">
-                          {v ? Number(v.Amount).toLocaleString() : <span className="text-slate-300">-</span>}
-                        </td>
-                        <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-[120px]">
-                          {v?.Location || v?.Allocation || ""}
-                        </td>
-                      </Fragment>
-                    ))}
-                    <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                      {variance === 0 ? "0" : (variance > 0 ? "+" : "") + variance.toLocaleString()}
-                    </td>
-                  </tr>
+                  <Fragment key={sectionName}>
+                    <tr className="bg-slate-100/80">
+                      <td colSpan={2 + nodesToCompare.length * 2} className="px-3 py-1 border-b border-slate-200 font-black text-slate-800 tracking-widest text-[11px] uppercase sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_0_#e2e8f0]">
+                        Section: {sectionName}
+                      </td>
+                    </tr>
+                    {projectsInSection.map(title => {
+                      const values = nodesToCompare.map(n => {
+                        const data = Array.isArray(n?.content) ? n.content : [];
+                        return data.find((r: any) => r["Title / Item"] === title && (r.section || "Uncategorized") === sectionName);
+                      });
+
+                      const amount1 = Number(values[0]?.Amount || 0);
+                      const amount2 = Number(values[1]?.Amount || 0);
+                      const variance = amount2 - amount1;
+
+                      return (
+                        <tr key={`${sectionName}-${title}`} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
+                          <td className="p-3 text-sm font-medium text-slate-800 border-r bg-white sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]">{title}</td>
+                          {values.map((v, idx) => (
+                            <Fragment key={idx}>
+                              <td className="p-3 text-sm font-mono text-right border-r">
+                                {v ? Number(v.Amount).toLocaleString() : <span className="text-slate-300">-</span>}
+                              </td>
+                              <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-[120px]">
+                                {v?.Location || v?.Allocation || ""}
+                              </td>
+                            </Fragment>
+                          ))}
+                          <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                            {variance === 0 ? "0" : (variance > 0 ? "+" : "") + variance.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -1893,7 +1952,7 @@ function DashboardContent() {
         )}
 
         {activeNode ? (
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === 'table' ? 'w-full' : 'max-w-2xl'}`}>
+          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === 'table' || viewMode === 'compare' ? 'w-full' : 'max-w-2xl'}`}>
             <h2 className="text-2xl font-bold mb-6 text-slate-800">{activeNode.name}</h2>
             
             <div className="bg-white border rounded-lg shadow-sm overflow-hidden">

@@ -10,9 +10,13 @@ interface Props {
   onSelect: (node: FileNode) => void;
   selectedId?: string;
   searchTerm?: string;
+  comparisonIds: string[];
+  onToggleCompare: (id: string) => void;
 }
 
-export default function FileNodeItem({ node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm }: Props) {
+export default function FileNodeItem({ 
+  node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm, comparisonIds, onToggleCompare 
+}: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const isFolder = node.type === 'folder';
   const isSearching = !!searchTerm?.trim();
@@ -85,6 +89,8 @@ export default function FileNodeItem({ node, onDelete, onRename, onAdd, onSelect
               onSelect={onSelect}
               selectedId={selectedId}
               searchTerm={searchTerm}
+              comparisonIds={comparisonIds}
+              onToggleCompare={onToggleCompare}
             />
           ))}
         </div>
