@@ -133,7 +133,7 @@ function DashboardContent() {
     }
   }, [activeCell, editedContent]);
 
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header', showFormats?: boolean, showFormulaFormats?: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean } | null>(null);
 
   const DATE_FORMATS = [
     { id: 'long', label: 'Monday, May 5, 2026' },
@@ -141,6 +141,30 @@ function DashboardContent() {
     { id: 'short', label: '05/05/2026' },
     { id: 'iso', label: '2026-05-05' },
   ];
+
+  const NUMBER_FORMATS = [
+    { id: 'decimal', label: 'Decimal (1,234.56)' },
+    { id: 'currency', label: 'Currency (₱1,234.56)' },
+    { id: 'percent', label: 'Percent (12.34%)' },
+    { id: 'integer', label: 'Integer (1,235)' },
+  ];
+
+  const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
+    if (value === "" || value === undefined || value === null) return "0.00";
+    const num = Number(value);
+    if (isNaN(num)) return value;
+
+    switch (formatId) {
+      case 'currency': 
+        return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+      case 'percent':
+        return (num * 100).toFixed(2) + '%';
+      case 'integer':
+        return Math.round(num).toLocaleString();
+      default: // decimal
+        return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  };
 
   const formatDateDisplay = (value: string, formatId: string = 'long') => {
     if (!value) return '';
@@ -440,13 +464,52 @@ function DashboardContent() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => {
-    const inputs = document.querySelectorAll('.grid-input') as NodeListOf<HTMLInputElement | HTMLSelectElement>;
-    const currentIndex = rowIndex * headers.length + colIndex;
-
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
-      const next = inputs[currentIndex + headers.length];
-      if (next) next.focus();
+      
+      let nextRow = rowIndex;
+      let nextColIdx = colIndex;
+
+      if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          nextRow = Math.max(0, rowIndex - 1);
+        } else {
+          nextRow = rowIndex + 1;
+        }
+      } else if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (colIndex > 0) {
+            nextColIdx = colIndex - 1;
+          } else if (rowIndex > 0) {
+            nextRow = rowIndex - 1;
+            nextColIdx = headers.length - 1;
+          }
+        } else {
+          if (colIndex < headers.length - 1) {
+            nextColIdx = colIndex + 1;
+          } else {
+            nextRow = rowIndex + 1;
+            nextColIdx = 0;
+          }
+        }
+      }
+
+      try {
+        const data = JSON.parse(editedContent || '[]');
+        if (nextRow >= 0 && nextRow < data.length) {
+          const nextHeader = headers[nextColIdx];
+          setActiveCell({ row: nextRow, col: nextHeader });
+          
+          // Small timeout to allow conditional inputs (like Amount) to mount before focusing
+          setTimeout(() => {
+            const nextInput = document.querySelector(`[data-row="${nextRow}"][data-col="${nextHeader}"]`) as HTMLElement;
+            if (nextInput) {
+              nextInput.focus();
+              if (nextInput instanceof HTMLInputElement) nextInput.select();
+            }
+          }, 10);
+        }
+      } catch (err) {}
     }
   };
 
@@ -532,19 +595,28 @@ function DashboardContent() {
   };
 
   const handleAddColumn = (name?: string) => {
-    const colName = (typeof name === 'string' ? name : window.prompt("Enter new column name:"))?.trim();
-    if (!colName) return;
-
-    if (colName.toLowerCase() === 'section') {
-      alert("'section' is a reserved column name used for categorization.");
-      return;
-    }
+    const rawInput = typeof name === 'string' ? name : window.prompt("Enter new column name (leave blank for auto-name):");
+    if (rawInput === null) return;
+    
+    let colName = rawInput.trim();
 
     try {
       const data = JSON.parse(editedContent || '[]');
       if (!Array.isArray(data)) return;
 
       const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+
+      if (!colName) {
+        let i = 1;
+        while (allHeaders.includes(`Column ${i}`)) i++;
+        colName = `Column ${i}`;
+      }
+
+      if (colName.toLowerCase() === 'section') {
+        alert("'section' is a reserved column name used for categorization.");
+        return;
+      }
+
       if (allHeaders.includes(colName)) {
         alert(`A column named "${colName}" already exists.`);
         return;
@@ -593,19 +665,28 @@ function DashboardContent() {
   };
 
   const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
-    const colName = window.prompt(`Enter new column name:`)?.trim();
-    if (!colName) return;
-
-    if (colName.toLowerCase() === 'section') {
-      alert("'section' is a reserved column name used for categorization.");
-      return;
-    }
+    const rawInput = window.prompt(`Enter new column name (leave blank for auto-name):`);
+    if (rawInput === null) return;
+    
+    let colName = rawInput.trim();
 
     try {
       const data = JSON.parse(editedContent || '[]');
       if (!Array.isArray(data)) return;
       
       const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+
+      if (!colName) {
+        let i = 1;
+        while (allHeaders.includes(`Column ${i}`)) i++;
+        colName = `Column ${i}`;
+      }
+
+      if (colName.toLowerCase() === 'section') {
+        alert("'section' is a reserved column name used for categorization.");
+        return;
+      }
+
       if (allHeaders.includes(colName)) {
         alert("A column with this name already exists.");
         return;
@@ -948,7 +1029,7 @@ function DashboardContent() {
                           {values.map((v, idx) => (
                             <Fragment key={idx}>
                               <td className="p-3 text-sm font-mono text-right border-r">
-                                {v ? Number(v.Amount).toLocaleString() : <span className="text-slate-300">-</span>}
+                          {v ? Number(v.Amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-slate-300">-</span>}
                               </td>
                               <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-[120px]">
                                 {v?.Location || v?.Allocation || ""}
@@ -956,7 +1037,7 @@ function DashboardContent() {
                             </Fragment>
                           ))}
                           <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-slate-400'}`}>
-                            {variance === 0 ? "0" : (variance > 0 ? "+" : "") + variance.toLocaleString()}
+                      {variance === 0 ? "0.00" : (variance > 0 ? "+" : "") + variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
                       );
@@ -1377,13 +1458,13 @@ function DashboardContent() {
 
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100">Format Cell</div>
                   <button 
-                    onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)}
+                    onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)}
                     onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'text')} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><FileText size={14} className="text-slate-400" /> Default Text</button>
                   
                   <div className="relative group/sub">
                     <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: true, showFormulaFormats: false } : null)}
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: true, showFormulaFormats: false, showNumberFormats: false } : null)}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
                     >
                       <span className="flex items-center gap-2"><Calendar size={14} className="text-blue-500" /> Format as Calendar</span>
@@ -1391,7 +1472,7 @@ function DashboardContent() {
                     </button>
                     
                     {contextMenu.showFormats && (
-                      <div className="absolute left-full top-0 ml-px bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48">
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
                         {DATE_FORMATS.map(f => (
                           <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 hover:text-blue-700">{f.label}</button>
                         ))}
@@ -1401,7 +1482,25 @@ function DashboardContent() {
 
                   <div className="relative group/sub">
                     <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormulaFormats: true, showFormats: false } : null)}
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showNumberFormats: true, showFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="flex items-center gap-2"><TableIcon size={14} className="text-green-600" /> Format as Number</span>
+                      <ChevronRightIcon size={12} className="text-slate-300" />
+                    </button>
+                    
+                    {contextMenu.showNumberFormats && (
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                        {NUMBER_FORMATS.map(f => (
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-green-50 hover:text-green-700">{f.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative group/sub">
+                    <button 
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormulaFormats: true, showFormats: false, showNumberFormats: false } : null)}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
                     >
                       <span className="flex items-center gap-2"><Sigma size={14} className="text-purple-500" /> Formula Support</span>
@@ -1409,7 +1508,7 @@ function DashboardContent() {
                     </button>
                     
                     {contextMenu.showFormulaFormats && (
-                      <div className="absolute left-full top-0 ml-px bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48">
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
                         <button 
                           onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula')} 
                           className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 hover:text-purple-700 font-bold"
@@ -1426,8 +1525,8 @@ function DashboardContent() {
                   </div>
                   <div className="h-px bg-slate-100 my-1"></div>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest">Media</div>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
                 </>
               )}
             </div>
@@ -1496,7 +1595,17 @@ function DashboardContent() {
                       colSpan={headerMeta.colSpan}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setContextMenu({ x: e.pageX, y: e.pageY, col: header, type: 'header' });
+                      const menuWidth = 192;
+                      const menuHeight = 280; // Estimated height for header menu
+                      const winW = window.innerWidth;
+                      const winH = window.innerHeight;
+                      
+                      let x = e.clientX;
+                      let y = e.clientY;
+                      if (x + menuWidth > winW) x -= menuWidth;
+                      if (y + menuHeight > winH) y -= menuHeight;
+                      
+                      setContextMenu({ x, y, col: header, type: 'header' });
                     }}
                     onMouseDown={(e) => {
                       if (e.button === 0) {
@@ -1542,7 +1651,7 @@ function DashboardContent() {
                         value={newColName}
                         onChange={(e) => setNewColName(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' && newColName.trim()) {
+                          if (e.key === 'Enter') {
                             handleAddColumn(newColName);
                             setNewColName('');
                           }
@@ -1613,7 +1722,17 @@ function DashboardContent() {
                           colSpan={meta.colSpan}
                           onContextMenu={(e) => {
                             e.preventDefault();
-                            setContextMenu({ x: e.pageX, y: e.pageY, row: globalIndex, col: header, type: 'cell' });
+                            const menuWidth = 192;
+                            const menuHeight = 420; // Estimated height for cell menu
+                            const winW = window.innerWidth;
+                            const winH = window.innerHeight;
+
+                            let x = e.clientX;
+                            let y = e.clientY;
+                            if (x + menuWidth > winW) x -= menuWidth;
+                            if (y + menuHeight > winH) y -= menuHeight;
+
+                            setContextMenu({ x, y, row: globalIndex, col: header, type: 'cell' });
                           }}
                           onMouseDown={(e) => {
                             if (e.button === 0) { // Left click only for selecting
@@ -1688,6 +1807,9 @@ function DashboardContent() {
                           {header === 'Location' || header === 'Allocation' ? (
                             <select
                               value={row[header] ?? ''}
+                              data-row={globalIndex}
+                              data-col={header}
+                              onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
                               onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
                               className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 font-sans ${alignClass}`}
                             >
@@ -1700,6 +1822,9 @@ function DashboardContent() {
                         <div className="relative w-full h-full flex items-center group/date min-h-[34px]">
                               <input
                                 type="date"
+                                data-row={globalIndex}
+                                data-col={header}
+                                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
                                 value={row[header] || ''}
                                 onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
                                 onClick={(e) => {
@@ -1762,11 +1887,43 @@ function DashboardContent() {
                                   : 'hover:bg-purple-50/50'
                               } ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}
                             >
-                              {evaluateFormula(row[header], row, meta.format)}
+                              {(() => {
+                                const result = evaluateFormula(row[header], row, meta.format);
+                                return typeof result === 'number' 
+                                  ? formatNumberDisplay(result, meta.format || 'decimal')
+                                  : result;
+                              })()}
                             </div>
+                          ) : (meta.type === 'number' || header === 'Amount') ? (
+                            activeCell?.row === globalIndex && activeCell?.col === header ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                data-row={globalIndex}
+                                data-col={header}
+                                autoFocus
+                                value={row[header] ?? ''}
+                                onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
+                                className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
+                              />
+                            ) : (
+                              <div 
+                                onClick={() => setActiveCell({ row: globalIndex, col: header })}
+                                className={`w-full px-3 py-1.5 text-sm text-slate-800 cursor-text min-h-[34px] flex items-center font-sans ${
+                                  cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
+                                }`}
+                              >
+                                {row[header] !== undefined && row[header] !== "" 
+                                  ? formatNumberDisplay(row[header], meta.format || 'decimal') 
+                                  : <span className="text-slate-300">0.00</span>}
+                              </div>
+                            )
                           ) : (
                             <input
-                              type={header === 'Amount' ? 'number' : 'text'}
+                              type="text"
+                              data-row={globalIndex}
+                              data-col={header}
                               value={row[header] ?? ''}
                               onFocus={() => setActiveCell({ row: globalIndex, col: header })}
                               onChange={(e) => handleUpdateCell(globalIndex, header, header === 'Amount' ? parseFloat(e.target.value) : e.target.value)}
@@ -1802,7 +1959,7 @@ function DashboardContent() {
                             const total = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
                             return (
                               <td key="total-amount" className={`px-3 py-1.5 text-sm font-bold text-blue-700 border-r border-slate-200 ${alignClass}`}>
-                                {total.toLocaleString()}
+                                {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             );
                           }
@@ -2094,11 +2251,28 @@ function DashboardContent() {
               className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" 
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <Paperclip size={18} className="text-blue-500" />
-                  Cell Attachments ({viewingMedia.attachments.length})
-                </h3>
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+                <div className="flex items-center gap-4">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                    <Paperclip size={18} className="text-blue-500" />
+                    Cell Attachments ({viewingMedia.attachments.length})
+                  </h3>
+                  <div className="h-4 w-px bg-slate-200" />
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'image')}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-green-100 transition-colors border border-green-200 shadow-sm"
+                    >
+                      <ImageIcon size={12} /> Add Image
+                    </button>
+                    <button 
+                      onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'file')}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-100 transition-colors border border-amber-200 shadow-sm"
+                    >
+                      <Paperclip size={12} /> Add File
+                    </button>
+                  </div>
+                </div>
                 <button onClick={() => setViewingMedia(null)} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
                   <X size={20} />
                 </button>

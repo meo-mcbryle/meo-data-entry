@@ -71,6 +71,23 @@ function PrintContent() {
 
   const cellMetadata = node.display_settings?.cellMetadata || {};
 
+  const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
+    if (value === "" || value === undefined || value === null) return "0.00";
+    const num = Number(value);
+    if (isNaN(num)) return value;
+
+    switch (formatId) {
+      case 'currency': 
+        return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+      case 'percent':
+        return (num * 100).toFixed(2) + '%';
+      case 'integer':
+        return Math.round(num).toLocaleString();
+      default: // decimal
+        return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  };
+
   const formatDateDisplay = (value: string, formatId: string = 'long') => {
     if (!value) return '';
     const [y, m, d] = value.split('-').map(Number);
@@ -291,6 +308,7 @@ function PrintContent() {
                       let content = row[header];
                       
                       if (isAmount) content = Number(content).toLocaleString(undefined, { minimumFractionDigits: 2 });
+                      if (isAmount || meta.type === 'number') content = formatNumberDisplay(content, meta.format);
                       if (meta.type === 'date') content = formatDateDisplay(content, meta.format);
                       if (meta.type === 'media') {
                         const atts = meta.attachments || [];
@@ -306,7 +324,12 @@ function PrintContent() {
                           content = `[${label}${plural}${atts.length > 1 ? ` (${atts.length})` : ''}]`;
                         }
                       }
-                      if (meta.type === 'formula') content = evaluateFormula(content, row, meta.format);
+                      if (meta.type === 'formula') {
+                        const result = evaluateFormula(content, row, meta.format);
+                        content = typeof result === 'number' 
+                          ? formatNumberDisplay(result, meta.format)
+                          : result;
+                      }
 
                       return (
                         <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
