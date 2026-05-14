@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2 } from 'lucide-react';
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -25,7 +25,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const [isExplorerVisible, setIsExplorerVisible] = useState(true);
   const [explorerSearch, setExplorerSearch] = useState('');
-  const [isMetadataVisible, setIsMetadataVisible] = useState(true);
+  const [isMetadataVisible, setIsMetadataVisible] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
@@ -38,6 +38,7 @@ function DashboardContent() {
   const [dragFillRange, setDragFillRange] = useState<{ startRow: number; endRow: number; col: string } | null>(null);
   const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
@@ -134,6 +135,16 @@ function DashboardContent() {
   }, [activeCell, editedContent]);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean } | null>(null);
+
+  const getExcelColumnLabel = (index: number): string => {
+    let label = '';
+    let i = index;
+    while (i >= 0) {
+      label = String.fromCharCode((i % 26) + 65) + label;
+      i = Math.floor(i / 26) - 1;
+    }
+    return label;
+  };
 
   const DATE_FORMATS = [
     { id: 'long', label: 'Monday, May 5, 2026' },
@@ -326,6 +337,7 @@ function DashboardContent() {
     "Malintuboan, Labason, Zamboanga del Norte",
     "New Salvacion, Labason, Zamboanga del Norte",
     "Osukan, Labason, Zamboanga del Norte",
+    "Poblacion, Labason, Zamboanga del Norte",
     "Patawag, Labason, Zamboanga del Norte",
     "San Isidro, Labason, Zamboanga del Norte",
     "Ubay, Labason, Zamboanga del Norte"
@@ -514,14 +526,46 @@ function DashboardContent() {
   };
 
   const toggleCellAlignment = (rowIndex: number, header: string) => {
-    const cellKey = `${rowIndex}:${header}`;
-    const current = cellAlignments[cellKey] || columnAlignments[header] || 'left';
-    const nextMap: Record<string, 'left' | 'center' | 'right'> = {
-      left: 'center',
-      center: 'right',
-      right: 'left'
-    };
-    setCellAlignments(prev => ({ ...prev, [cellKey]: nextMap[current] }));
+    setCellAlignments(prev => {
+      const next = { ...prev };
+      const cellKey = `${rowIndex}:${header}`;
+      const current = prev[cellKey] || columnAlignments[header] || 'left';
+      const nextMap: Record<string, 'left' | 'center' | 'right'> = {
+        left: 'center',
+        center: 'right',
+        right: 'left'
+      };
+      const nextAlign = nextMap[current];
+
+      try {
+        const data = JSON.parse(editedContent || '[]');
+        const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+
+        if (selection && selection.startRow !== -1) {
+          const minRow = Math.min(selection.startRow, selection.endRow);
+          const maxRow = Math.max(selection.startRow, selection.endRow);
+          const startColIdx = visibleHeaders.indexOf(selection.startCol);
+          const endColIdx = visibleHeaders.indexOf(selection.endCol);
+          const minColIdx = Math.min(startColIdx, endColIdx);
+          const maxColIdx = Math.max(startColIdx, endColIdx);
+
+          for (let r = minRow; r <= maxRow; r++) {
+            for (let c = minColIdx; c <= maxColIdx; c++) {
+              next[`${r}:${visibleHeaders[c]}`] = nextAlign;
+            }
+          }
+        } else {
+          next[cellKey] = nextAlign;
+        }
+      } catch (e) {
+        next[cellKey] = nextAlign;
+      }
+      return next;
+    });
   };
 
   const toggleColumnVisibility = (key: string) => {
@@ -751,10 +795,40 @@ function DashboardContent() {
   };
 
   const setCellType = (row: number, col: string, type: string, format: string = 'long') => {
-    const key = `${row}:${col}`;
     setCellMetadata(prev => ({
       ...prev,
-      [key]: { ...prev[key], type, format }
+      ...(() => {
+        const next: Record<string, any> = {};
+        try {
+          const data = JSON.parse(editedContent || '[]');
+          const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+          const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+          const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+          const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+          const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+
+          if (selection && selection.startRow !== -1) {
+            const minRow = Math.min(selection.startRow, selection.endRow);
+            const maxRow = Math.max(selection.startRow, selection.endRow);
+            const startColIdx = visibleHeaders.indexOf(selection.startCol);
+            const endColIdx = visibleHeaders.indexOf(selection.endCol);
+            const minColIdx = Math.min(startColIdx, endColIdx);
+            const maxColIdx = Math.max(startColIdx, endColIdx);
+
+            for (let r = minRow; r <= maxRow; r++) {
+              for (let c = minColIdx; c <= maxColIdx; c++) {
+                const k = `${r}:${visibleHeaders[c]}`;
+                next[k] = { ...prev[k], type, format };
+              }
+            }
+          } else {
+            next[`${row}:${col}`] = { ...prev[`${row}:${col}`], type, format };
+          }
+        } catch (e) {
+          next[`${row}:${col}`] = { ...prev[`${row}:${col}`], type, format };
+        }
+        return next;
+      })()
     }));
     setContextMenu(null);
   };
@@ -1328,7 +1402,7 @@ function DashboardContent() {
       const sections = Array.from(new Set(data.map((r: any) => r.section || "Uncategorized")));
 
       return (
-        <div className="flex flex-col h-full overflow-hidden border border-slate-200 rounded-lg bg-white shadow-sm">
+        <div className={`flex flex-col h-full overflow-hidden bg-white ${isFullScreen ? '' : 'border border-slate-200 rounded-lg shadow-sm'}`}>
           {/* Excel Toolbar */}
           <div className="flex items-center justify-between p-2 bg-slate-50 border-b border-slate-200 gap-2">
             <div className="flex items-center gap-2 flex-1">
@@ -1565,14 +1639,49 @@ function DashboardContent() {
             />
           </div>
 
-          <div 
+          <div
             ref={tableContainerRef}
             onScroll={(e) => setShowBackToTop(e.currentTarget.scrollTop > 300)}
             className="flex-1 overflow-auto relative"
           >
             <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
-              <thead className="sticky top-0 z-30 bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
+              <thead className="bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
+                <tr className="bg-slate-200/60 select-none h-5">
+                  {/* The Corner Cell - Standardized border and background */}
+                  <th className="w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)]">
+                    <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-slate-500">◢</div>
+                  </th>
+                  {visibleHeaders.map((header, idx) => (
+                    <th 
+                      key={`col-label-${idx}`} 
+                      onClick={() => {
+                        try {
+                          const data = JSON.parse(editedContent || '[]');
+                          if (data.length > 0) {
+                            setSelection({
+                              startRow: 0,
+                              endRow: data.length - 1,
+                              startCol: header,
+                              endCol: header
+                            });
+                            setActiveCell({ row: 0, col: header });
+                          }
+                        } catch(e) {}
+                      }}
+                      style={{ 
+                        width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                        minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
+                      }}
+                      className="text-[9px] font-black text-slate-400 border-r border-b border-slate-300 h-5 text-center uppercase tracking-tighter cursor-pointer hover:bg-slate-300 hover:text-slate-600 transition-colors"
+                    >
+                      {getExcelColumnLabel(idx)}
+                    </th>
+                  ))}
+                  <th className="border-r border-b border-slate-300"></th>
+                  <th className="sticky right-0 border-l border-b border-slate-300 z-40 bg-slate-200/50"></th>
+                </tr>
                 <tr>
+                  <th className="w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-100"></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
                     if (headerMeta.mergedIn) return null;
@@ -1626,9 +1735,7 @@ function DashboardContent() {
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                     }}
-                    className={`group/header px-3 py-2 text-[11px] font-bold text-slate-500 tracking-tight border-r border-b border-slate-200 relative bg-slate-100/50 ${
-                        header === "Title / Item" ? "sticky left-0 z-40 shadow-[1px_0_0_0_#e2e8f0]" : ""
-                      } ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
+                    className={`group/header px-2 py-1 text-[11px] font-bold text-slate-500 tracking-tight border-r border-b border-slate-300 relative bg-slate-100 ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
                     >
                       <div className="flex items-center gap-1">
                         <input
@@ -1646,7 +1753,7 @@ function DashboardContent() {
                     );
                   })}
                   <th className="p-2 min-w-[140px] border-r border-b border-slate-200 bg-slate-50/50">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 px-1">
                       <input
                         value={newColName}
                         onChange={(e) => setNewColName(e.target.value)}
@@ -1672,7 +1779,7 @@ function DashboardContent() {
                     <Fragment key={sectionName}>
                       {/* Section Header */}
                       <tr className="bg-slate-100/80 group/section">
-                        <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-slate-200">
+                        <td colSpan={visibleHeaders.length + 3} className="px-3 py-1 border-b border-slate-300">
                           <div className="flex items-center justify-between">
                             <input
                               defaultValue={sectionName}
@@ -1694,6 +1801,20 @@ function DashboardContent() {
                         const globalIndex = data.indexOf(row);
                         return (
                           <tr key={globalIndex} className="hover:bg-slate-50 transition-colors group relative">
+                            <td
+                              className="w-10 min-w-[40px] text-[10px] font-bold text-slate-400 text-center border-r border-b border-slate-300 bg-slate-50 select-none cursor-pointer hover:bg-slate-200 hover:text-slate-600 transition-colors"
+                              onClick={() => {
+                                setSelection({
+                                  startRow: globalIndex,
+                                  endRow: globalIndex,
+                                  startCol: visibleHeaders[0],
+                                  endCol: visibleHeaders[visibleHeaders.length - 1]
+                                });
+                                setActiveCell({ row: globalIndex, col: visibleHeaders[0] });
+                              }}
+                            >
+                              {globalIndex + 1}
+                            </td>
                     {visibleHeaders.map((header, colIndex) => {
                       const cellKey = `${globalIndex}:${header}`;
                       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
@@ -1771,8 +1892,6 @@ function DashboardContent() {
                             }
                           }}
                           className={`p-0 border-r border-slate-200 bg-white group/cell relative align-top ${
-                            header === "Title / Item" ? "sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]" : ""
-                          } ${
                             activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-blue-500 z-20' : ''
                           } ${
                             isInSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''
@@ -1811,7 +1930,7 @@ function DashboardContent() {
                               data-col={header}
                               onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
                               onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
-                              className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 font-sans ${alignClass}`}
+                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 font-sans ${alignClass}`}
                             >
                               <option value="">Select...</option>
                               {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => (
@@ -1819,7 +1938,7 @@ function DashboardContent() {
                               ))}
                             </select>
                           ) : isDate ? (
-                        <div className="relative w-full h-full flex items-center group/date min-h-[34px]">
+                        <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
                               <input
                                 type="date"
                                 data-row={globalIndex}
@@ -1836,7 +1955,7 @@ function DashboardContent() {
                                 }}
                             className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
                               />
-                          <div className={`w-full px-3 py-1.5 text-sm text-slate-800 !normal-case font-sans ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
+                          <div className={`w-full px-2 py-1 text-sm text-slate-800 !normal-case font-sans ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
                             cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
                           }`}>
                             {row[header] 
@@ -1845,8 +1964,8 @@ function DashboardContent() {
                               </div>
                             </div>
                           ) : isMedia ? (
-                            <div className="flex items-center group/media relative min-h-[34px] w-full">
-                              <div className="flex-1 min-w-0 px-3 py-1.5">
+                            <div className="flex items-center group/media relative min-h-[28px] w-full">
+                              <div className="flex-1 min-w-0 px-2 py-1">
                                 {meta.attachments && meta.attachments.length > 0 && (() => {
                                   const atts = meta.attachments;
                                   const hasImages = atts.some((a: any) => a.type === 'image');
@@ -1881,7 +2000,7 @@ function DashboardContent() {
                           ) : isFormula ? (
                             <div 
                               onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                              className={`w-full px-3 py-1.5 text-sm text-slate-800 cursor-text transition-all !normal-case font-sans min-h-[34px] flex items-center ${
+                              className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text transition-all !normal-case font-sans min-h-[28px] flex items-center ${
                                 activeCell?.row === globalIndex && activeCell?.col === header 
                                   ? 'bg-purple-50/80' 
                                   : 'hover:bg-purple-50/50'
@@ -1905,12 +2024,12 @@ function DashboardContent() {
                                 value={row[header] ?? ''}
                                 onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))}
                                 onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                                className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
+                                className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
                               />
                             ) : (
                               <div 
                                 onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                                className={`w-full px-3 py-1.5 text-sm text-slate-800 cursor-text min-h-[34px] flex items-center font-sans ${
+                                className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text min-h-[28px] flex items-center font-sans ${
                                   cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
                                 }`}
                               >
@@ -1928,12 +2047,14 @@ function DashboardContent() {
                               onFocus={() => setActiveCell({ row: globalIndex, col: header })}
                               onChange={(e) => handleUpdateCell(globalIndex, header, header === 'Amount' ? parseFloat(e.target.value) : e.target.value)}
                               onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                              className={`grid-input w-full px-3 py-1.5 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
+                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
                             />
                           )}
                         </td>
                       );
                     })}
+                    {/* Spacer cell to align with 'Add Column' header */}
+                    <td className="border-r border-b border-slate-200 bg-transparent"></td>
                     <td className="px-2 py-2 text-center sticky right-0 bg-white group-hover:bg-slate-50 border-l border-slate-200 z-20 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
                       <button onClick={() => removeTableRow(globalIndex)} className="text-slate-300 hover:text-red-600 transition-colors">
                         <Trash2 size={16} />
@@ -1944,13 +2065,14 @@ function DashboardContent() {
                       })}
                       {/* Section Summary Row */}
                       <tr className="bg-slate-50/50 border-t border-slate-200 font-semibold">
+                        <td className="w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-50/50"></td>
                         {visibleHeaders.map((header) => {
                           const alignClass = columnAlignments[header] === 'center' ? 'text-center' : 
                                            columnAlignments[header] === 'right' ? 'text-right' : 'text-left';
 
                           if (header === "Title / Item") {
                             return (
-                              <td key="total-label" className="px-4 py-1.5 text-xs font-bold text-slate-500 text-right border-r border-slate-200 sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_0_#e2e8f0]">
+                              <td key="total-label" className={`px-2 py-1.5 text-xs font-bold text-slate-500 text-right border-r border-slate-300 bg-slate-50`}>
                                 Subtotal:
                               </td>
                             );
@@ -1965,11 +2087,12 @@ function DashboardContent() {
                           }
                           return <td key={`total-empty-${header}`} className="border-r border-slate-200"></td>;
                         })}
+                        <td className="border-r border-slate-200"></td>
                         <td className="sticky right-0 bg-slate-50/50 border-l border-slate-200 z-20"></td>
                       </tr>
                       {/* Option (Insert) Row */}
                       <tr>
-                        <td colSpan={visibleHeaders.length + 2} className="p-0 border-b border-slate-200">
+                        <td colSpan={visibleHeaders.length + 3} className="p-0 border-b border-slate-200">
                           <button 
                             onClick={() => addRowToSection(sectionName)}
                             className="w-full text-left px-4 py-2 text-xs font-bold text-blue-500 hover:bg-blue-50 transition-colors flex items-center gap-1.5"
@@ -2033,7 +2156,7 @@ function DashboardContent() {
     <main className="flex h-screen bg-slate-50 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]">
       <aside 
         className={`bg-white flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap ${
-          isExplorerVisible ? 'w-72 border-r p-4' : 'w-0 border-none p-0'
+          isExplorerVisible && !isFullScreen ? 'w-72 border-r p-4' : 'w-0 border-none p-0'
         }`}
       >
         <div className="flex justify-between items-center mb-4 px-1 min-w-[260px]">
@@ -2095,8 +2218,8 @@ function DashboardContent() {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col p-6 overflow-hidden">
-        {!isExplorerVisible && (
+      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-3'}`}>
+        {!isExplorerVisible && !isFullScreen && (
           <div className="mb-4 flex items-center">
             <button 
               onClick={() => setIsExplorerVisible(true)} 
@@ -2110,57 +2233,68 @@ function DashboardContent() {
 
         {activeNode ? (
           <div className={`flex flex-col flex-1 min-h-0 ${viewMode === 'table' || viewMode === 'compare' ? 'w-full' : 'max-w-2xl'}`}>
-            <h2 className="text-2xl font-bold mb-6 text-slate-800">{activeNode.name}</h2>
-            
-            <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-              <button 
-                onClick={() => setIsMetadataVisible(!isMetadataVisible)}
-                className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-colors"
-              >
-                <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Metadata</h3>
-                {isMetadataVisible ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-              </button>
+            {!isFullScreen && (
+              <>
+                <h2 className="text-lg font-bold mb-3 text-slate-800">{activeNode.name}</h2>
+                
+                <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
+                  <button 
+                    onClick={() => setIsMetadataVisible(!isMetadataVisible)}
+                    className="w-full flex items-center justify-between p-2 hover:bg-slate-50 transition-colors"
+                  >
+                    <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Metadata</h3>
+                    {isMetadataVisible ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                  </button>
 
-              {isMetadataVisible && (
-                <div className="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-slate-50 pt-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                      <Clock size={20} />
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Created At</p>
-                      <p className="text-sm font-medium">{new Date(activeNode.created_at).toLocaleString()}</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-50 rounded-lg text-green-600">
-                      <User size={20} />
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Owner</p>
-                      <p className="text-sm font-medium">LGU Labason User</p>
-                    </div>
-                  </div>
+                  {isMetadataVisible && (
+                    <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-50 pt-3">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
+                          <Clock size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">Created At</p>
+                          <p className="text-xs font-medium">{new Date(activeNode.created_at).toLocaleString()}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-green-50 rounded-lg text-green-600">
+                          <User size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">Owner</p>
+                          <p className="text-xs font-medium">LGU Labason User</p>
+                        </div>
+                      </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                      <HardDrive size={20} />
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
+                          <HardDrive size={16} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">File Size</p>
+                          <p className="text-xs font-medium">{formatSize(activeNode.size_bytes)}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-500">File Size</p>
-                      <p className="text-sm font-medium">{formatSize(activeNode.size_bytes)}</p>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
             
             {activeNode.type === 'file' && (
-              <div className="mt-8 flex flex-col gap-4 flex-1 min-h-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Data Editor</h3>
+              <div className={`flex flex-col flex-1 min-h-0 ${isFullScreen ? 'mt-0' : 'mt-4 gap-3'}`}>
+                <div className={`flex items-center justify-between ${isFullScreen ? 'bg-white p-2 border-b border-slate-200' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    {isFullScreen ? (
+                      <div className="flex items-center gap-3">
+                        <span className="p-1.5 bg-blue-50 text-blue-600 rounded-md"><TableIcon size={16} /></span>
+                        <h2 className="text-sm font-bold text-slate-700 line-clamp-1 max-w-[300px]">{activeNode.name}</h2>
+                      </div>
+                    ) : (
+                      <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Data Editor</h3>
+                    )}
                     <div className="flex bg-slate-200 p-1 rounded-lg">
                       <button 
                         onClick={() => setViewMode('table')}
@@ -2207,7 +2341,17 @@ function DashboardContent() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex gap-2 print:hidden">
+                  <div className="flex gap-2 items-center print:hidden">
+                    <button 
+                      onClick={() => setIsFullScreen(!isFullScreen)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-all shadow-sm"
+                    >
+                      {isFullScreen ? (
+                        <><Minimize2 size={14} /> Exit Mode</>
+                      ) : (
+                        <><Maximize2 size={14} /> Full Screen</>
+                      )}
+                    </button>
                     <button 
                       onClick={handleSave}
                       disabled={isSaving}
