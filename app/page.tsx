@@ -548,9 +548,8 @@ function DashboardContent() {
 
         // Handle range selection
         if (selection) {
-          const isHeaderSelection = selection.startRow === -1;
-          const minRow = isHeaderSelection ? -1 : Math.min(selection.startRow, selection.endRow);
-          const maxRow = isHeaderSelection ? -1 : Math.max(selection.startRow, selection.endRow);
+          const minRow = Math.min(selection.startRow, selection.endRow);
+          const maxRow = Math.max(selection.startRow, selection.endRow);
           const startColIdx = visibleHeaders.indexOf(selection.startCol);
           const endColIdx = visibleHeaders.indexOf(selection.endCol);
           const minColIdx = Math.min(startColIdx, endColIdx);
@@ -595,7 +594,7 @@ function DashboardContent() {
         const finalOrder = [...baseOrder, ...uniqueObjectKeys];
         const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
-        if (selection && selection.startRow !== -1) {
+        if (selection) {
           const minRow = Math.min(selection.startRow, selection.endRow);
           const maxRow = Math.max(selection.startRow, selection.endRow);
           const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -965,7 +964,7 @@ function DashboardContent() {
           const finalOrder = [...baseOrder, ...uniqueObjectKeys];
           const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
-          if (selection && selection.startRow !== -1) {
+          if (selection) {
             const minRow = Math.min(selection.startRow, selection.endRow);
             const maxRow = Math.max(selection.startRow, selection.endRow);
             const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -1563,6 +1562,14 @@ function DashboardContent() {
       // Filter and finalize visible headers (excluding 'section')
       const visibleHeaders = finalOrder.filter(header => !hiddenColumns.includes(header) && header !== 'section' && allHeaders.includes(header));
 
+      // Pre-calculate selection bounds for efficient highlighting
+      const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
+      const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
+      const selMinColIdx = Math.min(selStartColIdx, selEndColIdx);
+      const selMaxColIdx = Math.max(selStartColIdx, selEndColIdx);
+      const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
+      const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
+
       const sections = Array.from(new Set(data.map((r: any) => r.section || "Uncategorized")));
 
       return (
@@ -1884,7 +1891,20 @@ function DashboardContent() {
               <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]`}>
                 <tr className="bg-slate-200/60 select-none h-5">
                   {/* The Corner Cell - Standardized border and background */}
-                  <th className={`w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}>
+                  <th 
+                    onClick={() => {
+                      if (data.length > 0 && visibleHeaders.length > 0) {
+                        setSelection({
+                          startRow: -1, // Include headers in selection
+                          endRow: data.length - 1,
+                          startCol: visibleHeaders[0],
+                          endCol: visibleHeaders[visibleHeaders.length - 1]
+                        });
+                        setActiveCell({ row: 0, col: visibleHeaders[0] });
+                      }
+                    }}
+                    className={`w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-slate-300 transition-colors ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}
+                  >
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-slate-500">◢</div>
                   </th>
                   {visibleHeaders.map((header, idx) => {
@@ -1951,12 +1971,7 @@ function DashboardContent() {
                     const alignClass = align === 'center' ? 'text-center' : 
                                      align === 'right' ? 'text-right' : 'text-left';
 
-                    const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
-                    const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
-                    
-                    const isInHeaderSelection = selection && selection.startRow === -1 && 
-                      colIdx >= Math.min(startColIdx, endColIdx) &&
-                      colIdx <= Math.max(startColIdx, endColIdx);
+                    const isInHeaderSelection = selection && selMinRow <= -1 && selMaxRow >= -1 && colIdx >= selMinColIdx && colIdx <= selMaxColIdx;
 
                     return (
                       <th 
@@ -2112,12 +2127,8 @@ function DashboardContent() {
 
                       if (meta.mergedIn) return null;
 
-                      const isInSelection = selection && 
-                        selection.startRow !== -1 &&
-                        globalIndex >= Math.min(selection.startRow, selection.endRow) &&
-                        globalIndex <= Math.max(selection.startRow, selection.endRow) &&
-                        visibleHeaders.indexOf(header) >= Math.min(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) &&
-                        visibleHeaders.indexOf(header) <= Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol));
+                      const currentColIdx = visibleHeaders.indexOf(header);
+                      const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && currentColIdx >= selMinColIdx && currentColIdx <= selMaxColIdx;
 
                       return (
                         <td 
