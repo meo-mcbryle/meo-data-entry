@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2 } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type } from 'lucide-react';
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -39,6 +39,7 @@ function DashboardContent() {
   const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isFreezePanes, setIsFreezePanes] = useState(false);
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
@@ -134,7 +135,16 @@ function DashboardContent() {
     }
   }, [activeCell, editedContent]);
 
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header' | 'row', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean, showFonts?: boolean } | null>(null);
+
+  const FONT_FAMILIES = [
+    { id: 'sans', label: 'Inter (Default)', value: 'var(--font-geist-sans), ui-sans-serif, system-ui' },
+    { id: 'roboto', label: 'Roboto', value: '"Roboto", sans-serif' },
+    { id: 'opensans', label: 'Open Sans', value: '"Open Sans", sans-serif' },
+    { id: 'serif', label: 'System Serif', value: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
+    { id: 'mono', label: 'System Mono', value: 'var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
+    { id: 'montserrat', label: 'Montserrat', value: '"Montserrat", sans-serif' },
+  ];
 
   const getExcelColumnLabel = (index: number): string => {
     let label = '';
@@ -525,6 +535,46 @@ function DashboardContent() {
     }
   };
 
+  const setCellFontFamily = (row: number, col: string, fontFamily: string) => {
+    setCellMetadata(prev => {
+      const next = { ...prev };
+      try {
+        const data = JSON.parse(editedContent || '[]');
+        const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+
+        // Handle range selection
+        if (selection) {
+          const isHeaderSelection = selection.startRow === -1;
+          const minRow = isHeaderSelection ? -1 : Math.min(selection.startRow, selection.endRow);
+          const maxRow = isHeaderSelection ? -1 : Math.max(selection.startRow, selection.endRow);
+          const startColIdx = visibleHeaders.indexOf(selection.startCol);
+          const endColIdx = visibleHeaders.indexOf(selection.endCol);
+          const minColIdx = Math.min(startColIdx, endColIdx);
+          const maxColIdx = Math.max(startColIdx, endColIdx);
+
+          for (let r = minRow; r <= maxRow; r++) {
+            for (let c = minColIdx; c <= maxColIdx; c++) {
+              const key = r === -1 ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+              next[key] = { ...next[key], fontFamily };
+            }
+          }
+        } else {
+          const key = row === -1 ? `header:${col}` : `${row}:${col}`;
+          next[key] = { ...next[key], fontFamily };
+        }
+      } catch (e) {
+        const key = row === -1 ? `header:${col}` : `${row}:${col}`;
+        next[key] = { ...next[key], fontFamily };
+      }
+      return next;
+    });
+    setContextMenu(null);
+  };
+
   const toggleCellAlignment = (rowIndex: number, header: string) => {
     setCellAlignments(prev => {
       const next = { ...prev };
@@ -785,6 +835,114 @@ function DashboardContent() {
       setEditedContent(JSON.stringify([...data, newRow], null, 2));
     } catch (e) {
       console.error("Failed to insert row into section");
+    }
+  };
+
+  const handleInsertRow = (index: number, position: 'above' | 'after') => {
+    try {
+      const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+      
+      const template = data.length > 0 
+        ? Object.keys(data[0]).reduce((acc, key) => ({ 
+            ...acc, 
+            [key]: key === 'section' ? data[index].section : "" 
+          }), {})
+        : { "Title / Item": "a.", "Amount": 0, "section": "Work A" };
+
+      const newData = [...data];
+      const insertIndex = position === 'above' ? index : index + 1;
+      newData.splice(insertIndex, 0, template);
+
+      const shiftKeys = (prev: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach(key => {
+          if (key.startsWith('header:')) {
+            next[key] = prev[key];
+            return;
+          }
+          const [rStr, ...cParts] = key.split(':');
+          const r = parseInt(rStr);
+          const col = cParts.join(':');
+          if (isNaN(r)) { next[key] = prev[key]; return; }
+          
+          if (r < insertIndex) next[key] = prev[key];
+          else next[`${r + 1}:${col}`] = prev[key];
+        });
+        return next;
+      };
+      setCellMetadata(shiftKeys);
+      setCellAlignments(shiftKeys);
+
+      setEditedContent(JSON.stringify(newData, null, 2));
+      setContextMenu(null);
+    } catch (e) {
+      console.error("Failed to insert row", e);
+    }
+  };
+
+  const handleClearRow = (index: number) => {
+    if (!window.confirm("Clear all data in this row?")) return;
+    try {
+      const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+      
+      const newData = [...data];
+      const section = newData[index].section;
+      newData[index] = Object.keys(newData[index]).reduce((acc, key) => ({
+        ...acc,
+        [key]: key === 'section' ? section : ""
+      }), {});
+
+      const clearRowMeta = (prev: Record<string, any>) => {
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (key.startsWith(`${index}:`)) delete next[key];
+        });
+        return next;
+      };
+      
+      setCellMetadata(clearRowMeta);
+      setCellAlignments(clearRowMeta);
+
+      setEditedContent(JSON.stringify(newData, null, 2));
+      setContextMenu(null);
+    } catch (e) {
+      console.error("Failed to clear row", e);
+    }
+  };
+
+  const handleClearColumn = (colName: string) => {
+    if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
+    try {
+      const data = JSON.parse(editedContent || '[]');
+      if (!Array.isArray(data)) return;
+      
+      const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
+
+      const clearColMeta = (prev: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(prev).forEach(key => {
+          if (key.startsWith('header:')) {
+            next[key] = prev[key];
+            return;
+          }
+          const [rStr, ...cParts] = key.split(':');
+          const col = cParts.join(':');
+          if (col !== colName) {
+            next[key] = prev[key];
+          }
+        });
+        return next;
+      };
+      
+      setCellMetadata(clearColMeta);
+      setCellAlignments(clearColMeta);
+
+      setEditedContent(JSON.stringify(newData, null, 2));
+      setContextMenu(null);
+    } catch (e) {
+      console.error("Failed to clear column", e);
     }
   };
 
@@ -1285,9 +1443,15 @@ function DashboardContent() {
       const shiftKeys = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
         Object.keys(prev).forEach(key => {
+          if (key.startsWith('header:')) {
+            next[key] = prev[key];
+            return;
+          }
           const [rStr, ...cParts] = key.split(':');
           const r = parseInt(rStr);
           const col = cParts.join(':');
+          if (isNaN(r)) { next[key] = prev[key]; return; }
+
           if (r < index) next[key] = prev[key];
           else if (r > index) next[`${r - 1}:${col}`] = prev[key];
         });
@@ -1411,6 +1575,19 @@ function DashboardContent() {
                 <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1.5 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none bg-white" />
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium">
+                <Type size={14} className="text-slate-400" />
+                <select 
+                  value={activeCell ? (cellMetadata[`${activeCell.row}:${activeCell.col}`]?.fontFamily || "") : ""} 
+                  onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)} 
+                  className="bg-transparent border-0 font-bold text-blue-600 focus:ring-0 cursor-pointer max-w-[120px]"
+                >
+                  <option value="">Font Family...</option>
+                  {FONT_FAMILIES.map(f => (
+                    <option key={f.id} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium">
                 <span className="text-slate-400">Year:</span>
                 <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-blue-600 focus:ring-0 cursor-pointer">
                   <option value="2020">2020</option>
@@ -1457,6 +1634,30 @@ function DashboardContent() {
                 <>
                   <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Column Options</div>
                   <button 
+                    onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                  >
+                    {isFreezePanes ? <Minimize2 size={14} className="text-blue-500" /> : <Maximize2 size={14} className="text-slate-400" />}
+                    {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
+                  </button>
+                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="relative group/sub">
+                    <button 
+                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFonts: true, showFormats: false } : null)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="flex items-center gap-2"><Type size={14} className="text-blue-500" /> Set Column Font</span>
+                      <ChevronRightIcon size={12} className="text-slate-300" />
+                    </button>
+                    {contextMenu.showFonts && (
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                        {FONT_FAMILIES.map(f => (
+                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 hover:text-blue-700">{f.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button 
                     onClick={() => { toggleAlignment(contextMenu.col); setContextMenu(null); }} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
                   >
@@ -1496,12 +1697,47 @@ function DashboardContent() {
                   >
                     <Plus size={14} className="text-blue-500" /> Insert Column After
                   </button>
+                  <button 
+                    onClick={() => handleClearColumn(contextMenu.col)} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <X size={14} className="text-orange-500" /> Clear Column Content
+                  </button>
                   <div className="h-px bg-slate-100 my-1"></div>
                   <button 
                     onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2"
                   >
                     <Trash2 size={14} /> Delete Column
+                  </button>
+                </>
+              ) : contextMenu.type === 'row' ? (
+                <>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Row Options</div>
+                  <button 
+                    onClick={() => handleInsertRow(contextMenu.row!, 'above')} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <Plus size={14} className="text-blue-500" /> Insert Row Above
+                  </button>
+                  <button 
+                    onClick={() => handleInsertRow(contextMenu.row!, 'after')} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <Plus size={14} className="text-blue-500" /> Insert Row Below
+                  </button>
+                  <button 
+                    onClick={() => handleClearRow(contextMenu.row!)} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <X size={14} className="text-orange-500" /> Clear Row Content
+                  </button>
+                  <div className="h-px bg-slate-100 my-1"></div>
+                  <button 
+                    onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2"
+                  >
+                    <Trash2 size={14} /> Delete Row
                   </button>
                 </>
               ) : (
@@ -1645,45 +1881,69 @@ function DashboardContent() {
             className="flex-1 overflow-auto relative"
           >
             <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
-              <thead className="bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]">
+              <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]`}>
                 <tr className="bg-slate-200/60 select-none h-5">
                   {/* The Corner Cell - Standardized border and background */}
-                  <th className="w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)]">
+                  <th className={`w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}>
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-slate-500">◢</div>
                   </th>
-                  {visibleHeaders.map((header, idx) => (
-                    <th 
-                      key={`col-label-${idx}`} 
-                      onClick={() => {
-                        try {
-                          const data = JSON.parse(editedContent || '[]');
-                          if (data.length > 0) {
-                            setSelection({
-                              startRow: 0,
-                              endRow: data.length - 1,
-                              startCol: header,
-                              endCol: header
-                            });
-                            setActiveCell({ row: 0, col: header });
-                          }
-                        } catch(e) {}
-                      }}
-                      style={{ 
-                        width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                        minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
-                      }}
-                      className="text-[9px] font-black text-slate-400 border-r border-b border-slate-300 h-5 text-center uppercase tracking-tighter cursor-pointer hover:bg-slate-300 hover:text-slate-600 transition-colors"
-                    >
-                      {getExcelColumnLabel(idx)}
-                    </th>
-                  ))}
+                  {visibleHeaders.map((header, idx) => {
+                    const headerMeta = cellMetadata[`header:${header}`] || {};
+                    const isColumnActive = activeCell?.col === header;
+                    return (
+                      <th 
+                        key={`col-label-${idx}`} 
+                        onClick={() => {
+                          try {
+                            const data = JSON.parse(editedContent || '[]');
+                            if (data.length > 0) {
+                              setSelection({
+                                startRow: 0,
+                                endRow: data.length - 1,
+                                startCol: header,
+                                endCol: header
+                              });
+                              setActiveCell({ row: 0, col: header });
+                            }
+                          } catch(e) {}
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          const menuWidth = 192;
+                          const menuHeight = 320; 
+                          const winW = window.innerWidth;
+                          const winH = window.innerHeight;
+                          
+                          let x = e.clientX;
+                          let y = e.clientY;
+                          if (x + menuWidth > winW) x -= menuWidth;
+                          if (y + menuHeight > winH) y -= menuHeight;
+                          
+                          setContextMenu({ x, y, col: header, type: 'header' });
+                        }}
+                        style={{ 
+                          fontFamily: headerMeta.fontFamily || 'inherit',
+                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
+                        }}
+                        className={`text-[9px] font-black border-r border-b border-slate-300 h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
+                          isColumnActive ? 'bg-blue-100 text-blue-700 shadow-[inset_0_-2px_0_0_#2563eb]' : 'text-slate-400 hover:bg-slate-300 hover:text-slate-600'
+                        } ${
+                          isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1] ${isColumnActive ? 'bg-blue-100' : 'bg-slate-100'}` : ""
+                        }`}
+                      >
+                        {getExcelColumnLabel(idx)}
+                      </th>
+                    );
+                  })}
                   <th className="border-r border-b border-slate-300"></th>
                   <th className="sticky right-0 border-l border-b border-slate-300 z-40 bg-slate-200/50"></th>
                 </tr>
                 <tr>
-                  <th className="w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-100"></th>
+                  <th className={`w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-100 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
+                    const isColumnActive = activeCell?.col === header;
                     if (headerMeta.mergedIn) return null;
 
                     const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
@@ -1735,7 +1995,11 @@ function DashboardContent() {
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                     }}
-                    className={`group/header px-2 py-1 text-[11px] font-bold text-slate-500 tracking-tight border-r border-b border-slate-300 relative bg-slate-100 ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
+                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-slate-300 relative antialiased transition-colors ${
+                      isColumnActive ? 'text-blue-700 bg-blue-50/50' : 'text-slate-500 bg-slate-100'
+                    } ${
+                      isFreezePanes && header === "Title / Item" ? "sticky left-10 top-0 z-40 shadow-[1px_0_0_0_#cbd5e1]" : ""
+                    } ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
                     >
                       <div className="flex items-center gap-1">
                         <input
@@ -1799,10 +2063,29 @@ function DashboardContent() {
                       {/* Data Rows */}
                       {sectionRows.map((row: any, localIndex: number) => {
                         const globalIndex = data.indexOf(row);
+                        const isRowActive = activeCell?.row === globalIndex;
                         return (
                           <tr key={globalIndex} className="hover:bg-slate-50 transition-colors group relative">
                             <td
-                              className="w-10 min-w-[40px] text-[10px] font-bold text-slate-400 text-center border-r border-b border-slate-300 bg-slate-50 select-none cursor-pointer hover:bg-slate-200 hover:text-slate-600 transition-colors"
+                              className={`w-10 min-w-[40px] text-[10px] font-bold text-center border-r border-b border-slate-300 select-none cursor-pointer transition-colors ${
+                                isRowActive ? 'bg-blue-100 text-blue-700 shadow-[inset_-2px_0_0_0_#2563eb]' : 'bg-slate-50 text-slate-400 hover:bg-slate-200 hover:text-slate-600'
+                              } ${
+                                isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''
+                              }`}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                const menuWidth = 192;
+                                const menuHeight = 200; 
+                                const winW = window.innerWidth;
+                                const winH = window.innerHeight;
+                                
+                                let x = e.clientX;
+                                let y = e.clientY;
+                                if (x + menuWidth > winW) x -= menuWidth;
+                                if (y + menuHeight > winH) y -= menuHeight;
+                                
+                                setContextMenu({ x, y, row: globalIndex, col: "", type: 'row' });
+                              }}
                               onClick={() => {
                                 setSelection({
                                   startRow: globalIndex,
@@ -1857,6 +2140,7 @@ function DashboardContent() {
                           }}
                           onMouseDown={(e) => {
                             if (e.button === 0) { // Left click only for selecting
+                              setActiveCell({ row: globalIndex, col: header });
                               setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                               setIsSelecting(true);
                             } else if (e.button === 2) { // Right click
@@ -1885,23 +2169,27 @@ function DashboardContent() {
                             }
                           }}
                           onClick={() => { 
-                            setActiveCell({ row: globalIndex, col: header }); 
                             // Only clear selection if it's a single cell click (no drag range)
                             if (selection && selection.startRow === selection.endRow && selection.startCol === selection.endCol) {
                               setSelection(null); 
                             }
                           }}
-                          className={`p-0 border-r border-slate-200 bg-white group/cell relative align-top ${
+                          className={`p-0 border-r border-slate-200 bg-white group/cell relative align-middle ${
+                            meta.fontFamily ? '' : 'font-sans'
+                          } ${
+                            isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_#cbd5e1]" : ""
+                          } ${
                             activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-blue-500 z-20' : ''
                           } ${
-                            isInSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''
+                            isInSelection ? `bg-blue-50/50 z-10 ${activeCell?.row === globalIndex && activeCell?.col === header ? '' : 'ring-1 ring-inset ring-blue-200'}` : ''
                           }`}
+                          style={{ fontFamily: meta.fontFamily || 'inherit' }}
                         >
                           {/* Fill Handle */}
                           {activeCell?.row === globalIndex && activeCell?.col === header && (
                             <div 
                               onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)}
-                              className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-blue-600 border border-white cursor-crosshair z-30 -mb-1 -mr-1 shadow-sm rounded-sm hover:scale-125 transition-transform" 
+                              className="absolute bottom-0 right-0 w-2 h-2 bg-blue-600 border border-white cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full hover:scale-150 transition-transform" 
                               title="Drag to fill"
                             />
                           )}
@@ -1930,7 +2218,7 @@ function DashboardContent() {
                               data-col={header}
                               onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
                               onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
-                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none cursor-pointer relative z-0 font-sans ${alignClass}`}
+                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 cursor-pointer relative z-0 ${alignClass}`}
                             >
                               <option value="">Select...</option>
                               {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => (
@@ -1953,9 +2241,9 @@ function DashboardContent() {
                                     // Fallback for older browsers
                                   }
                                 }}
-                            className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
+                                className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
                               />
-                          <div className={`w-full px-2 py-1 text-sm text-slate-800 !normal-case font-sans ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
+                          <div className={`w-full px-2 py-1 text-sm text-slate-800 !normal-case ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
                             cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
                           }`}>
                             {row[header] 
@@ -2000,7 +2288,7 @@ function DashboardContent() {
                           ) : isFormula ? (
                             <div 
                               onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                              className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text transition-all !normal-case font-sans min-h-[28px] flex items-center ${
+                              className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text transition-all !normal-case min-h-[28px] flex items-center ${
                                 activeCell?.row === globalIndex && activeCell?.col === header 
                                   ? 'bg-purple-50/80' 
                                   : 'hover:bg-purple-50/50'
@@ -2024,12 +2312,12 @@ function DashboardContent() {
                                 value={row[header] ?? ''}
                                 onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))}
                                 onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                                className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
+                                className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 min-h-[28px] ${alignClass}`}
                               />
                             ) : (
                               <div 
                                 onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                                className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text min-h-[28px] flex items-center font-sans ${
+                                className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text min-h-[28px] flex items-center ${
                                   cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
                                 }`}
                               >
@@ -2047,7 +2335,7 @@ function DashboardContent() {
                               onFocus={() => setActiveCell({ row: globalIndex, col: header })}
                               onChange={(e) => handleUpdateCell(globalIndex, header, header === 'Amount' ? parseFloat(e.target.value) : e.target.value)}
                               onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 focus:ring-2 focus:ring-inset focus:ring-blue-400 outline-none font-sans ${alignClass}`}
+                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 min-h-[28px] ${alignClass}`}
                             />
                           )}
                         </td>
@@ -2055,7 +2343,7 @@ function DashboardContent() {
                     })}
                     {/* Spacer cell to align with 'Add Column' header */}
                     <td className="border-r border-b border-slate-200 bg-transparent"></td>
-                    <td className="px-2 py-2 text-center sticky right-0 bg-white group-hover:bg-slate-50 border-l border-slate-200 z-20 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
+                    <td className="px-2 py-1 text-center sticky right-0 bg-white group-hover:bg-slate-50 border-l border-slate-200 z-20 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
                       <button onClick={() => removeTableRow(globalIndex)} className="text-slate-300 hover:text-red-600 transition-colors">
                         <Trash2 size={16} />
                       </button>
@@ -2065,14 +2353,16 @@ function DashboardContent() {
                       })}
                       {/* Section Summary Row */}
                       <tr className="bg-slate-50/50 border-t border-slate-200 font-semibold">
-                        <td className="w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-50/50"></td>
+                        <td className={`w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-50/50 ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}></td>
                         {visibleHeaders.map((header) => {
                           const alignClass = columnAlignments[header] === 'center' ? 'text-center' : 
                                            columnAlignments[header] === 'right' ? 'text-right' : 'text-left';
 
                           if (header === "Title / Item") {
                             return (
-                              <td key="total-label" className={`px-2 py-1.5 text-xs font-bold text-slate-500 text-right border-r border-slate-300 bg-slate-50`}>
+                              <td key="total-label" className={`px-2 py-1 text-xs font-bold text-slate-500 text-right border-r border-slate-300 bg-slate-50 ${
+                                isFreezePanes ? 'sticky left-10 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''
+                              }`}>
                                 Subtotal:
                               </td>
                             );
@@ -2080,14 +2370,14 @@ function DashboardContent() {
                           if (header === "Amount") {
                             const total = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
                             return (
-                              <td key="total-amount" className={`px-3 py-1.5 text-sm font-bold text-blue-700 border-r border-slate-200 ${alignClass}`}>
+                              <td key="total-amount" className={`px-2 py-1 text-sm font-bold text-blue-700 border-r border-slate-200 ${alignClass}`}>
                                 {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             );
                           }
-                          return <td key={`total-empty-${header}`} className="border-r border-slate-200"></td>;
+                          return <td key={`total-empty-${header}`} className="px-2 py-1 border-r border-slate-200"></td>;
                         })}
-                        <td className="border-r border-slate-200"></td>
+                        <td className="px-2 py-1 border-r border-slate-200"></td>
                         <td className="sticky right-0 bg-slate-50/50 border-l border-slate-200 z-20"></td>
                       </tr>
                       {/* Option (Insert) Row */}
