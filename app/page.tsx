@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut } from 'lucide-react';
 
 /**
  * Theme Registry: Centralized class management for Dark/Light mode consistency.
@@ -128,7 +128,20 @@ const GridRow = React.memo(({
         className={`w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
           isRowActive ? 'bg-accent/10 text-accent shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'
         } ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''}`}
-        onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: "", type: 'row' }); }}
+        onContextMenu={(e) => { 
+          e.preventDefault(); 
+          // Update selection if right-clicking a row outside current selection
+          const isInside = selection && globalIndex >= Math.min(selection.startRow, selection.endRow) && globalIndex <= Math.max(selection.startRow, selection.endRow);
+          if (!isInside) {
+            setSelection({ 
+              startRow: globalIndex, 
+              endRow: globalIndex, 
+              startCol: visibleHeaders[0], 
+              endCol: visibleHeaders[visibleHeaders.length - 1] 
+            });
+          }
+          setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: "", type: 'row' }); 
+        }}
         onClick={() => {
           setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
           setActiveCell({ row: globalIndex, col: visibleHeaders[0] });
@@ -141,13 +154,32 @@ const GridRow = React.memo(({
         const meta = cellMetadata[cellKey] || {};
         if (meta.mergedIn) return null;
         const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
-        const alignClass = cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left';
+        // Fix: Use both text-alignment and flex-justification classes
+        const alignClass = cellAlign === 'center' ? 'text-center justify-center' : cellAlign === 'right' ? 'text-right justify-end' : 'text-left justify-start';
+
         const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
 
         return (
           <td 
             key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
-            onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: header, type: 'cell' }); }}
+            onContextMenu={(e) => { 
+              e.preventDefault(); 
+              // Update selection if right-clicking outside current selection
+              const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
+              const endColIdx = selection ? visibleHeaders.indexOf(selection.endCol) : -1;
+              const currentColIdx = visibleHeaders.indexOf(header);
+              const isInside = selection && 
+                globalIndex >= Math.min(selection.startRow, selection.endRow) && 
+                globalIndex <= Math.max(selection.startRow, selection.endRow) &&
+                currentColIdx >= Math.min(startColIdx, endColIdx) && 
+                currentColIdx <= Math.max(startColIdx, endColIdx);
+
+              if (!isInside) {
+                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
+                setActiveCell({ row: globalIndex, col: header });
+              }
+              setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: header, type: 'cell' }); 
+            }}
             onMouseDown={(e) => { if (e.button === 0) { setActiveCell({ row: globalIndex, col: header }); setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); setIsSelecting(true); }}}
             onMouseEnter={() => { if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); }}
             className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
@@ -200,7 +232,37 @@ const GridRow = React.memo(({
       </td>
     </tr>
   );
-}, (prev, next) => prev.row === next.row && prev.activeCell === next.activeCell && prev.selection === next.selection && prev.isSelecting === next.isSelecting && prev.isFreezePanes === next.isFreezePanes);
+}, (prev, next) => {
+  // 1. Check if the row data itself changed
+  if (prev.row !== next.row) return false;
+  // 2. Check if the active cell/selection affects this specific row
+  if (prev.activeCell?.row === prev.globalIndex || next.activeCell?.row === next.globalIndex) return false;
+  if (prev.selection !== next.selection) return false;
+  
+  // 3. Performance Fix: Instead of checking the whole alignments object,
+  // check if any alignment relevant to THIS row changed.
+  const hasAlignChange = prev.visibleHeaders.some((h: string) => {
+    const key = `${prev.globalIndex}:${h}`;
+    return prev.cellAlignments[key] !== next.cellAlignments[key] || 
+           prev.columnAlignments[h] !== next.columnAlignments[h];
+  });
+  if (hasAlignChange) return false;
+  
+  // 4. Performance Fix: Only re-render if metadata specifically for THIS row changed
+  const hasMetaChange = prev.visibleHeaders.some((h: string) => {
+    const key = `${prev.globalIndex}:${h}`;
+    return prev.cellMetadata[key] !== next.cellMetadata[key];
+  });
+  if (hasMetaChange) return false;
+
+  // 5. Standard UI state checks
+  return (
+    prev.isSelecting === next.isSelecting && 
+    prev.isFreezePanes === next.isFreezePanes &&
+    prev.visibleHeaders === next.visibleHeaders &&
+    prev.dragFillRange === next.dragFillRange
+  );
+});
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -237,6 +299,7 @@ function DashboardContent() {
   const [isFreezePanes, setIsFreezePanes] = useState(false);
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [zoom, setZoom] = useState(1);
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
@@ -347,17 +410,34 @@ function DashboardContent() {
     }
   };
 
-  const toggleAlignment = useCallback((header: string) => {
-    setColumnAlignments(prev => {
-      const current = prev[header] || 'left';
-      const nextMap: Record<string, 'left' | 'center' | 'right'> = {
-        left: 'center',
-        center: 'right',
-        right: 'left'
-      };
-      return { ...prev, [header]: nextMap[current] };
+  const allHeaders = useMemo(() => gridData.length > 0 ? Object.keys(gridData[0]) : [], [gridData]);
+
+  const visibleHeaders = useMemo(() => {
+    const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+    const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+    const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+    return finalOrder.filter(header => !hiddenColumns.includes(header) && header !== 'section' && allHeaders.includes(header));
+  }, [allHeaders, columnOrder, hiddenColumns]);
+
+  const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
+    setColumnAlignments(prev => ({ ...prev, [header]: align }));
+    // Clear cell-specific overrides in this column to ensure the whole column follows the new setting
+    setCellAlignments(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        if (key.endsWith(`:${header}`)) delete next[key];
+      });
+      return next;
     });
+    setContextMenu(null);
   }, []);
+
+  // Kept for backward compatibility if needed elsewhere, but cycles alignments
+  const toggleAlignment = useCallback((header: string) => {
+    const current = columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
+    const nextMap: Record<string, 'left' | 'center' | 'right'> = { left: 'center', center: 'right', right: 'left' };
+    setColumnAlignment(header, nextMap[current]);
+  }, [columnAlignments, setColumnAlignment]);
 
   // Auto-expand formula bar height based on content
   useEffect(() => {
@@ -638,8 +718,18 @@ function DashboardContent() {
       const finalOrder = [...baseOrder, ...uniqueObjectKeys];
       const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
-      // Handle range selection
-        if (selection) {
+      // Only apply to selection if the targeted cell is part of it
+      const isPartofSelection = selection && 
+        row >= Math.min(selection.startRow, selection.endRow) &&
+        row <= Math.max(selection.startRow, selection.endRow) &&
+        (() => {
+          const startColIdx = visibleHeaders.indexOf(selection.startCol);
+          const endColIdx = visibleHeaders.indexOf(selection.endCol);
+          const currentColIdx = visibleHeaders.indexOf(col);
+          return currentColIdx >= Math.min(startColIdx, endColIdx) && currentColIdx <= Math.max(startColIdx, endColIdx);
+        })();
+
+        if (isPartofSelection && selection) {
           const minRow = Math.min(selection.startRow, selection.endRow);
           const maxRow = Math.max(selection.startRow, selection.endRow);
           const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -662,26 +752,29 @@ function DashboardContent() {
     setContextMenu(null);
   };
 
-  const toggleCellAlignment = (rowIndex: number, header: string) => {
+  const toggleCellAlignment = useCallback((rowIndex: number, header: string) => {
     setCellAlignments(prev => {
       const next = { ...prev };
-      const cellKey = `${rowIndex}:${header}`;
-      const current = prev[cellKey] || columnAlignments[header] || 'left';
-      const nextMap: Record<string, 'left' | 'center' | 'right'> = {
-        left: 'center',
-        center: 'right',
-        right: 'left'
-      };
-      const nextAlign = nextMap[current];
+      // Determine next alignment based on the specific clicked cell
+      const targetKey = `${rowIndex}:${header}`;
+      const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
+      const currentAlign = prev[targetKey] || columnAlignments[header] || defaultAlign;
+      
+      const nextMap: Record<string, 'left' | 'center' | 'right'> = { left: 'center', center: 'right', right: 'left' };
+      const nextAlign = nextMap[currentAlign];
 
-      const data = gridData;
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-      const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-      const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-      const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+      // Multi-cell logic: Only apply to entire selection if the clicked cell is inside the selection
+      const isTargetInSelection = selection && 
+        rowIndex >= Math.min(selection.startRow, selection.endRow) && 
+        rowIndex <= Math.max(selection.startRow, selection.endRow) &&
+        (() => {
+          const startColIdx = visibleHeaders.indexOf(selection.startCol);
+          const endColIdx = visibleHeaders.indexOf(selection.endCol);
+          const currentColIdx = visibleHeaders.indexOf(header);
+          return currentColIdx >= Math.min(startColIdx, endColIdx) && currentColIdx <= Math.max(startColIdx, endColIdx);
+        })();
 
-        if (selection) {
+      if (isTargetInSelection && selection) {
           const minRow = Math.min(selection.startRow, selection.endRow);
           const maxRow = Math.max(selection.startRow, selection.endRow);
           const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -691,15 +784,17 @@ function DashboardContent() {
 
           for (let r = minRow; r <= maxRow; r++) {
             for (let c = minColIdx; c <= maxColIdx; c++) {
-              next[`${r}:${visibleHeaders[c]}`] = nextAlign;
+              // Support header key if selected
+              const key = r === -1 ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+              next[key] = nextAlign;
             }
           }
         } else {
-          next[cellKey] = nextAlign;
+          next[targetKey] = nextAlign;
         }
       return next;
     });
-  };
+  }, [columnAlignments, selection, visibleHeaders, setCellAlignments]);
 
   const toggleColumnVisibility = (key: string) => {
     setHiddenColumns(prev => 
@@ -992,7 +1087,18 @@ function DashboardContent() {
         const finalOrder = [...baseOrder, ...uniqueObjectKeys];
         const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
-          if (selection) {
+          // Only apply to selection if the targeted cell is part of it
+          const isPartofSelection = selection && 
+            row >= Math.min(selection.startRow, selection.endRow) &&
+            row <= Math.max(selection.startRow, selection.endRow) &&
+            (() => {
+              const startColIdx = visibleHeaders.indexOf(selection.startCol);
+              const endColIdx = visibleHeaders.indexOf(selection.endCol);
+              const currentColIdx = visibleHeaders.indexOf(col);
+              return currentColIdx >= Math.min(startColIdx, endColIdx) && currentColIdx <= Math.max(startColIdx, endColIdx);
+            })();
+
+          if (isPartofSelection && selection) {
             const minRow = Math.min(selection.startRow, selection.endRow);
             const maxRow = Math.max(selection.startRow, selection.endRow);
             const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -1566,16 +1672,6 @@ function DashboardContent() {
         );
       }
 
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-      
-      // Determine header order: Preferred order first, then any new keys found in the object
-      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-      const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-      const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-
-      // Filter and finalize visible headers (excluding 'section')
-      const visibleHeaders = finalOrder.filter(header => !hiddenColumns.includes(header) && header !== 'section' && allHeaders.includes(header));
-
       // Pre-calculate selection bounds for efficient highlighting
       const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
       const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
@@ -1630,6 +1726,18 @@ function DashboardContent() {
                   ))}
                 </select>
               </div>
+              {/* Zoom Controls */}
+              <div className="flex items-center gap-1 px-2 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
+                <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom Out">
+                  <ZoomOut size={14} />
+                </button>
+                <button onClick={() => setZoom(1)} className="w-10 text-center font-bold text-accent select-none hover:bg-muted/10 rounded transition-colors" title="Reset Zoom">
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button onClick={() => setZoom(Math.min(2, zoom + 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom In">
+                  <ZoomIn size={14} />
+                </button>
+              </div>
               <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
                 <Plus size={14} className="text-green-600" /> Add Section
               </button>
@@ -1678,14 +1786,18 @@ function DashboardContent() {
                       </div>
                     )}
                   </div>
-                  <button 
-                    onClick={() => { toggleAlignment(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    {columnAlignments[contextMenu.col] === 'center' ? <AlignCenter size={14} /> :
-                     columnAlignments[contextMenu.col] === 'right' ? <AlignRight size={14} /> : <AlignLeft size={14} />}
-                    Toggle Alignment
+                  <div className="h-px bg-border my-1"></div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Alignment</div>
+                  <button onClick={() => setColumnAlignment(contextMenu.col, 'left')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignLeft size={14} className={columnAlignments[contextMenu.col] === 'left' ? "text-accent" : "text-muted"} /> Left Alignment
                   </button>
+                  <button onClick={() => setColumnAlignment(contextMenu.col, 'center')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignCenter size={14} className={columnAlignments[contextMenu.col] === 'center' ? "text-accent" : "text-muted"} /> Center Alignment
+                  </button>
+                  <button onClick={() => setColumnAlignment(contextMenu.col, 'right')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignRight size={14} className={columnAlignments[contextMenu.col] === 'right' ? "text-accent" : "text-muted"} /> Right Alignment
+                  </button>
+                  <div className="h-px bg-border my-1"></div>
                   <button 
                     onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
@@ -1901,7 +2013,10 @@ function DashboardContent() {
             onScroll={(e) => setShowBackToTop(e.currentTarget.scrollTop > 300)}
             className="flex-1 overflow-auto relative"
           >
-            <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
+            <table 
+              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left"
+              style={{ zoom: zoom } as any}
+            >
               <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} ${GRID_THEME.tableHeader}`}>
                 <tr className={GRID_THEME.tableHeaderRow}>
                   {/* The Corner Cell - Standardized border and background */}
@@ -1941,6 +2056,16 @@ function DashboardContent() {
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
+                          // Excel behavior: Right-click selects the whole column
+                          if (gridData.length > 0) {
+                            setSelection({
+                              startRow: 0,
+                              endRow: data.length - 1,
+                              startCol: header,
+                              endCol: header
+                            });
+                            setActiveCell({ row: 0, col: header });
+                          }
                           const menuWidth = 192;
                           const menuHeight = 320; 
                           const winW = window.innerWidth;
@@ -1991,6 +2116,16 @@ function DashboardContent() {
                       colSpan={headerMeta.colSpan}
                     onContextMenu={(e) => {
                       e.preventDefault();
+                      // Excel behavior: Right-click selects the whole column
+                      if (gridData.length > 0) {
+                        setSelection({
+                          startRow: 0,
+                          endRow: data.length - 1,
+                          startCol: header,
+                          endCol: header
+                        });
+                        setActiveCell({ row: 0, col: header });
+                      }
                       const menuWidth = 192;
                       const menuHeight = 280; // Estimated height for header menu
                       const winW = window.innerWidth;
