@@ -28,7 +28,7 @@ const GRID_THEME = {
   tableHeader: "bg-muted/10 shadow-[0_1px_0_rgba(0,0,0,0.1)]",
   tableHeaderRow: "bg-muted/20 select-none h-5",
   tableIndexCell: "border-r border-b border-border",
-  tableCell: "p-0 border-r border-border bg-card group/cell relative align-middle",
+  tableCell: "p-0 border-r border-b border-border bg-card group/cell relative align-middle",
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive
@@ -127,7 +127,7 @@ const GridRow = React.memo(({
       <td
         className={`w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
           isRowActive ? 'bg-accent/10 text-accent shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'
-        } ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
+        } ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''}`}
         onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: "", type: 'row' }); }}
         onClick={() => {
           setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
@@ -151,7 +151,7 @@ const GridRow = React.memo(({
             onMouseDown={(e) => { if (e.button === 0) { setActiveCell({ row: globalIndex, col: header }); setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); setIsSelecting(true); }}}
             onMouseEnter={() => { if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); }}
             className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
-            style={{ fontFamily: meta.fontFamily || 'inherit' }}
+            style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
             {activeCell?.row === globalIndex && activeCell?.col === header && (
               <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full" />
