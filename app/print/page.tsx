@@ -63,7 +63,18 @@ function PrintContent() {
     );
   }
 
-  const sectionsToRender = allAvailableSections.filter(s => visibleSections.includes(s));
+  // Group rows into contiguous blocks by section name to maintain the exact sequential order 
+  // of rows as they appear in the spreadsheet, allowing for split sections.
+  const sectionBlocks: { name: string, rows: any[] }[] = [];
+  data.forEach(row => {
+    const sectionName = row.section || "Uncategorized";
+    const lastBlock = sectionBlocks[sectionBlocks.length - 1];
+    if (lastBlock && lastBlock.name === sectionName) {
+      lastBlock.rows.push(row);
+    } else {
+      sectionBlocks.push({ name: sectionName, rows: [row] });
+    }
+  });
 
   const grandTotal = data
     .filter((r: any) => visibleSections.includes(r.section || "Uncategorized"))
@@ -277,12 +288,13 @@ function PrintContent() {
           </tr>
         </thead>
         <tbody>
-          {sectionsToRender.map((sectionName: any) => {
-            const sectionRows = data.filter((r: any) => r.section === sectionName);
+          {sectionBlocks.map((block, blockIdx) => {
+            if (!visibleSections.includes(block.name)) return null;
+            const { name: sectionName, rows: sectionRows } = block;
             const sectionTotal = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
 
             return (
-              <React.Fragment key={sectionName}>
+              <React.Fragment key={`${sectionName}-${blockIdx}`}>
                 <tr className="bg-slate-50">
                   <td colSpan={visibleHeaders.length} className="py-2 px-3 font-black text-[10px] tracking-widest border-y border-slate-300 text-slate-800">
                     Section: {sectionName}

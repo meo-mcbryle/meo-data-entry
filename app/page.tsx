@@ -114,7 +114,8 @@ const GridRow = React.memo(({
   dragFillRange, isSelecting, handleUpdateCell, handleKeyDown,
   setActiveCell, setSelection, setIsSelecting, setContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
-  setViewingMedia, removeCellMetadata, evaluateFormula
+  setViewingMedia, removeCellMetadata, evaluateFormula,
+  rowHeights, startRowResizing
 }: any) => {
   const isRowActive = activeCell?.row === globalIndex;
   const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
@@ -123,9 +124,9 @@ const GridRow = React.memo(({
   const selMaxColIdx = selection ? Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
 
   return (
-    <tr className={GRID_THEME.tableBodyRow}>
+    <tr className={GRID_THEME.tableBodyRow} style={{ height: rowHeights[globalIndex] ? `${rowHeights[globalIndex]}px` : undefined }}>
       <td
-        className={`w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
+        className={`relative group/row-index w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
           isRowActive ? 'bg-accent/10 text-accent shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'
         } ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''}`}
         onContextMenu={(e) => { 
@@ -148,6 +149,11 @@ const GridRow = React.memo(({
         }}
       >
         {globalIndex + 1}
+        <div 
+          onMouseDown={(e) => startRowResizing(globalIndex, e)}
+          className="absolute bottom-0 left-0 w-full h-1.5 cursor-row-resize hover:bg-accent z-50 transition-colors group-hover/row-index:bg-muted/40"
+          title="Drag to resize height"
+        />
       </td>
       {visibleHeaders.map((header: string, colIndex: number) => {
         const cellKey = `${globalIndex}:${header}`;
@@ -254,8 +260,11 @@ const GridRow = React.memo(({
     return prev.cellMetadata[key] !== next.cellMetadata[key];
   });
   if (hasMetaChange) return false;
+  
+  // 5. Check if height specifically for THIS row changed
+  if (prev.rowHeights[prev.globalIndex] !== next.rowHeights[next.globalIndex]) return false;
 
-  // 5. Standard UI state checks
+  // 6. Standard UI state checks
   return (
     prev.isSelecting === next.isSelecting && 
     prev.isFreezePanes === next.isFreezePanes &&
@@ -264,11 +273,42 @@ const GridRow = React.memo(({
   );
 });
 
+/**
+ * Sparse Model Utilities
+ * Converts Array of Objects [{col: val}] to Map "row:col" -> val
+ */
+const arrayToSparseMap = (data: any[]): Map<string, any> => {
+  const map = new Map<string, any>();
+  data.forEach((row, rowIndex) => {
+    Object.entries(row).forEach(([colName, value]) => {
+      map.set(`${rowIndex}:${colName}`, value);
+    });
+  });
+  return map;
+};
+
+const sparseMapToArray = (map: Map<string, any>, rowCount: number, headers: string[]): any[] => {
+  const result = [];
+  for (let r = 0; r < rowCount; r++) {
+    const row: any = {};
+    headers.forEach(h => {
+      const val = map.get(`${r}:${h}`);
+      if (val !== undefined) row[h] = val;
+    });
+    // Critical: Ensure the section property is preserved in the exported array
+    row.section = map.get(`${r}:section`) || "Uncategorized";
+    result.push(row);
+  }
+  return result;
+};
+
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [gridData, setGridData] = useState<any[]>([]); // Native Array State
+  const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
+  const [rowCount, setRowCount] = useState(0);
+  const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
@@ -388,8 +428,9 @@ function DashboardContent() {
       const parsed = JSON.parse(val);
       
       // If user pasted/typed the full document structure
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.content) {
-        setGridData(parsed.content); // Update native state
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.content)) {
+        setGridData(arrayToSparseMap(parsed.content)); // Update native state
+        setRowCount(parsed.content.length);
         if (parsed.display_settings) {
           const ds = parsed.display_settings;
           setColumnAlignments(ds.columnAlignments || {});
@@ -399,24 +440,26 @@ function DashboardContent() {
           setColumnOrder(ds.columnOrder || []);
           setColumnWidths(ds.columnWidths || {});
           setCellMetadata(ds.cellMetadata || {});
+          setRowHeights(ds.rowHeights || {});
         }
       } 
       // If user pasted/typed just the data array (backward compatibility)
       else if (Array.isArray(parsed)) {
-        setGridData(parsed);
+        setGridData(arrayToSparseMap(parsed));
+        setRowCount(parsed.length);
       }
     } catch (e) {
       // Keep codeViewContent as is so user can fix syntax errors
     }
   };
 
-  const allHeaders = useMemo(() => gridData.length > 0 ? Object.keys(gridData[0]) : [], [gridData]);
+  const allHeaders = useMemo(() => {
+    if (columnOrder.length > 0) return columnOrder;
+    return ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+  }, [columnOrder]);
 
   const visibleHeaders = useMemo(() => {
-    const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-    const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-    const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-    return finalOrder.filter(header => !hiddenColumns.includes(header) && header !== 'section' && allHeaders.includes(header));
+    return allHeaders.filter(header => !hiddenColumns.includes(header) && header !== 'section');
   }, [allHeaders, columnOrder, hiddenColumns]);
 
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
@@ -476,6 +519,38 @@ function DashboardContent() {
       }
     } catch (e) { return '#ERR!'; }
     return value;
+  }, []);
+
+  const resizingRowRef = useRef<{ row: number; startY: number; startHeight: number } | null>(null);
+
+  const startRowResizing = useCallback((row: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const tr = (e.target as HTMLElement).closest('tr');
+    if (!tr) return;
+
+    resizingRowRef.current = {
+      row,
+      startY: e.pageY,
+      startHeight: tr.offsetHeight,
+    };
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRowRef.current) return;
+      const delta = moveEvent.pageY - resizingRowRef.current.startY;
+      const newHeight = Math.max(28, resizingRowRef.current.startHeight + delta);
+      setRowHeights(prev => ({ ...prev, [resizingRowRef.current!.row]: newHeight }));
+    };
+
+    const handleMouseUp = () => {
+      resizingRowRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'row-resize';
   }, []);
 
   const resizingRef = useRef<{ header: string; startX: number; startWidth: number } | null>(null);
@@ -602,36 +677,203 @@ function DashboardContent() {
 
   const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
     setGridData(prev => {
-      // Performance: If value is same, return original reference to skip re-render
-      if (prev[index][key] === value) return prev;
-
-      const newData = [...prev];
-      newData[index] = { ...prev[index], [key]: value }; // Clone only the modified row
-      return newData;
+      const coord = `${index}:${key}`;
+      if (prev.get(coord) === value) return prev;
+      
+      const next = new Map(prev);
+      next.set(coord, value);
+      return next;
     });
   }, []);
 
-  const handleRenameSection = (oldName: string, newName: string) => {
+  /**
+   * Renames only a specific contiguous block of rows.
+   * This prevents split sections from being merged back together accidentally.
+   */
+  const handleRenameSectionBlock = (startIndex: number, oldName: string, newName: string) => {
     if (!newName || oldName === newName) return;
-    setGridData(prev => prev.map((row: any) => 
-      row.section === oldName ? { ...row, section: newName } : row
-    ));
+    
+    setGridData(prev => {
+      const next = new Map(prev);
+      // Find the bounds of the contiguous block starting at startIndex
+      let r = startIndex;
+      while (r < rowCount && next.get(`${r}:section`) === oldName) {
+        next.set(`${r}:section`, newName);
+        r++;
+      }
+      // Also look upwards in case startIndex wasn't the very first row of the block
+      r = startIndex - 1;
+      while (r >= 0 && next.get(`${r}:section`) === oldName) {
+        next.set(`${r}:section`, newName);
+        r--;
+      }
+      return next;
+    });
   };
 
   const handleAddSection = () => {
     const sectionName = window.prompt("Enter new section name:");
     if (!sectionName) return;
-    const newRow = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
-    setGridData(prev => [...prev, newRow]);
+    const newIdx = rowCount;
+    setGridData(prev => {
+      const next = new Map(prev);
+      next.set(`${newIdx}:Title / Item`, "a.");
+      next.set(`${newIdx}:section`, sectionName);
+      return next;
+    });
+    setRowCount(prev => prev + 1);
+  };
+
+  const handleInsertSection = (relativeSectionName: string, position: 'before' | 'after', specificIndex?: number) => {
+    let targetRow = -1;
+    if (specificIndex !== undefined) {
+      targetRow = specificIndex;
+    } else {
+      for (let r = 0; r < rowCount; r++) {
+        if (gridData.get(`${r}:section`) === relativeSectionName) {
+          if (position === 'before') { targetRow = r; break; }
+          targetRow = r; 
+        }
+      }
+    }
+
+    if (targetRow === -1) targetRow = rowCount;
+    const insertionIndex = position === 'before' ? targetRow : targetRow + 1;
+
+    // Determine if we are splitting an existing block or creating a new empty slot
+    const splitSourceSection = gridData.get(`${targetRow}:section`) || "Uncategorized";
+    const isActuallySplitting = specificIndex !== undefined && 
+                                insertionIndex < rowCount && 
+                                (gridData.get(`${insertionIndex}:section`) || "Uncategorized") === splitSourceSection;
+
+    const sectionName = window.prompt(`Enter new section name to ${isActuallySplitting ? 'split section at' : 'insert at'} row ${insertionIndex + 1}:`);
+    if (!sectionName) return;
+
+    if (isActuallySplitting) {
+      // SPLIT MODE: Simply rename the remaining contiguous block of rows. No physical row insertion.
+      setGridData(prev => {
+        const next = new Map(prev);
+        let r = insertionIndex;
+        while (r < rowCount && (next.get(`${r}:section`) || "Uncategorized") === splitSourceSection) {
+          next.set(`${r}:section`, sectionName);
+          r++;
+        }
+        return next;
+      });
+      return; 
+    }
+
+    // INSERT MODE: Create a new row slot and shift existing data (used for header buttons or appending)
+    const shiftKeys = (prev: Record<string, any>) => {
+      const next: Record<string, any> = {};
+      Object.keys(prev).forEach(key => {
+        if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+        const [rStr, ...cParts] = key.split(':');
+        const r = parseInt(rStr);
+        if (isNaN(r)) { next[key] = prev[key]; return; }
+        if (r < insertionIndex) next[key] = prev[key];
+        else next[`${r + 1}:${cParts.join(':')}`] = prev[key];
+      });
+      return next;
+    };
+
+    setCellMetadata(shiftKeys);
+    setCellAlignments(shiftKeys);
+    setRowHeights(prev => {
+      const next: Record<number, number> = {};
+      Object.keys(prev).forEach(k => {
+        const r = parseInt(k);
+        if (r < insertionIndex) next[r] = prev[r];
+        else next[r + 1] = prev[r];
+      });
+      return next;
+    });
+
+    // 3. Update data Map: Shift everything and perform the "Split"
+    setGridData(prev => {
+      const next = new Map();
+      // Shift existing rows
+      prev.forEach((val, key) => {
+        const [rStr, col] = key.split(':');
+        const r = parseInt(rStr);
+        if (r < insertionIndex) {
+          next.set(key, val);
+        } else {
+          // Rows being pushed down
+          const newIdx = r + 1;
+          const isSectionKey = col === 'section';
+          
+          // If we are pushing down rows that were part of the split section block,
+          // they move into the NEW section.
+          if (isSectionKey && val === splitSourceSection && r >= targetRow) {
+            next.set(`${newIdx}:section`, sectionName);
+          } else {
+            next.set(`${newIdx}:${col}`, val);
+          }
+        }
+      });
+      
+      // Insert the new header row
+      next.set(`${insertionIndex}:section`, sectionName);
+      next.set(`${insertionIndex}:Title / Item`, "a.");
+      return next;
+    });
+    setRowCount(prev => prev + 1);
   };
 
   const handleDeleteSection = (sectionName: string) => {
     if (!window.confirm(`Are you sure you want to delete the entire section "${sectionName}" and all its rows?`)) return;
+    
+    // 1. Identify rows to keep and calculate new indices
+    const rowsToKeep: number[] = [];
+    for (let r = 0; r < rowCount; r++) {
+      if (gridData.get(`${r}:section`) !== sectionName) {
+        rowsToKeep.push(r);
+      }
+    }
+
+    const newRowCount = rowsToKeep.length;
+
+    // 2. Rebuild the Sparse Map and Metadata with compacted indices
     setGridData(prev => {
-      const filtered = prev.filter((row: any) => row.section !== sectionName);
-      if (filtered.length === 0) setSelectedId(null);
-      return filtered;
+      const next = new Map();
+      rowsToKeep.forEach((oldR, newR) => {
+        allHeaders.forEach(h => {
+          const val = prev.get(`${oldR}:${h}`);
+          if (val !== undefined) next.set(`${newR}:${h}`, val);
+        });
+        next.set(`${newR}:section`, prev.get(`${oldR}:section`));
+      });
+      return next;
     });
+
+    const shiftMeta = (prev: Record<string, any>) => {
+      const next: Record<string, any> = {};
+      rowsToKeep.forEach((oldR, newR) => {
+        Object.keys(prev).forEach(key => {
+          if (key.startsWith(`${oldR}:`)) {
+            const col = key.split(':').slice(1).join(':');
+            next[`${newR}:${col}`] = prev[key];
+          }
+        });
+      });
+      return next;
+    };
+
+    const shiftHeights = (prev: Record<number, number>) => {
+      const next: Record<number, number> = {};
+      rowsToKeep.forEach((oldR, newR) => {
+        if (prev[oldR]) next[newR] = prev[oldR];
+      });
+      return next;
+    };
+
+    setCellMetadata(shiftMeta);
+    setCellAlignments(shiftMeta);
+    setRowHeights(shiftHeights);
+    setRowCount(newRowCount);
+    if (newRowCount === 0) setSelectedId(null);
+    setContextMenu(null);
   };
 
   const handleShare = () => {
@@ -642,12 +884,14 @@ function DashboardContent() {
   };
 
   const exportToCSV = () => {
-      if (gridData.length === 0) return;
+      if (rowCount === 0) return;
       
-      const headers = Object.keys(gridData[0]);
+      const headers = allHeaders;
       const csvContent = [
         headers.join(','),
-        ...gridData.map(row => headers.map(header => `"${String(row[header] || '').replace(/"/g, '""')}"`).join(','))
+        ...Array.from({ length: rowCount }).map((_, r) => 
+          headers.map(h => `"${String(gridData.get(`${r}:${h}`) || '').replace(/"/g, '""')}"`).join(',')
+        )
       ].join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -692,7 +936,7 @@ function DashboardContent() {
         }
       }
 
-      if (nextRow >= 0 && nextRow < gridData.length) {
+      if (nextRow >= 0 && nextRow < rowCount) {
         const nextHeader = headers[nextColIdx];
         setActiveCell({ row: nextRow, col: nextHeader });
         
@@ -706,17 +950,12 @@ function DashboardContent() {
         }, 10);
       }
     }
-  }, [gridData.length]);
+  }, [rowCount]);
 
   const setCellFontFamily = (row: number, col: string, fontFamily: string) => {
     setCellMetadata(prev => {
       const next = { ...prev };
-      const data = gridData;
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-      const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-      const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-      const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+      const visibleHeaders = allHeaders.filter(h => !hiddenColumns.includes(h) && h !== 'section');
 
       // Only apply to selection if the targeted cell is part of it
       const isPartofSelection = selection && 
@@ -811,16 +1050,21 @@ function DashboardContent() {
       return;
     }
 
-    const data = gridData;
-    const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
     if (allHeaders.includes(trimmedNewKey)) {
       alert(`A column named "${trimmedNewKey}" already exists.`);
       return;
     }
 
-      const newData = data.map((row: any) => {
-        const { [oldKey]: value, ...rest } = row;
-        return { ...rest, [trimmedNewKey]: value };
+      setGridData(prev => {
+        const next = new Map(prev);
+        for (let r = 0; r < rowCount; r++) {
+          const val = next.get(`${r}:${oldKey}`);
+          if (val !== undefined) {
+            next.set(`${r}:${trimmedNewKey}`, val);
+            next.delete(`${r}:${oldKey}`);
+          }
+        }
+        return next;
       });
 
       // Migrate alignments and metadata to the new column name
@@ -857,7 +1101,6 @@ function DashboardContent() {
         const currentOrder = prev.length > 0 ? prev : allHeaders;
         return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
       });
-      setGridData(newData);
   };
 
   const handleAddColumn = (name?: string) => {
@@ -865,9 +1108,6 @@ function DashboardContent() {
     if (rawInput === null) return;
     
     let colName = rawInput.trim();
-
-    const data = gridData;
-    const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
 
       if (!colName) {
         let i = 1;
@@ -885,22 +1125,22 @@ function DashboardContent() {
         return;
       }
 
-      const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
-      if (newData.length === 0) newData.push({ [colName]: "" });
-      
       setColumnOrder(prev => {
         const currentOrder = prev.length > 0 ? prev : allHeaders;
         return [...currentOrder, colName];
       });
-      setGridData(newData);
+      // Map structure handles this automatically; we don't need to loop rows to "initialize" them
   };
 
   const handleDeleteColumn = (keyToDelete: string) => {
     if (!window.confirm(`Are you sure you want to delete the column "${keyToDelete}"?`)) return;
     
-    const newData = gridData.map((row: any) => {
-      const { [keyToDelete]: _, ...rest } = row;
-      return rest;
+    setGridData(prev => {
+      const next = new Map(prev);
+      for (let r = 0; r < rowCount; r++) {
+        next.delete(`${r}:${keyToDelete}`);
+      }
+      return next;
     });
 
       // Cleanup metadata and alignments for the deleted column
@@ -917,7 +1157,6 @@ function DashboardContent() {
       setCellAlignments(filterKeys);
 
       setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
-      setGridData(newData);
   };
 
   const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
@@ -926,10 +1165,7 @@ function DashboardContent() {
     
     let colName = rawInput.trim();
 
-    if (gridData.length === 0) return;
-    const allHeaders = Object.keys(gridData[0]);
-
-      if (!colName) {
+    if (!colName) {
         let i = 1;
         while (allHeaders.includes(`Column ${i}`)) i++;
         colName = `Column ${i}`;
@@ -945,53 +1181,35 @@ function DashboardContent() {
         return;
       }
 
-      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-      const index = baseOrder.indexOf(relativeCol);
-      const newOrder = [...baseOrder];
+      const index = allHeaders.indexOf(relativeCol);
+      const newOrder = [...allHeaders];
       if (index !== -1) {
         newOrder.splice(position === 'before' ? index : index + 1, 0, colName);
       } else {
         newOrder.push(colName);
       }
 
-      const newData = gridData.map((row: any) => ({ ...row, [colName]: "" }));
-      if (newData.length === 0) newData.push({ [colName]: "" });
-      
       setColumnOrder(newOrder);
-      setGridData(newData);
   };
 
   const addTableRow = () => {
-    let template: Record<string, any>;
-    if (gridData.length > 0) {
-      template = Object.keys(gridData[0]).reduce((acc, key) => ({ ...acc, [key]: "" }), {});
-    } else {
-      template = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": "Work A" };
-    }
-    setGridData(prev => [...prev, template]);
+    setRowCount(prev => prev + 1);
   };
 
   const addRowToSection = (sectionName: string) => {
-    const sectionRows = gridData.filter((r: any) => r.section === sectionName);
-    const nextLetter = sectionRows.length > 0 
-      ? String.fromCharCode(sectionRows[sectionRows.length - 1]["Title / Item"].charCodeAt(0) + 1)
-      : "a";
-    
-    const newRow = { "Title / Item": `${nextLetter}.`, "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
-    setGridData(prev => [...prev, newRow]);
+    const newIdx = rowCount;
+    setGridData(prev => {
+      const next = new Map(prev);
+      next.set(`${newIdx}:section`, sectionName);
+      next.set(`${newIdx}:Title / Item`, "a.");
+      return next;
+    });
+    setRowCount(prev => prev + 1);
   };
 
   const handleInsertRow = (index: number, position: 'above' | 'after') => {
-    const template = gridData.length > 0 
-        ? Object.keys(gridData[0]).reduce((acc, key) => ({ 
-            ...acc, 
-            [key]: key === 'section' ? gridData[index].section : "" 
-          }), {})
-        : { "Title / Item": "a.", "Amount": 0, "section": "Work A" };
-
-      const newData = [...gridData];
+      const section = gridData.get(`${index}:section`) || "Uncategorized";
       const insertIndex = position === 'above' ? index : index + 1;
-      newData.splice(insertIndex, 0, template);
 
       const shiftKeys = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
@@ -1012,20 +1230,40 @@ function DashboardContent() {
       };
       setCellMetadata(shiftKeys);
       setCellAlignments(shiftKeys);
-
-      setGridData(newData);
+      setRowHeights(prev => {
+        const next: Record<number, number> = {};
+        Object.keys(prev).forEach(k => {
+          const r = parseInt(k);
+          if (r < insertIndex) next[r] = prev[r];
+          else next[r + 1] = prev[r];
+        });
+        return next;
+      });
+      
+      setGridData(prev => {
+        const next = new Map();
+        prev.forEach((val, key) => {
+          const [rStr, col] = key.split(':');
+          const r = parseInt(rStr);
+          if (r < insertIndex) next.set(key, val);
+          else next.set(`${r+1}:${col}`, val);
+        });
+        next.set(`${insertIndex}:section`, section);
+        return next;
+      });
+      setRowCount(prev => prev + 1);
       setContextMenu(null);
   };
 
   const handleClearRow = (index: number) => {
     if (!window.confirm("Clear all data in this row?")) return;
     
-    const newData = [...gridData];
-      const section = newData[index].section;
-      newData[index] = Object.keys(newData[index]).reduce((acc, key) => ({
-        ...acc,
-        [key]: key === 'section' ? section : ""
-      }), {});
+      setGridData(prev => {
+        const next = new Map(prev);
+        allHeaders.forEach(h => next.delete(`${index}:${h}`));
+        next.set(`${index}:section`, prev.get(`${index}:section`));
+        return next;
+      });
 
       const clearRowMeta = (prev: Record<string, any>) => {
         const next = { ...prev };
@@ -1037,15 +1275,17 @@ function DashboardContent() {
       
       setCellMetadata(clearRowMeta);
       setCellAlignments(clearRowMeta);
-
-      setGridData(newData);
       setContextMenu(null);
   };
 
   const handleClearColumn = (colName: string) => {
     if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
 
-    const newData = gridData.map((row: any) => ({ ...row, [colName]: "" }));
+    setGridData(prev => {
+      const next = new Map(prev);
+      for (let r = 0; r < rowCount; r++) next.delete(`${r}:${colName}`);
+      return next;
+    });
 
       const clearColMeta = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
@@ -1065,8 +1305,6 @@ function DashboardContent() {
       
       setCellMetadata(clearColMeta);
       setCellAlignments(clearColMeta);
-
-      setGridData(newData);
       setContextMenu(null);
   };
 
@@ -1081,11 +1319,7 @@ function DashboardContent() {
       ...prev,
       ...(() => {
         const next: Record<string, any> = {};
-        const allHeaders = gridData.length > 0 ? Object.keys(gridData[0]) : [];
-        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+        const visibleHeaders = allHeaders.filter(h => !hiddenColumns.includes(h) && h !== 'section');
 
           // Only apply to selection if the targeted cell is part of it
           const isPartofSelection = selection && 
@@ -1513,11 +1747,11 @@ function DashboardContent() {
     const { startRow, endRow, col } = range;
     if (startRow === endRow) return;
 
-    const sourceValue = gridData[startRow][col];
+    const sourceValue = gridData.get(`${startRow}:${col}`);
       const sourceMeta = cellMetadata[`${startRow}:${col}`];
       
-      const newData = [...gridData];
       const newMetadata = { ...cellMetadata };
+      const nextMap = new Map(gridData);
 
       const min = Math.min(startRow, endRow);
       const max = Math.max(startRow, endRow);
@@ -1525,7 +1759,7 @@ function DashboardContent() {
       for (let i = min; i <= max; i++) {
         if (i === startRow) continue;
         
-        newData[i] = { ...newData[i], [col]: sourceValue };
+        if (sourceValue !== undefined) nextMap.set(`${i}:${col}`, sourceValue);
         const targetKey = `${i}:${col}`;
         if (sourceMeta) {
           newMetadata[targetKey] = { ...sourceMeta };
@@ -1534,7 +1768,7 @@ function DashboardContent() {
         }
       }
 
-      setGridData(newData);
+      setGridData(nextMap);
       setCellMetadata(newMetadata);
   };
 
@@ -1560,7 +1794,17 @@ function DashboardContent() {
     }
 
     try {
-      const newData = gridData.filter((_, i) => i !== index);
+      setGridData(prev => {
+        const next = new Map();
+        prev.forEach((val, key) => {
+          const [rStr, col] = key.split(':');
+          const r = parseInt(rStr);
+          if (r < index) next.set(key, val);
+          else if (r > index) next.set(`${r - 1}:${col}`, val);
+        });
+        return next;
+      });
+      setRowCount(prev => prev - 1);
 
       // Shift metadata and alignments for all rows following the deleted one
       const shiftKeys = (prev: Record<string, any>) => {
@@ -1582,34 +1826,46 @@ function DashboardContent() {
       };
       setCellMetadata(shiftKeys);
       setCellAlignments(shiftKeys);
-      setGridData(newData);
+      setRowHeights(prev => {
+        const next: Record<number, number> = {};
+        Object.keys(prev).forEach(k => {
+          const r = parseInt(k);
+          if (r < index) next[r] = prev[r];
+          else if (r > index) next[r - 1] = prev[r];
+        });
+        return next;
+      });
     } catch (e) {
       console.error("Failed to remove row");
     }
   };
 
-  // Sync editor content with the selected file
   useEffect(() => {
     if (activeNode?.type === 'file') {
-      setGridData(Array.isArray(activeNode.content) ? activeNode.content : []);
+      const content = Array.isArray(activeNode.content) ? activeNode.content : [];
+      setGridData(arrayToSparseMap(content));
+      setRowCount(content.length);
       setColumnAlignments(activeNode.display_settings?.columnAlignments || {});
       setCellAlignments(activeNode.display_settings?.cellAlignments || {});
       setColumnOrder(activeNode.display_settings?.columnOrder || []);
       setHiddenColumns(activeNode.display_settings?.hiddenColumns || []);
       setColumnWidths(activeNode.display_settings?.columnWidths || {});
       setCellMetadata(activeNode.display_settings?.cellMetadata || {});
+      setRowHeights((activeNode.display_settings as any)?.rowHeights || {});
       setSelectedYear(activeNode.display_settings?.selectedYear || '2020');
       setActiveCell(null);
       setRowFilter('');
       setShowBackToTop(false);
       tableContainerRef.current?.scrollTo({ top: 0 });
     } else {
-      setGridData([]);
+      setGridData(new Map());
+      setRowCount(0);
       setColumnAlignments({});
       setCellAlignments({});
       setColumnOrder([]);
       setHiddenColumns([]);
       setCellMetadata({});
+      setRowHeights({});
       setActiveCell(null);
       setSelectedYear('2020');
       setRowFilter('');
@@ -1622,8 +1878,9 @@ function DashboardContent() {
     
     setIsSaving(true);
     try {
-      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata };
-      const { error } = await supabase.from('nodes').update({ content: gridData, display_settings }).eq('id', activeNode.id);
+      const contentArray = sparseMapToArray(gridData, rowCount, allHeaders);
+      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, rowHeights };
+      const { error } = await supabase.from('nodes').update({ content: contentArray, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
     } finally {
@@ -1632,21 +1889,28 @@ function DashboardContent() {
   };
 
   const initializeExcelTemplate = () => {
-    const template = [
-      { "Title / Item": "a.", "Amount": 0, "Location": "Manila", "Allocation": "Capital", "Notes": "Initial entry", "section": "Work A" },
-      { "Title / Item": "b.", "Amount": 0, "Location": "", "Allocation": "", "Notes": "", "section": "Work A" },
-      { "Title / Item": "c.", "Amount": 0, "Location": "", "Allocation": "", "Notes": "", "section": "Work A" },
-      { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "Notes": "", "section": "Work B" },
-    ];
+    const next = new Map();
+    next.set("0:Title / Item", "a."); next.set("0:Amount", 0); next.set("0:section", "Work A");
+    next.set("1:Title / Item", "b."); next.set("1:Amount", 0); next.set("1:section", "Work A");
+    next.set("2:Title / Item", "c."); next.set("2:Amount", 0); next.set("2:section", "Work A");
+    next.set("3:Title / Item", "a."); next.set("3:Amount", 0); next.set("3:section", "Work B");
     setColumnOrder(["Title / Item", "Amount", "Location", "Allocation", "Notes"]);
-    setGridData(template);
+    setGridData(next);
+    setRowCount(4);
   };
 
   const renderTableEditor = () => {
-    let data = gridData;
+    const data: any[] = [];
+    for(let i = 0; i < rowCount; i++) {
+      const rowObj: any = { _index: i };
+      allHeaders.forEach(h => rowObj[h] = gridData.get(`${i}:${h}`));
+      rowObj.section = gridData.get(`${i}:section`) || "Uncategorized";
+      data.push(rowObj);
+    }
+
+    let filteredRows = data;
     try {
-      // If empty or not array, show pre-format option
-      if (data.length === 0) {
+      if (rowCount === 0) {
         return (
           <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
             <div className="text-center">
@@ -1665,7 +1929,7 @@ function DashboardContent() {
 
       if (rowFilter) {
         const lowerCaseFilter = rowFilter.toLowerCase();
-        data = data.filter((row: any) => 
+        filteredRows = filteredRows.filter((row: any) => 
           Object.values(row).some(value => 
             String(value).toLowerCase().includes(lowerCaseFilter)
           )
@@ -1680,7 +1944,18 @@ function DashboardContent() {
       const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
       const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
 
-      const sections = Array.from(new Set(data.map((r: any) => r.section || "Uncategorized")));
+      // Group rows into contiguous blocks by section to preserve row-sequence order.
+      // This ensures that inserting a new section at a specific row index displays it correctly at that position.
+      const sectionBlocks: { name: string, rows: any[] }[] = [];
+      filteredRows.forEach(row => {
+        const sectionName = row.section || "Uncategorized";
+        const lastBlock = sectionBlocks[sectionBlocks.length - 1];
+        if (lastBlock && lastBlock.name === sectionName) {
+          lastBlock.rows.push(row);
+        } else {
+          sectionBlocks.push({ name: sectionName, rows: [row] });
+        }
+      });
 
       return (
         <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
@@ -1866,6 +2141,38 @@ function DashboardContent() {
                     <X size={14} className="text-orange-500" /> Clear Row Content
                   </button>
                   <div className="h-px bg-border my-1"></div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Section Actions</div>
+                  <button 
+                    onClick={() => {
+                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      handleInsertSection(section, 'before', contextMenu.row);
+                      setContextMenu(null);
+                    }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                  >
+                    <FolderPlus size={14} className="text-accent" /> Insert Section Above
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      handleInsertSection(section, 'after', contextMenu.row);
+                      setContextMenu(null);
+                    }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                  >
+                    <FolderPlus size={14} className="text-accent" /> Insert Section Below
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      addRowToSection(section);
+                      setContextMenu(null);
+                    }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                  >
+                    <Plus size={14} className="text-accent" /> Add Row to this Section
+                  </button>
+                  <div className="h-px bg-border my-1"></div>
                   <button 
                     onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
@@ -2043,7 +2350,7 @@ function DashboardContent() {
                       <th 
                         key={`col-label-${idx}`} 
                         onClick={() => {
-                            if (gridData.length > 0) {
+                            if (rowCount > 0) {
                               setSelection({
                                 startRow: 0,
                                 endRow: data.length - 1,
@@ -2052,12 +2359,13 @@ function DashboardContent() {
                               });
                               setActiveCell({ row: 0, col: header });
                             }
-
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          // Excel behavior: Right-click selects the whole column
-                          if (gridData.length > 0) {
+                          // Excel behavior: Right-click selects the whole column ONLY if not already in selection
+                          const isFullColumnSelected = selection && selection.startRow === 0 && selection.endRow === data.length - 1 && idx >= selMinColIdx && idx <= selMaxColIdx;
+                          
+                          if (!isFullColumnSelected && rowCount > 0) {
                             setSelection({
                               startRow: 0,
                               endRow: data.length - 1,
@@ -2083,13 +2391,18 @@ function DashboardContent() {
                           width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
-                        className={`text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
+                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
                           isColumnActive ? 'bg-accent/20 text-accent shadow-[inset_0_-2px_0_0_currentColor]' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${
                           isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
                         }`}
                       >
                         {getExcelColumnLabel(idx)}
+                        <div 
+                          onMouseDown={(e) => startResizing(header, e)}
+                          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
+                          title="Drag to resize"
+                        />
                       </th>
                     );
                   })}
@@ -2116,8 +2429,8 @@ function DashboardContent() {
                       colSpan={headerMeta.colSpan}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      // Excel behavior: Right-click selects the whole column
-                      if (gridData.length > 0) {
+                      // Excel behavior: Preserve selection if right-clicking inside existing header selection
+                      if (!isInHeaderSelection && rowCount > 0) {
                         setSelection({
                           startRow: 0,
                           endRow: data.length - 1,
@@ -2170,11 +2483,6 @@ function DashboardContent() {
                           className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 transition-colors ${alignClass}`}
                         />
                       </div>
-                      <div 
-                        onMouseDown={(e) => startResizing(header, e)}
-                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/header:bg-muted/40"
-                        title="Drag to resize"
-                      />
                       </th>
                     );
                   })}
@@ -2199,19 +2507,34 @@ function DashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {sections.map((sectionName: any) => {
-                  const sectionRows = data.filter((r: any) => r.section === sectionName);
+                {sectionBlocks.map((block: any, blockIdx: number) => {
+                  const { name: sectionName, rows: sectionRows } = block;
                   return (
-                    <Fragment key={sectionName}>
+                    <Fragment key={`${sectionName}-${blockIdx}`}>
                       {/* Section Header */}
                       <tr className="bg-muted/30 group/section transition-colors">
                         <td colSpan={visibleHeaders.length + 3} className="px-3 py-1 border-b border-border">
                           <div className="flex items-center justify-between">
                             <input
                               defaultValue={sectionName}
-                              onBlur={(e) => handleRenameSection(sectionName, e.target.value)}
+                              onBlur={(e) => handleRenameSectionBlock(sectionRows[0]._index, sectionName, e.target.value)}
                               className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
                             />
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => handleInsertSection(sectionName, 'before')}
+                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                title="Insert Section Before"
+                              >
+                                <ChevronUp size={12} />
+                              </button>
+                              <button 
+                                onClick={() => handleInsertSection(sectionName, 'after')}
+                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                title="Insert Section After"
+                              >
+                                <ChevronDown size={12} />
+                              </button>
                             <button 
                               onClick={() => handleDeleteSection(sectionName)}
                               className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
@@ -2219,12 +2542,13 @@ function DashboardContent() {
                             >
                               <Trash2 size={12} />
                             </button>
+                            </div>
                           </div>
                         </td>
                       </tr>
                       {/* Data Rows */}
-                      {sectionRows.map((row: any, localIndex: number) => {
-                        const globalIndex = data.indexOf(row);
+                      {sectionRows.map((row: any) => {
+                        const globalIndex = row._index;
                         return (
                           <GridRow 
                             key={globalIndex}
@@ -2251,6 +2575,8 @@ function DashboardContent() {
                             setViewingMedia={setViewingMedia}
                             removeCellMetadata={removeCellMetadata}
                             evaluateFormula={evaluateFormula}
+                            rowHeights={rowHeights}
+                            startRowResizing={startRowResizing}
                           />
                         );
                       })}
