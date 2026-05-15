@@ -4,13 +4,209 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun } from 'lucide-react';
+
+/**
+ * Theme Registry: Centralized class management for Dark/Light mode consistency.
+ * By using semantic variables defined in globals.css, we ensure automatic theme switching.
+ */
+const GRID_THEME = {
+  // Main Layout Containers
+  main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
+  rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-20 border-r border-border",
+  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
+  editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
+  
+  // Grid Editor Components
+  editor: "flex flex-col h-full overflow-hidden bg-card",
+  toolbar: "flex items-center justify-between p-2 bg-background border-b border-border gap-2",
+  formulaBar: "flex items-start gap-2 p-1.5 bg-card border-b border-border shadow-inner z-20",
+  statusBar: "h-7 bg-background border-t border-border flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",
+  navContainer: "flex bg-muted/10 p-0.5 rounded-md border border-border",
+  
+  // Table Specific Styles
+  tableHeader: "bg-muted/10 shadow-[0_1px_0_rgba(0,0,0,0.1)]",
+  tableHeaderRow: "bg-muted/20 select-none h-5",
+  tableIndexCell: "border-r border-b border-border",
+  tableCell: "p-0 border-r border-border bg-card group/cell relative align-middle",
+  tableBodyRow: "hover:bg-muted/5 group relative",
+
+  // Inputs and Interactive
+  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all",
+};
+
+const FONT_FAMILIES = [
+  { id: 'sans', label: 'Inter (Default)', value: 'var(--font-geist-sans), ui-sans-serif, system-ui' },
+  { id: 'roboto', label: 'Roboto', value: '"Roboto", sans-serif' },
+  { id: 'opensans', label: 'Open Sans', value: '"Open Sans", sans-serif' },
+  { id: 'serif', label: 'System Serif', value: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
+  { id: 'mono', label: 'System Mono', value: 'var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
+  { id: 'montserrat', label: 'Montserrat', value: '"Montserrat", sans-serif' },
+];
+
+const DATE_FORMATS = [
+  { id: 'long', label: 'Monday, May 5, 2026' },
+  { id: 'medium', label: 'May 5, 2026' },
+  { id: 'short', label: '05/05/2026' },
+  { id: 'iso', label: '2026-05-05' },
+];
+
+const NUMBER_FORMATS = [
+  { id: 'decimal', label: 'Decimal (1,234.56)' },
+  { id: 'currency', label: 'Currency (₱1,234.56)' },
+  { id: 'percent', label: 'Percent (12.34%)' },
+  { id: 'integer', label: 'Integer (1,235)' },
+];
+
+const LOCATIONS = [
+  "Antonino, Labason, Zamboanga del Norte", "Balas, Labason, Zamboanga del Norte",
+  "Bobongan, Labason, Zamboanga del Norte", "Dansalan, Labason, Zamboanga del Norte",
+  "Gabu, Labason, Zamboanga del Norte", "Gil Sanchez, Labason, Zamboanga del Norte",
+  "Imelda, Labason, Zamboanga del Norte", "Immaculada, Labason, Zamboanga del Norte",
+  "Kipit, Labason, Zamboanga del Norte", "La Union, Labason, Zamboanga del Norte",
+  "Lapatan, Labason, Zamboanga del Norte", "Lawagan, Labason, Zamboanga del Norte",
+  "Lawigan, Labason, Zamboanga del Norte", "Lopoc, Labason, Zamboanga del Norte",
+  "Malintuboan, Labason, Zamboanga del Norte", "New Salvacion, Labason, Zamboanga del Norte",
+  "Osukan, Labason, Zamboanga del Norte", "Poblacion, Labason, Zamboanga del Norte",
+  "Patawag, Labason, Zamboanga del Norte", "San Isidro, Labason, Zamboanga del Norte",
+  "Ubay, Labason, Zamboanga del Norte"
+];
+const ALLOCATIONS = ["20%", "DepEd", "DA"];
+
+const getExcelColumnLabel = (index: number): string => {
+  let label = '';
+  let i = index;
+  while (i >= 0) {
+    label = String.fromCharCode((i % 26) + 65) + label;
+    i = Math.floor(i / 26) - 1;
+  }
+  return label;
+};
+
+const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
+  if (value === "" || value === undefined || value === null) return "0.00";
+  const num = Number(value);
+  if (isNaN(num)) return value;
+  switch (formatId) {
+    case 'currency': return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+    case 'percent': return (num * 100).toFixed(2) + '%';
+    case 'integer': return Math.round(num).toLocaleString();
+    default: return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+};
+
+const formatDateDisplay = (value: string, formatId: string = 'long') => {
+  if (!value) return '';
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  if (isNaN(date.getTime())) return value;
+  switch (formatId) {
+    case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
+    case 'iso': return value;
+    default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  }
+};
+
+const GridRow = React.memo(({ 
+  row, globalIndex, visibleHeaders, activeCell, selection, 
+  cellMetadata, cellAlignments, columnAlignments, isFreezePanes,
+  dragFillRange, isSelecting, handleUpdateCell, handleKeyDown,
+  setActiveCell, setSelection, setIsSelecting, setContextMenu,
+  toggleCellAlignment, handleDragFillStart, removeTableRow,
+  setViewingMedia, removeCellMetadata, evaluateFormula
+}: any) => {
+  const isRowActive = activeCell?.row === globalIndex;
+  const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
+  const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
+  const selMinColIdx = selection ? Math.min(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
+  const selMaxColIdx = selection ? Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
+
+  return (
+    <tr className={GRID_THEME.tableBodyRow}>
+      <td
+        className={`w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
+          isRowActive ? 'bg-accent/10 text-accent shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'
+        } ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
+        onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: "", type: 'row' }); }}
+        onClick={() => {
+          setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
+          setActiveCell({ row: globalIndex, col: visibleHeaders[0] });
+        }}
+      >
+        {globalIndex + 1}
+      </td>
+      {visibleHeaders.map((header: string, colIndex: number) => {
+        const cellKey = `${globalIndex}:${header}`;
+        const meta = cellMetadata[cellKey] || {};
+        if (meta.mergedIn) return null;
+        const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
+        const alignClass = cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left';
+        const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
+
+        return (
+          <td 
+            key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
+            onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: header, type: 'cell' }); }}
+            onMouseDown={(e) => { if (e.button === 0) { setActiveCell({ row: globalIndex, col: header }); setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); setIsSelecting(true); }}}
+            onMouseEnter={() => { if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); }}
+            className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
+            style={{ fontFamily: meta.fontFamily || 'inherit' }}
+          >
+            {activeCell?.row === globalIndex && activeCell?.col === header && (
+              <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full" />
+            )}
+            <button onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }} className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-accent bg-card/90 rounded shadow-sm z-30 transition-all">
+              {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
+            </button>
+            {header === 'Location' || header === 'Allocation' ? (
+              <select value={row[header] ?? ''} data-row={globalIndex} data-col={header} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className={`${GRID_THEME.tableInput} ${alignClass}`}>
+                <option value="">Select...</option>
+                {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            ) : meta.type === 'date' ? (
+              <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
+                <input type="date" value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
+                <div className={`w-full px-2 py-1 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+                  {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
+                </div>
+              </div>
+            ) : meta.type === 'media' ? (
+              <div className="flex items-center group/media relative min-h-[28px] w-full px-2 py-1">
+                {meta.attachments?.length > 0 && (
+                  <button onClick={() => setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header })} className={`text-xs text-accent hover:underline font-medium w-full ${alignClass}`}>[View Attachment{meta.attachments.length > 1 ? 's' : ''}]</button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/media:opacity-100 p-1 text-muted hover:text-red-500 absolute right-1 top-1 bg-card/80 rounded shadow-sm transition-all"><X size={12} /></button>
+              </div>
+            ) : meta.type === 'formula' ? (
+              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+                {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
+              </div>
+            ) : (meta.type === 'number' || header === 'Amount') ? (
+              activeCell?.row === globalIndex && activeCell?.col === header ? (
+                <input type="number" step="0.01" data-row={globalIndex} data-col={header} autoFocus value={row[header] ?? ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))} onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} className={`${GRID_THEME.tableInput} ${alignClass}`} />
+              ) : (
+                <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
+              )
+            ) : (
+              <input type="text" data-row={globalIndex} data-col={header} value={row[header] ?? ''} onFocus={() => setActiveCell({ row: globalIndex, col: header })} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} className={`${GRID_THEME.tableInput} ${alignClass}`} />
+            )}
+          </td>
+        );
+      })}
+      <td className="border-r border-b border-border bg-transparent"></td>
+      <td className="px-2 py-1 text-center sticky right-0 bg-card group-hover:bg-muted/5 border-l border-border z-20 shadow-[-1px_0_0_0_var(--color-border)] transition-colors">
+        <button onClick={() => removeTableRow(globalIndex)} className="text-muted/40 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+      </td>
+    </tr>
+  );
+}, (prev, next) => prev.row === next.row && prev.activeCell === next.activeCell && prev.selection === next.selection && prev.isSelecting === next.isSelecting && prev.isFreezePanes === next.isFreezePanes);
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [editedContent, setEditedContent] = useState<string>('');
+  const [gridData, setGridData] = useState<any[]>([]); // Native Array State
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
@@ -25,7 +221,6 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const [isExplorerVisible, setIsExplorerVisible] = useState(true);
   const [explorerSearch, setExplorerSearch] = useState('');
-  const [isMetadataVisible, setIsMetadataVisible] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
@@ -40,10 +235,56 @@ function DashboardContent() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFreezePanes, setIsFreezePanes] = useState(false);
+  const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
   , [tree, selectedId]);
+
+  // Load preferences from local storage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('meo-recent-files');
+    if (saved) {
+      try { setRecentNodes(JSON.parse(saved)); } catch (e) { console.error("Failed to parse recent files"); }
+    }
+    
+    const savedTheme = localStorage.getItem('meo-theme') as 'light' | 'dark';
+    if (savedTheme) setTheme(savedTheme);
+    else if (window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+  }, []);
+
+  // Advanced theme toggle with View Transitions API support
+  const toggleTheme = useCallback(() => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    
+    // @ts-ignore - View Transitions API
+    if (!document.startViewTransition) {
+      setTheme(next);
+      return;
+    }
+
+    // @ts-ignore
+    document.startViewTransition(() => setTheme(next));
+  }, [theme]);
+
+  // Sync theme class to document
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('meo-theme', theme);
+  }, [theme]);
+
+  // Track active file history
+  useEffect(() => {
+    if (activeNode && activeNode.type === 'file') {
+      setRecentNodes(prev => {
+        const filtered = prev.filter(n => n.id !== activeNode.id);
+        const updated = [activeNode, ...filtered].slice(0, 5);
+        localStorage.setItem('meo-recent-files', JSON.stringify(updated));
+        return updated;
+      });
+    }
+  }, [activeNode]);
 
   // End selection on global mouse up
   useEffect(() => {
@@ -59,30 +300,24 @@ function DashboardContent() {
     if (viewMode !== 'code') return;
 
     if (viewMode === 'code' && activeNode) {
-      try {
-        const fullData = {
-          content: JSON.parse(editedContent || '[]'),
-          display_settings: {
-            columnAlignments,
-            cellAlignments,
-            hiddenColumns,
-            selectedYear,
-            columnOrder,
-            columnWidths,
-            cellMetadata
-          }
-        };
-        const newCode = JSON.stringify(fullData, null, 2);
-        // Only update if it's actually different to avoid cursor jumps
-        if (newCode !== codeViewContent) {
-          setCodeViewContent(newCode);
+      const fullData = {
+        content: gridData, // No parsing needed
+        display_settings: {
+          columnAlignments,
+          cellAlignments,
+          hiddenColumns,
+          selectedYear,
+          columnOrder,
+          columnWidths,
+          cellMetadata
         }
-      } catch (e) {
-        // Do not overwrite codeViewContent with editedContent here, 
-        // as it would strip the display_settings wrapper during syntax errors.
+      };
+      const newCode = JSON.stringify(fullData, null, 2);
+      if (newCode !== codeViewContent) {
+        setCodeViewContent(newCode);
       }
     }
-  }, [viewMode, activeNode?.id, editedContent, columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata]);
+  }, [viewMode, activeNode?.id, gridData, columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, codeViewContent]);
 
   const handleCodeChange = (val: string) => {
     setCodeViewContent(val);
@@ -91,7 +326,7 @@ function DashboardContent() {
       
       // If user pasted/typed the full document structure
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.content) {
-        setEditedContent(JSON.stringify(parsed.content, null, 2));
+        setGridData(parsed.content); // Update native state
         if (parsed.display_settings) {
           const ds = parsed.display_settings;
           setColumnAlignments(ds.columnAlignments || {});
@@ -105,13 +340,10 @@ function DashboardContent() {
       } 
       // If user pasted/typed just the data array (backward compatibility)
       else if (Array.isArray(parsed)) {
-        setEditedContent(val);
+        setGridData(parsed);
       }
     } catch (e) {
-      // While typing, the JSON might be invalid. 
-      // We update editedContent directly so switching back to Table View 
-      // triggers the JSON Syntax Error boundary if the input is broken.
-      setEditedContent(val);
+      // Keep codeViewContent as is so user can fix syntax errors
     }
   };
 
@@ -133,125 +365,36 @@ function DashboardContent() {
       formulaBarRef.current.style.height = 'auto';
       formulaBarRef.current.style.height = `${formulaBarRef.current.scrollHeight}px`;
     }
-  }, [activeCell, editedContent]);
+  }, [activeCell, gridData]);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header' | 'row', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean, showFonts?: boolean } | null>(null);
-
-  const FONT_FAMILIES = [
-    { id: 'sans', label: 'Inter (Default)', value: 'var(--font-geist-sans), ui-sans-serif, system-ui' },
-    { id: 'roboto', label: 'Roboto', value: '"Roboto", sans-serif' },
-    { id: 'opensans', label: 'Open Sans', value: '"Open Sans", sans-serif' },
-    { id: 'serif', label: 'System Serif', value: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
-    { id: 'mono', label: 'System Mono', value: 'var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
-    { id: 'montserrat', label: 'Montserrat', value: '"Montserrat", sans-serif' },
-  ];
-
-  const getExcelColumnLabel = (index: number): string => {
-    let label = '';
-    let i = index;
-    while (i >= 0) {
-      label = String.fromCharCode((i % 26) + 65) + label;
-      i = Math.floor(i / 26) - 1;
-    }
-    return label;
-  };
-
-  const DATE_FORMATS = [
-    { id: 'long', label: 'Monday, May 5, 2026' },
-    { id: 'medium', label: 'May 5, 2026' },
-    { id: 'short', label: '05/05/2026' },
-    { id: 'iso', label: '2026-05-05' },
-  ];
-
-  const NUMBER_FORMATS = [
-    { id: 'decimal', label: 'Decimal (1,234.56)' },
-    { id: 'currency', label: 'Currency (₱1,234.56)' },
-    { id: 'percent', label: 'Percent (12.34%)' },
-    { id: 'integer', label: 'Integer (1,235)' },
-  ];
-
-  const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
-    if (value === "" || value === undefined || value === null) return "0.00";
-    const num = Number(value);
-    if (isNaN(num)) return value;
-
-    switch (formatId) {
-      case 'currency': 
-        return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
-      case 'percent':
-        return (num * 100).toFixed(2) + '%';
-      case 'integer':
-        return Math.round(num).toLocaleString();
-      default: // decimal
-        return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-  };
-
-  const formatDateDisplay = (value: string, formatId: string = 'long') => {
-    if (!value) return '';
-    const [y, m, d] = value.split('-').map(Number);
-    const date = new Date(y, m - 1, d);
-    if (isNaN(date.getTime())) return value;
-
-    switch (formatId) {
-      case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-      case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
-      case 'iso': return value;
-      default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    }
-  };
-
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
-
     try {
-      // Helper to find column value regardless of case
       const getColumnValue = (colName: string) => {
-        const actualKey = Object.keys(rowData).find(
-          key => key.toLowerCase() === colName.toLowerCase()
-        );
+        const actualKey = Object.keys(rowData).find(key => key.toLowerCase() === colName.toLowerCase());
         return actualKey ? rowData[actualKey] : null;
       };
-
-      // Basic SUM implementation: =SUM(Col1, Col2)
       if (value.toUpperCase().startsWith('=SUM(')) {
-        const match = value.match(/\=SUM\((.*)\)/i);
+        const match = value.match(/=SUM\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
         return args.reduce((acc, colName) => acc + (Number(getColumnValue(colName)) || 0), 0);
       }
-
-      // Add Days to Date: =ADD_DAYS(DateColumn, DaysColumn)
       if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
-        const match = value.match(/\=ADD_DAYS\((.*)\)/i);
+        const match = value.match(/=ADD_DAYS\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
         if (args.length !== 2) return '#ARGS!';
-
         const startDateRaw = getColumnValue(args[0]);
-        // Support both column names and direct numbers for the second argument
         const daysToAdd = Number(getColumnValue(args[1]) ?? args[1]) || 0;
-
         if (!startDateRaw) return '';
-
-        // Robust Date Parsing
-        let date: Date;
-        if (typeof startDateRaw === 'string' && startDateRaw.includes('-')) {
-          const [y, m, d] = startDateRaw.split('-').map(Number);
-          date = new Date(y, m - 1, d);
-        } else {
-          date = new Date(startDateRaw);
-        }
-
+        let date = new Date(startDateRaw);
         if (isNaN(date.getTime())) return '#DATE!';
-
         date.setDate(date.getDate() + daysToAdd);
-        const iso = date.toISOString().split('T')[0];
-        return formatDateDisplay(iso, formatId);
+        return formatDateDisplay(date.toISOString().split('T')[0], formatId);
       }
-    } catch (e) {
-      return '#ERR!';
-    }
+    } catch (e) { return '#ERR!'; }
     return value;
   }, []);
 
@@ -329,31 +472,6 @@ function DashboardContent() {
     }
   }, [searchParams]);
 
-  const LOCATIONS = [
-    "Antonino, Labason, Zamboanga del Norte",
-    "Balas, Labason, Zamboanga del Norte",
-    "Bobongan, Labason, Zamboanga del Norte",
-    "Dansalan, Labason, Zamboanga del Norte",
-    "Gabu, Labason, Zamboanga del Norte",
-    "Gil Sanchez, Labason, Zamboanga del Norte",
-    "Imelda, Labason, Zamboanga del Norte",
-    "Immaculada, Labason, Zamboanga del Norte",
-    "Kipit, Labason, Zamboanga del Norte",
-    "La Union, Labason, Zamboanga del Norte",
-    "Lapatan, Labason, Zamboanga del Norte",
-    "Lawagan, Labason, Zamboanga del Norte",
-    "Lawigan, Labason, Zamboanga del Norte",
-    "Lopoc, Labason, Zamboanga del Norte",
-    "Malintuboan, Labason, Zamboanga del Norte",
-    "New Salvacion, Labason, Zamboanga del Norte",
-    "Osukan, Labason, Zamboanga del Norte",
-    "Poblacion, Labason, Zamboanga del Norte",
-    "Patawag, Labason, Zamboanga del Norte",
-    "San Isidro, Labason, Zamboanga del Norte",
-    "Ubay, Labason, Zamboanga del Norte"
-  ];
-  const ALLOCATIONS = ["20%", "DepEd", "DA"];
-
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
     const { data, error } = await supabase.from('nodes').select('*').order('name');
@@ -402,55 +520,38 @@ function DashboardContent() {
     fetchFiles();
   };
 
-  const handleUpdateCell = (index: number, key: string, value: any) => {
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      const newData = [...data];
-      newData[index] = { ...newData[index], [key]: value };
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      console.error("Invalid JSON while updating cell");
-    }
-  };
+  const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
+    setGridData(prev => {
+      // Performance: If value is same, return original reference to skip re-render
+      if (prev[index][key] === value) return prev;
+
+      const newData = [...prev];
+      newData[index] = { ...prev[index], [key]: value }; // Clone only the modified row
+      return newData;
+    });
+  }, []);
 
   const handleRenameSection = (oldName: string, newName: string) => {
     if (!newName || oldName === newName) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const newData = data.map((row: any) => 
-        row.section === oldName ? { ...row, section: newName } : row
-      );
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      console.error("Failed to rename section");
-    }
+    setGridData(prev => prev.map((row: any) => 
+      row.section === oldName ? { ...row, section: newName } : row
+    ));
   };
 
   const handleAddSection = () => {
     const sectionName = window.prompt("Enter new section name:");
     if (!sectionName) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const newRow = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
-      setEditedContent(JSON.stringify([...data, newRow], null, 2));
-    } catch (e) {
-      setEditedContent(JSON.stringify([{ "Title / Item": "a.", "Amount": 0, "section": sectionName }], null, 2));
-    }
+    const newRow = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
+    setGridData(prev => [...prev, newRow]);
   };
 
   const handleDeleteSection = (sectionName: string) => {
     if (!window.confirm(`Are you sure you want to delete the entire section "${sectionName}" and all its rows?`)) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const newData = data.filter((row: any) => row.section !== sectionName);
-      setEditedContent(JSON.stringify(newData, null, 2));
-      if (newData.length === 0) {
-        setSelectedId(null);
-      }
-    } catch (e) {
-      console.error("Failed to delete section");
-    }
+    setGridData(prev => {
+      const filtered = prev.filter((row: any) => row.section !== sectionName);
+      if (filtered.length === 0) setSelectedId(null);
+      return filtered;
+    });
   };
 
   const handleShare = () => {
@@ -461,14 +562,12 @@ function DashboardContent() {
   };
 
   const exportToCSV = () => {
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data) || data.length === 0) return;
+      if (gridData.length === 0) return;
       
-      const headers = Object.keys(data[0]);
+      const headers = Object.keys(gridData[0]);
       const csvContent = [
         headers.join(','),
-        ...data.map(row => headers.map(header => `"${String(row[header] || '').replace(/"/g, '""')}"`).join(','))
+        ...gridData.map(row => headers.map(header => `"${String(row[header] || '').replace(/"/g, '""')}"`).join(','))
       ].join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -480,12 +579,9 @@ function DashboardContent() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    } catch (e) {
-      alert("Failed to export CSV: " + e);
-    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
       
@@ -516,37 +612,33 @@ function DashboardContent() {
         }
       }
 
-      try {
-        const data = JSON.parse(editedContent || '[]');
-        if (nextRow >= 0 && nextRow < data.length) {
-          const nextHeader = headers[nextColIdx];
-          setActiveCell({ row: nextRow, col: nextHeader });
-          
-          // Small timeout to allow conditional inputs (like Amount) to mount before focusing
-          setTimeout(() => {
-            const nextInput = document.querySelector(`[data-row="${nextRow}"][data-col="${nextHeader}"]`) as HTMLElement;
-            if (nextInput) {
-              nextInput.focus();
-              if (nextInput instanceof HTMLInputElement) nextInput.select();
-            }
-          }, 10);
-        }
-      } catch (err) {}
+      if (nextRow >= 0 && nextRow < gridData.length) {
+        const nextHeader = headers[nextColIdx];
+        setActiveCell({ row: nextRow, col: nextHeader });
+        
+        // Small timeout to allow conditional inputs (like Amount) to mount before focusing
+        setTimeout(() => {
+          const nextInput = document.querySelector(`[data-row="${nextRow}"][data-col="${nextHeader}"]`) as HTMLElement;
+          if (nextInput) {
+            nextInput.focus();
+            if (nextInput instanceof HTMLInputElement) nextInput.select();
+          }
+        }, 10);
+      }
     }
-  };
+  }, [gridData.length]);
 
   const setCellFontFamily = (row: number, col: string, fontFamily: string) => {
     setCellMetadata(prev => {
       const next = { ...prev };
-      try {
-        const data = JSON.parse(editedContent || '[]');
-        const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+      const data = gridData;
+      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+      const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+      const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+      const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
-        // Handle range selection
+      // Handle range selection
         if (selection) {
           const minRow = Math.min(selection.startRow, selection.endRow);
           const maxRow = Math.max(selection.startRow, selection.endRow);
@@ -565,10 +657,6 @@ function DashboardContent() {
           const key = row === -1 ? `header:${col}` : `${row}:${col}`;
           next[key] = { ...next[key], fontFamily };
         }
-      } catch (e) {
-        const key = row === -1 ? `header:${col}` : `${row}:${col}`;
-        next[key] = { ...next[key], fontFamily };
-      }
       return next;
     });
     setContextMenu(null);
@@ -586,13 +674,12 @@ function DashboardContent() {
       };
       const nextAlign = nextMap[current];
 
-      try {
-        const data = JSON.parse(editedContent || '[]');
-        const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+      const data = gridData;
+      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+      const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+      const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+      const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+      const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
         if (selection) {
           const minRow = Math.min(selection.startRow, selection.endRow);
@@ -610,9 +697,6 @@ function DashboardContent() {
         } else {
           next[cellKey] = nextAlign;
         }
-      } catch (e) {
-        next[cellKey] = nextAlign;
-      }
       return next;
     });
   };
@@ -632,15 +716,12 @@ function DashboardContent() {
       return;
     }
 
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-      if (allHeaders.includes(trimmedNewKey)) {
-        alert(`A column named "${trimmedNewKey}" already exists.`);
-        return;
-      }
+    const data = gridData;
+    const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+    if (allHeaders.includes(trimmedNewKey)) {
+      alert(`A column named "${trimmedNewKey}" already exists.`);
+      return;
+    }
 
       const newData = data.map((row: any) => {
         const { [oldKey]: value, ...rest } = row;
@@ -681,10 +762,7 @@ function DashboardContent() {
         const currentOrder = prev.length > 0 ? prev : allHeaders;
         return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
       });
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      alert("Cannot rename column: The data is currently invalid JSON. Please fix it in the Code View first.");
-    }
+      setGridData(newData);
   };
 
   const handleAddColumn = (name?: string) => {
@@ -693,11 +771,8 @@ function DashboardContent() {
     
     let colName = rawInput.trim();
 
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+    const data = gridData;
+    const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
 
       if (!colName) {
         let i = 1;
@@ -722,20 +797,16 @@ function DashboardContent() {
         const currentOrder = prev.length > 0 ? prev : allHeaders;
         return [...currentOrder, colName];
       });
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      alert("Cannot add column: The data is currently invalid JSON. Please fix it in the Code View first.");
-    }
+      setGridData(newData);
   };
 
   const handleDeleteColumn = (keyToDelete: string) => {
     if (!window.confirm(`Are you sure you want to delete the column "${keyToDelete}"?`)) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const newData = data.map((row: any) => {
-        const { [keyToDelete]: _, ...rest } = row;
-        return rest;
-      });
+    
+    const newData = gridData.map((row: any) => {
+      const { [keyToDelete]: _, ...rest } = row;
+      return rest;
+    });
 
       // Cleanup metadata and alignments for the deleted column
       setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
@@ -751,10 +822,7 @@ function DashboardContent() {
       setCellAlignments(filterKeys);
 
       setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      console.error("Failed to delete column");
-    }
+      setGridData(newData);
   };
 
   const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
@@ -763,11 +831,8 @@ function DashboardContent() {
     
     let colName = rawInput.trim();
 
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      
-      const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
+    if (gridData.length === 0) return;
+    const allHeaders = Object.keys(gridData[0]);
 
       if (!colName) {
         let i = 1;
@@ -794,62 +859,42 @@ function DashboardContent() {
         newOrder.push(colName);
       }
 
-      const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
+      const newData = gridData.map((row: any) => ({ ...row, [colName]: "" }));
       if (newData.length === 0) newData.push({ [colName]: "" });
       
       setColumnOrder(newOrder);
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      console.error("Failed to insert column", e);
-    }
+      setGridData(newData);
   };
 
   const addTableRow = () => {
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      let template: Record<string, any>;
-      if (Array.isArray(data) && data.length > 0) {
-        template = Object.keys(data[0]).reduce((acc, key) => ({ ...acc, [key]: "" }), {});
-      } else {
-        template = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": "Work A" };
-      }
-      
-      const newData = Array.isArray(data) ? [...data, template] : [template];
-      setEditedContent(JSON.stringify(newData, null, 2));
-    } catch (e) {
-      setEditedContent(JSON.stringify([{ "Title / Item": "a.", "Amount": 0, "section": "Work A" }], null, 2));
+    let template: Record<string, any>;
+    if (gridData.length > 0) {
+      template = Object.keys(gridData[0]).reduce((acc, key) => ({ ...acc, [key]: "" }), {});
+    } else {
+      template = { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "section": "Work A" };
     }
+    setGridData(prev => [...prev, template]);
   };
 
   const addRowToSection = (sectionName: string) => {
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const sectionRows = data.filter((r: any) => r.section === sectionName);
-      // Determine next letter (a, b, c...)
-      const nextLetter = sectionRows.length > 0 
-        ? String.fromCharCode(sectionRows[sectionRows.length - 1]["Title / Item"].charCodeAt(0) + 1)
-        : "a";
-      
-      const newRow = { "Title / Item": `${nextLetter}.`, "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
-      setEditedContent(JSON.stringify([...data, newRow], null, 2));
-    } catch (e) {
-      console.error("Failed to insert row into section");
-    }
+    const sectionRows = gridData.filter((r: any) => r.section === sectionName);
+    const nextLetter = sectionRows.length > 0 
+      ? String.fromCharCode(sectionRows[sectionRows.length - 1]["Title / Item"].charCodeAt(0) + 1)
+      : "a";
+    
+    const newRow = { "Title / Item": `${nextLetter}.`, "Amount": 0, "Location": "", "Allocation": "", "section": sectionName };
+    setGridData(prev => [...prev, newRow]);
   };
 
   const handleInsertRow = (index: number, position: 'above' | 'after') => {
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      
-      const template = data.length > 0 
-        ? Object.keys(data[0]).reduce((acc, key) => ({ 
+    const template = gridData.length > 0 
+        ? Object.keys(gridData[0]).reduce((acc, key) => ({ 
             ...acc, 
-            [key]: key === 'section' ? data[index].section : "" 
+            [key]: key === 'section' ? gridData[index].section : "" 
           }), {})
         : { "Title / Item": "a.", "Amount": 0, "section": "Work A" };
 
-      const newData = [...data];
+      const newData = [...gridData];
       const insertIndex = position === 'above' ? index : index + 1;
       newData.splice(insertIndex, 0, template);
 
@@ -873,20 +918,14 @@ function DashboardContent() {
       setCellMetadata(shiftKeys);
       setCellAlignments(shiftKeys);
 
-      setEditedContent(JSON.stringify(newData, null, 2));
+      setGridData(newData);
       setContextMenu(null);
-    } catch (e) {
-      console.error("Failed to insert row", e);
-    }
   };
 
   const handleClearRow = (index: number) => {
     if (!window.confirm("Clear all data in this row?")) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      
-      const newData = [...data];
+    
+    const newData = [...gridData];
       const section = newData[index].section;
       newData[index] = Object.keys(newData[index]).reduce((acc, key) => ({
         ...acc,
@@ -904,20 +943,14 @@ function DashboardContent() {
       setCellMetadata(clearRowMeta);
       setCellAlignments(clearRowMeta);
 
-      setEditedContent(JSON.stringify(newData, null, 2));
+      setGridData(newData);
       setContextMenu(null);
-    } catch (e) {
-      console.error("Failed to clear row", e);
-    }
   };
 
   const handleClearColumn = (colName: string) => {
     if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      
-      const newData = data.map((row: any) => ({ ...row, [colName]: "" }));
+
+    const newData = gridData.map((row: any) => ({ ...row, [colName]: "" }));
 
       const clearColMeta = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
@@ -938,11 +971,8 @@ function DashboardContent() {
       setCellMetadata(clearColMeta);
       setCellAlignments(clearColMeta);
 
-      setEditedContent(JSON.stringify(newData, null, 2));
+      setGridData(newData);
       setContextMenu(null);
-    } catch (e) {
-      console.error("Failed to clear column", e);
-    }
   };
 
   const handleResetWidths = () => {
@@ -956,13 +986,11 @@ function DashboardContent() {
       ...prev,
       ...(() => {
         const next: Record<string, any> = {};
-        try {
-          const data = JSON.parse(editedContent || '[]');
-          const allHeaders = data.length > 0 ? Object.keys(data[0]) : [];
-          const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
-          const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
-          const finalOrder = [...baseOrder, ...uniqueObjectKeys];
-          const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
+        const allHeaders = gridData.length > 0 ? Object.keys(gridData[0]) : [];
+        const baseOrder = columnOrder.length > 0 ? columnOrder : allHeaders;
+        const uniqueObjectKeys = allHeaders.filter(k => !baseOrder.includes(k));
+        const finalOrder = [...baseOrder, ...uniqueObjectKeys];
+        const visibleHeaders = finalOrder.filter(h => !hiddenColumns.includes(h) && h !== 'section' && allHeaders.includes(h));
 
           if (selection) {
             const minRow = Math.min(selection.startRow, selection.endRow);
@@ -981,9 +1009,6 @@ function DashboardContent() {
           } else {
             next[`${row}:${col}`] = { ...prev[`${row}:${col}`], type, format };
           }
-        } catch (e) {
-          next[`${row}:${col}`] = { ...prev[`${row}:${col}`], type, format };
-        }
         return next;
       })()
     }));
@@ -1382,12 +1407,10 @@ function DashboardContent() {
     const { startRow, endRow, col } = range;
     if (startRow === endRow) return;
 
-    try {
-      const data = JSON.parse(editedContent || '[]');
-      const sourceValue = data[startRow][col];
+    const sourceValue = gridData[startRow][col];
       const sourceMeta = cellMetadata[`${startRow}:${col}`];
       
-      const newData = [...data];
+      const newData = [...gridData];
       const newMetadata = { ...cellMetadata };
 
       const min = Math.min(startRow, endRow);
@@ -1405,11 +1428,8 @@ function DashboardContent() {
         }
       }
 
-      setEditedContent(JSON.stringify(newData, null, 2));
+      setGridData(newData);
       setCellMetadata(newMetadata);
-    } catch (e) {
-      console.error("Failed to apply drag fill", e);
-    }
   };
 
   const removeTableRow = async (index: number) => {
@@ -1434,9 +1454,7 @@ function DashboardContent() {
     }
 
     try {
-      const data = JSON.parse(editedContent || '[]');
-      if (!Array.isArray(data)) return;
-      const newData = data.filter((_, i) => i !== index);
+      const newData = gridData.filter((_, i) => i !== index);
 
       // Shift metadata and alignments for all rows following the deleted one
       const shiftKeys = (prev: Record<string, any>) => {
@@ -1458,8 +1476,7 @@ function DashboardContent() {
       };
       setCellMetadata(shiftKeys);
       setCellAlignments(shiftKeys);
-
-      setEditedContent(JSON.stringify(newData, null, 2));
+      setGridData(newData);
     } catch (e) {
       console.error("Failed to remove row");
     }
@@ -1468,7 +1485,7 @@ function DashboardContent() {
   // Sync editor content with the selected file
   useEffect(() => {
     if (activeNode?.type === 'file') {
-      setEditedContent(JSON.stringify(activeNode.content || {}, null, 2));
+      setGridData(Array.isArray(activeNode.content) ? activeNode.content : []);
       setColumnAlignments(activeNode.display_settings?.columnAlignments || {});
       setCellAlignments(activeNode.display_settings?.cellAlignments || {});
       setColumnOrder(activeNode.display_settings?.columnOrder || []);
@@ -1481,7 +1498,7 @@ function DashboardContent() {
       setShowBackToTop(false);
       tableContainerRef.current?.scrollTo({ top: 0 });
     } else {
-      setEditedContent('');
+      setGridData([]);
       setColumnAlignments({});
       setCellAlignments({});
       setColumnOrder([]);
@@ -1499,13 +1516,10 @@ function DashboardContent() {
     
     setIsSaving(true);
     try {
-      const content = JSON.parse(editedContent);
       const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata };
-      const { error } = await supabase.from('nodes').update({ content, display_settings }).eq('id', activeNode.id);
+      const { error } = await supabase.from('nodes').update({ content: gridData, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
-    } catch (err: any) {
-      alert(err.message || 'Invalid JSON format');
     } finally {
       setIsSaving(false);
     }
@@ -1519,23 +1533,23 @@ function DashboardContent() {
       { "Title / Item": "a.", "Amount": 0, "Location": "", "Allocation": "", "Notes": "", "section": "Work B" },
     ];
     setColumnOrder(["Title / Item", "Amount", "Location", "Allocation", "Notes"]);
-    setEditedContent(JSON.stringify(template, null, 2));
+    setGridData(template);
   };
 
   const renderTableEditor = () => {
+    let data = gridData;
     try {
-      let data = JSON.parse(editedContent || '[]');
       // If empty or not array, show pre-format option
-      if (!Array.isArray(data) || data.length === 0) {
+      if (data.length === 0) {
         return (
-          <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 shadow-sm flex flex-col items-center gap-4">
+          <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
             <div className="text-center">
               <p className="font-semibold mb-1 text-sm">Pre-formatted Table Required</p>
               <p className="text-xs text-amber-700">Initialize the Work A / Work B structure for this file.</p>
             </div>
             <button 
               onClick={initializeExcelTemplate}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded transition-colors uppercase tracking-wider"
+              className="px-4 py-2 bg-accent hover:opacity-90 text-accent-foreground text-xs font-bold rounded transition-colors uppercase tracking-wider shadow-sm"
             >
               Initialize Excel Template
             </button>
@@ -1573,20 +1587,20 @@ function DashboardContent() {
       const sections = Array.from(new Set(data.map((r: any) => r.section || "Uncategorized")));
 
       return (
-        <div className={`flex flex-col h-full overflow-hidden bg-white ${isFullScreen ? '' : 'border border-slate-200 rounded-lg shadow-sm'}`}>
+        <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
           {/* Excel Toolbar */}
-          <div className="flex items-center justify-between p-2 bg-slate-50 border-b border-slate-200 gap-2">
+          <div className={GRID_THEME.toolbar}>
             <div className="flex items-center gap-2 flex-1">
               <div className="relative flex-1 max-w-sm">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1.5 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-blue-500 outline-none bg-white" />
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1.5 text-xs border border-border rounded focus:ring-1 focus:ring-accent outline-none bg-background text-foreground placeholder:text-muted/50" />
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium">
-                <Type size={14} className="text-slate-400" />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
+                <Type size={14} className="text-muted" />
                 <select 
                   value={activeCell ? (cellMetadata[`${activeCell.row}:${activeCell.col}`]?.fontFamily || "") : ""} 
                   onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)} 
-                  className="bg-transparent border-0 font-bold text-blue-600 focus:ring-0 cursor-pointer max-w-[120px]"
+                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-[120px] dark:bg-card"
                 >
                   <option value="">Font Family...</option>
                   {FONT_FAMILIES.map(f => (
@@ -1594,21 +1608,21 @@ function DashboardContent() {
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium">
-                <span className="text-slate-400">Year:</span>
-                <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-blue-600 focus:ring-0 cursor-pointer">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
+                <span className="text-muted">Year:</span>
+                <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer dark:bg-card">
                   <option value="2020">2020</option>
                   <option value="2021">2021</option>
                   <option value="2022">2022</option>
                   <option value="2023">2023</option>
                 </select>
               </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium">
-                <span className="text-slate-400">Columns:</span>
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
+                <span className="text-muted">Columns:</span>
                 <select 
                   value="" 
                   onChange={(e) => { if(e.target.value) toggleColumnVisibility(e.target.value); e.target.value = ""; }}
-                  className="bg-transparent border-0 font-bold text-blue-600 focus:ring-0 cursor-pointer max-w-[110px]"
+                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-[110px] dark:bg-card"
                 >
                   <option value="">{hiddenColumns.length > 0 ? `(${hiddenColumns.length} Hidden)` : "All Visible"}</option>
                   {allHeaders.filter(h => h !== 'section').map(h => (
@@ -1616,15 +1630,15 @@ function DashboardContent() {
                   ))}
                 </select>
               </div>
-              <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm">
+              <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
                 <Plus size={14} className="text-green-600" /> Add Section
               </button>
-              <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm text-slate-700" title="Reset all columns to auto-width">
+              <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground" title="Reset all columns to auto-width">
                 <RefreshCcw size={14} /> Reset Widths
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-medium hover:bg-slate-50 transition-colors shadow-sm text-slate-700">
+              <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
                 <HardDrive size={14} /> Export CSV
               </button>
             </div>
@@ -1633,40 +1647,40 @@ function DashboardContent() {
           {/* Cell Context Menu */}
           {contextMenu && (
             <div 
-              className="fixed z-[100] bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100"
+              className="fixed z-[100] bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100"
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
               {contextMenu.type === 'header' ? (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Column Options</div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Column Options</div>
                   <button 
                     onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    {isFreezePanes ? <Minimize2 size={14} className="text-blue-500" /> : <Maximize2 size={14} className="text-slate-400" />}
+                    {isFreezePanes ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
                     {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
                   </button>
-                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="h-px bg-border my-1"></div>
                   <div className="relative group/sub">
                     <button 
                       onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFonts: true, showFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
                     >
-                      <span className="flex items-center gap-2"><Type size={14} className="text-blue-500" /> Set Column Font</span>
-                      <ChevronRightIcon size={12} className="text-slate-300" />
+                      <span className="flex items-center gap-2"><Type size={14} className="text-accent" /> Set Column Font</span>
+                      <ChevronRightIcon size={12} className="text-muted" />
                     </button>
                     {contextMenu.showFonts && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {FONT_FAMILIES.map(f => (
-                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 hover:text-blue-700">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
                   </div>
                   <button 
                     onClick={() => { toggleAlignment(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
                     {columnAlignments[contextMenu.col] === 'center' ? <AlignCenter size={14} /> :
                      columnAlignments[contextMenu.col] === 'right' ? <AlignRight size={14} /> : <AlignLeft size={14} />}
@@ -1674,124 +1688,124 @@ function DashboardContent() {
                   </button>
                   <button 
                     onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <TableIcon size={14} className="text-blue-500" /> Merge Selected Headers
+                    <TableIcon size={14} className="text-accent" /> Merge Selected Headers
                   </button>
                   {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
                     <button 
                       onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                     >
                       <X size={14} className="text-orange-500" /> Unmerge Header
                     </button>
                   )}
                   <button 
                     onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
                     <EyeOff size={14} /> Hide Column
                   </button>
                   <button 
                     onClick={() => { handleInsertColumn(contextMenu.col, 'before'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <Plus size={14} className="text-blue-500" /> Insert Column Before
+                    <Plus size={14} className="text-accent" /> Insert Column Before
                   </button>
                   <button 
                     onClick={() => { handleInsertColumn(contextMenu.col, 'after'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <Plus size={14} className="text-blue-500" /> Insert Column After
+                    <Plus size={14} className="text-accent" /> Insert Column After
                   </button>
                   <button 
                     onClick={() => handleClearColumn(contextMenu.col)} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
                     <X size={14} className="text-orange-500" /> Clear Column Content
                   </button>
-                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="h-px bg-border my-1"></div>
                   <button 
                     onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
                   >
                     <Trash2 size={14} /> Delete Column
                   </button>
                 </>
               ) : contextMenu.type === 'row' ? (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Row Options</div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Row Options</div>
                   <button 
                     onClick={() => handleInsertRow(contextMenu.row!, 'above')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <Plus size={14} className="text-blue-500" /> Insert Row Above
+                    <Plus size={14} className="text-accent" /> Insert Row Above
                   </button>
                   <button 
                     onClick={() => handleInsertRow(contextMenu.row!, 'after')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <Plus size={14} className="text-blue-500" /> Insert Row Below
+                    <Plus size={14} className="text-accent" /> Insert Row Below
                   </button>
                   <button 
                     onClick={() => handleClearRow(contextMenu.row!)} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
                     <X size={14} className="text-orange-500" /> Clear Row Content
                   </button>
-                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="h-px bg-border my-1"></div>
                   <button 
                     onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
                   >
                     <Trash2 size={14} /> Delete Row
                   </button>
                 </>
               ) : (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100 uppercase">Selection Actions</div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Selection Actions</div>
                   <button 
                     onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                   >
-                    <TableIcon size={14} className="text-blue-500" /> Merge Selected Cells
+                    <TableIcon size={14} className="text-accent" /> Merge Selected Cells
                   </button>
                   
                   {/* Unmerge only shows if the specific cell clicked is a merge host */}
                   {(cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.rowSpan > 1 || cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.colSpan > 1) && (
                     <button 
                       onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                     >
                       <X size={14} className="text-orange-500" /> Unmerge Cells
                     </button>
                   )}
 
-                  <div className="h-px bg-slate-100 my-1"></div>
+                  <div className="h-px bg-border my-1"></div>
 
                   {cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.type === 'media' && (
-                    <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 text-red-600 flex items-center gap-2 border-b border-slate-100 font-bold"><Trash2 size={14} /> Remove Attachment</button>
+                    <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2 border-b border-border font-bold"><Trash2 size={14} /> Remove Attachment</button>
                   )}
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest border-b border-slate-100">Format Cell</div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Format Cell</div>
                   <button 
                     onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)}
                     onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'text')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><FileText size={14} className="text-slate-400" /> Default Text</button>
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><FileText size={14} className="text-muted" /> Default Text</button>
                   
                   <div className="relative group/sub">
                     <button 
                       onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: true, showFormulaFormats: false, showNumberFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
                     >
-                      <span className="flex items-center gap-2"><Calendar size={14} className="text-blue-500" /> Format as Calendar</span>
-                      <ChevronRightIcon size={12} className="text-slate-300" />
+                      <span className="flex items-center gap-2"><Calendar size={14} className="text-accent" /> Format as Calendar</span>
+                      <ChevronRightIcon size={12} className="text-muted" />
                     </button>
                     
                     {contextMenu.showFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-blue-50 hover:text-blue-700">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
@@ -1800,16 +1814,16 @@ function DashboardContent() {
                   <div className="relative group/sub">
                     <button 
                       onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showNumberFormats: true, showFormats: false, showFormulaFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
                     >
                       <span className="flex items-center gap-2"><TableIcon size={14} className="text-green-600" /> Format as Number</span>
-                      <ChevronRightIcon size={12} className="text-slate-300" />
+                      <ChevronRightIcon size={12} className="text-muted" />
                     </button>
                     
                     {contextMenu.showNumberFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {NUMBER_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-green-50 hover:text-green-700">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
@@ -1818,32 +1832,32 @@ function DashboardContent() {
                   <div className="relative group/sub">
                     <button 
                       onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormulaFormats: true, showFormats: false, showNumberFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center justify-between gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
                     >
                       <span className="flex items-center gap-2"><Sigma size={14} className="text-purple-500" /> Formula Support</span>
-                      <ChevronRightIcon size={12} className="text-slate-300" />
+                      <ChevronRightIcon size={12} className="text-muted" />
                     </button>
                     
                     {contextMenu.showFormulaFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-white border border-slate-200 shadow-xl rounded-lg py-1 w-48`}>
+                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         <button 
                           onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula')} 
-                          className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 hover:text-purple-700 font-bold"
+                          className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground font-bold"
                         >
                           Standard (Sum/Number)
                         </button>
-                        <div className="h-px bg-slate-100 my-1"></div>
-                        <div className="px-3 py-1 text-[9px] font-bold text-slate-400 tracking-widest">Date Result Format</div>
+                        <div className="h-px bg-border my-1"></div>
+                        <div className="px-3 py-1 text-[9px] font-bold text-muted tracking-widest uppercase">Date Result Format</div>
                         {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-purple-50 hover:text-purple-700">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
                   </div>
-                  <div className="h-px bg-slate-100 my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 tracking-widest">Media</div>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50 flex items-center gap-2"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
+                  <div className="h-px bg-border my-1"></div>
+                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Media</div>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
+                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
                 </>
               )}
             </div>
@@ -1859,11 +1873,11 @@ function DashboardContent() {
           />
 
           {/* Formula Bar - Relocated for a cleaner grid view */}
-          <div className="flex items-start gap-2 p-1.5 bg-white border-b border-slate-200 shadow-inner z-20">
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 rounded border border-slate-200 text-[10px] font-black text-slate-500 tracking-tighter min-w-[120px] justify-center shadow-sm mt-0.5">
+          <div className={GRID_THEME.formulaBar}>
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-[120px] justify-center shadow-sm mt-0.5">
               {activeCell ? `${activeCell.col} : Row ${activeCell.row + 1}` : 'Select a cell'}
             </div>
-            <div className="h-4 w-px bg-slate-300 mx-1 self-center"></div>
+            <div className="h-4 w-px bg-border mx-1 self-center"></div>
             <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
               <Sigma size={14} className="shrink-0" />
               <span className="text-[10px] font-bold tracking-widest opacity-50">Formula</span>
@@ -1878,7 +1892,7 @@ function DashboardContent() {
                   handleUpdateCell(activeCell.row, activeCell.col, e.target.value);
                 }
               }}
-              className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-slate-700 placeholder:text-slate-300 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
+              className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
             />
           </div>
 
@@ -1888,8 +1902,8 @@ function DashboardContent() {
             className="flex-1 overflow-auto relative"
           >
             <table className="w-full border-separate border-spacing-0 table-auto min-w-full">
-              <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} bg-slate-100 shadow-[0_1px_0_rgba(0,0,0,0.1)]`}>
-                <tr className="bg-slate-200/60 select-none h-5">
+              <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} ${GRID_THEME.tableHeader}`}>
+                <tr className={GRID_THEME.tableHeaderRow}>
                   {/* The Corner Cell - Standardized border and background */}
                   <th 
                     onClick={() => {
@@ -1903,9 +1917,9 @@ function DashboardContent() {
                         setActiveCell({ row: 0, col: visibleHeaders[0] });
                       }
                     }}
-                    className={`w-10 min-w-[40px] h-5 border-r border-b border-slate-300 bg-slate-100 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-slate-300 transition-colors ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}
+                    className={`w-10 min-w-[40px] h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
                   >
-                    <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-slate-500">◢</div>
+                    <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
                   </th>
                   {visibleHeaders.map((header, idx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
@@ -1914,9 +1928,7 @@ function DashboardContent() {
                       <th 
                         key={`col-label-${idx}`} 
                         onClick={() => {
-                          try {
-                            const data = JSON.parse(editedContent || '[]');
-                            if (data.length > 0) {
+                            if (gridData.length > 0) {
                               setSelection({
                                 startRow: 0,
                                 endRow: data.length - 1,
@@ -1925,7 +1937,7 @@ function DashboardContent() {
                               });
                               setActiveCell({ row: 0, col: header });
                             }
-                          } catch(e) {}
+
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1946,21 +1958,21 @@ function DashboardContent() {
                           width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
-                        className={`text-[9px] font-black border-r border-b border-slate-300 h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
-                          isColumnActive ? 'bg-blue-100 text-blue-700 shadow-[inset_0_-2px_0_0_#2563eb]' : 'text-slate-400 hover:bg-slate-300 hover:text-slate-600'
+                        className={`text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
+                          isColumnActive ? 'bg-accent/20 text-accent shadow-[inset_0_-2px_0_0_currentColor]' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${
-                          isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_#cbd5e1] ${isColumnActive ? 'bg-blue-100' : 'bg-slate-100'}` : ""
+                          isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
                         }`}
                       >
                         {getExcelColumnLabel(idx)}
                       </th>
                     );
                   })}
-                  <th className="border-r border-b border-slate-300"></th>
-                  <th className="sticky right-0 border-l border-b border-slate-300 z-40 bg-slate-200/50"></th>
+                  <th className="border-r border-b border-border bg-muted/5"></th>
+                  <th className="sticky right-0 border-l border-b border-border z-40 bg-muted/20 shadow-[-1px_0_0_0_var(--color-border)]"></th>
                 </tr>
                 <tr>
-                  <th className={`w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-100 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}></th>
+                  <th className={`w-10 min-w-[40px] ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
@@ -2010,28 +2022,28 @@ function DashboardContent() {
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                     }}
-                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-slate-300 relative antialiased transition-colors ${
-                      isColumnActive ? 'text-blue-700 bg-blue-50/50' : 'text-slate-500 bg-slate-100'
+                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased transition-colors ${
+                      isColumnActive ? 'text-accent bg-accent/5' : 'text-muted bg-muted/10'
                     } ${
-                      isFreezePanes && header === "Title / Item" ? "sticky left-10 top-0 z-40 shadow-[1px_0_0_0_#cbd5e1]" : ""
-                    } ${isInHeaderSelection ? 'bg-blue-50/50 ring-1 ring-inset ring-blue-200 z-10' : ''}`}
+                      isFreezePanes && header === "Title / Item" ? "sticky left-10 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
+                    } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : ''}`}
                     >
                       <div className="flex items-center gap-1">
                         <input
                           defaultValue={header}
                           onBlur={(e) => handleRenameColumn(header, e.target.value)}
-                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none truncate hover:bg-slate-100 transition-colors ${alignClass}`}
+                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 transition-colors ${alignClass}`}
                         />
                       </div>
                       <div 
                         onMouseDown={(e) => startResizing(header, e)}
-                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-blue-400 z-50 transition-colors group-hover/header:bg-slate-300"
+                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/header:bg-muted/40"
                         title="Drag to resize"
                       />
                       </th>
                     );
                   })}
-                  <th className="p-2 min-w-[140px] border-r border-b border-slate-200 bg-slate-50/50">
+                  <th className="p-2 min-w-[140px] border-r border-b border-border bg-muted/5">
                     <div className="flex items-center gap-1 px-1">
                       <input
                         value={newColName}
@@ -2043,31 +2055,31 @@ function DashboardContent() {
                           }
                         }}
                         placeholder="Add Column..."
-                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-blue-400 rounded px-1 outline-none text-sm font-bold text-blue-600 placeholder:text-blue-300"
+                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
                       />
-                      <Plus size={14} className="text-blue-400" />
+                      <Plus size={14} className="text-accent/60" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 w-12 bg-slate-100 sticky right-0 border-l border-b border-slate-200 z-40"></th>
+                  <th className="px-4 py-3 w-12 bg-muted/10 sticky right-0 border-l border-b border-border z-40 shadow-[-1px_0_0_0_var(--color-border)]"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-border">
                 {sections.map((sectionName: any) => {
                   const sectionRows = data.filter((r: any) => r.section === sectionName);
                   return (
                     <Fragment key={sectionName}>
                       {/* Section Header */}
-                      <tr className="bg-slate-100/80 group/section">
-                        <td colSpan={visibleHeaders.length + 3} className="px-3 py-1 border-b border-slate-300">
+                      <tr className="bg-muted/30 group/section transition-colors">
+                        <td colSpan={visibleHeaders.length + 3} className="px-3 py-1 border-b border-border">
                           <div className="flex items-center justify-between">
                             <input
                               defaultValue={sectionName}
                               onBlur={(e) => handleRenameSection(sectionName, e.target.value)}
-                              className="bg-transparent border-0 font-black text-slate-800 tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-blue-400 rounded px-1 flex-1"
+                              className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
                             />
                             <button 
                               onClick={() => handleDeleteSection(sectionName)}
-                              className="opacity-0 group-hover/section:opacity-100 p-1 text-slate-400 hover:text-red-500 transition-all"
+                              className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
                               title="Delete Section"
                             >
                               <Trash2 size={12} />
@@ -2078,301 +2090,46 @@ function DashboardContent() {
                       {/* Data Rows */}
                       {sectionRows.map((row: any, localIndex: number) => {
                         const globalIndex = data.indexOf(row);
-                        const isRowActive = activeCell?.row === globalIndex;
                         return (
-                          <tr key={globalIndex} className="hover:bg-slate-50 transition-colors group relative">
-                            <td
-                              className={`w-10 min-w-[40px] text-[10px] font-bold text-center border-r border-b border-slate-300 select-none cursor-pointer transition-colors ${
-                                isRowActive ? 'bg-blue-100 text-blue-700 shadow-[inset_-2px_0_0_0_#2563eb]' : 'bg-slate-50 text-slate-400 hover:bg-slate-200 hover:text-slate-600'
-                              } ${
-                                isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''
-                              }`}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                const menuWidth = 192;
-                                const menuHeight = 200; 
-                                const winW = window.innerWidth;
-                                const winH = window.innerHeight;
-                                
-                                let x = e.clientX;
-                                let y = e.clientY;
-                                if (x + menuWidth > winW) x -= menuWidth;
-                                if (y + menuHeight > winH) y -= menuHeight;
-                                
-                                setContextMenu({ x, y, row: globalIndex, col: "", type: 'row' });
-                              }}
-                              onClick={() => {
-                                setSelection({
-                                  startRow: globalIndex,
-                                  endRow: globalIndex,
-                                  startCol: visibleHeaders[0],
-                                  endCol: visibleHeaders[visibleHeaders.length - 1]
-                                });
-                                setActiveCell({ row: globalIndex, col: visibleHeaders[0] });
-                              }}
-                            >
-                              {globalIndex + 1}
-                            </td>
-                    {visibleHeaders.map((header, colIndex) => {
-                      const cellKey = `${globalIndex}:${header}`;
-                      const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
-                      const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || defaultAlign;
-                      const alignClass = cellAlign === 'center' ? 'text-center' : 
-                                       cellAlign === 'right' ? 'text-right' : 'text-left';
-                      
-                      const meta = cellMetadata[cellKey] || {};
-                      const isFormula = meta.type === 'formula';
-                      const isDate = meta.type === 'date';
-                      const isMedia = meta.type === 'media';
-
-                      if (meta.mergedIn) return null;
-
-                      const currentColIdx = visibleHeaders.indexOf(header);
-                      const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && currentColIdx >= selMinColIdx && currentColIdx <= selMaxColIdx;
-
-                      return (
-                        <td 
-                          key={header} 
-                          rowSpan={meta.rowSpan}
-                          colSpan={meta.colSpan}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            const menuWidth = 192;
-                            const menuHeight = 420; // Estimated height for cell menu
-                            const winW = window.innerWidth;
-                            const winH = window.innerHeight;
-
-                            let x = e.clientX;
-                            let y = e.clientY;
-                            if (x + menuWidth > winW) x -= menuWidth;
-                            if (y + menuHeight > winH) y -= menuHeight;
-
-                            setContextMenu({ x, y, row: globalIndex, col: header, type: 'cell' });
-                          }}
-                          onMouseDown={(e) => {
-                            if (e.button === 0) { // Left click only for selecting
-                              setActiveCell({ row: globalIndex, col: header });
-                              setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
-                              setIsSelecting(true);
-                            } else if (e.button === 2) { // Right click
-                              // Only reset selection if right-clicking outside current selection
-                              const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
-                              const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
-                              const currentColIdx = visibleHeaders.indexOf(header);
-                              
-                              const isInsideSelection = selection && 
-                                globalIndex >= Math.min(selection.startRow, selection.endRow) &&
-                                globalIndex <= Math.max(selection.startRow, selection.endRow) &&
-                                currentColIdx >= Math.min(startColIdx, endColIdx) &&
-                                currentColIdx <= Math.max(startColIdx, endColIdx);
-
-                              if (!isInsideSelection) {
-                                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
-                              }
-                            }
-                          }}
-                          onMouseEnter={() => {
-                            if (dragFillRange && dragFillRange.col === header) {
-                              setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
-                            }
-                            if (isSelecting) {
-                              setSelection(prev => prev ? { ...prev, endRow: globalIndex, endCol: header } : null);
-                            }
-                          }}
-                          onClick={() => { 
-                            // Only clear selection if it's a single cell click (no drag range)
-                            if (selection && selection.startRow === selection.endRow && selection.startCol === selection.endCol) {
-                              setSelection(null); 
-                            }
-                          }}
-                          className={`p-0 border-r border-slate-200 bg-white group/cell relative align-middle ${
-                            meta.fontFamily ? '' : 'font-sans'
-                          } ${
-                            isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_#cbd5e1]" : ""
-                          } ${
-                            activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-blue-500 z-20' : ''
-                          } ${
-                            isInSelection ? `bg-blue-50/50 z-10 ${activeCell?.row === globalIndex && activeCell?.col === header ? '' : 'ring-1 ring-inset ring-blue-200'}` : ''
-                          }`}
-                          style={{ fontFamily: meta.fontFamily || 'inherit' }}
-                        >
-                          {/* Fill Handle */}
-                          {activeCell?.row === globalIndex && activeCell?.col === header && (
-                            <div 
-                              onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)}
-                              className="absolute bottom-0 right-0 w-2 h-2 bg-blue-600 border border-white cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full hover:scale-150 transition-transform" 
-                              title="Drag to fill"
-                            />
-                          )}
-
-                          {/* Drag Selection Overlay */}
-                          {dragFillRange && dragFillRange.col === header && (
-                            globalIndex >= Math.min(dragFillRange.startRow, dragFillRange.endRow) &&
-                            globalIndex <= Math.max(dragFillRange.startRow, dragFillRange.endRow)
-                          ) && (
-                            <div className="absolute inset-0 pointer-events-none bg-blue-500/10 border-x-2 border-blue-500/30 z-10" />
-                          )}
-
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }}
-                            className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-slate-300 hover:text-blue-500 bg-white/90 rounded shadow-sm z-30 transition-all"
-                            title="Cell Alignment"
-                          >
-                            {cellAlign === 'center' ? <AlignCenter size={10} /> :
-                             cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
-                          </button>
-
-                          {header === 'Location' || header === 'Allocation' ? (
-                            <select
-                              value={row[header] ?? ''}
-                              data-row={globalIndex}
-                              data-col={header}
-                              onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                              onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
-                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 cursor-pointer relative z-0 ${alignClass}`}
-                            >
-                              <option value="">Select...</option>
-                              {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          ) : isDate ? (
-                        <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
-                              <input
-                                type="date"
-                                data-row={globalIndex}
-                                data-col={header}
-                                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                                value={row[header] || ''}
-                                onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)}
-                                onClick={(e) => {
-                                  try {
-                                    e.currentTarget.showPicker();
-                                  } catch (err) {
-                                    // Fallback for older browsers
-                                  }
-                                }}
-                                className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
-                              />
-                          <div className={`w-full px-2 py-1 text-sm text-slate-800 !normal-case ${alignClass} group-hover/date:bg-blue-50/30 transition-colors flex items-center ${
-                            cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
-                          }`}>
-                            {row[header] 
-                              ? formatDateDisplay(row[header], meta.format) 
-                              : <span className="text-slate-400 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
-                              </div>
-                            </div>
-                          ) : isMedia ? (
-                            <div className="flex items-center group/media relative min-h-[28px] w-full">
-                              <div className="flex-1 min-w-0 px-2 py-1">
-                                {meta.attachments && meta.attachments.length > 0 && (() => {
-                                  const atts = meta.attachments;
-                                  const hasImages = atts.some((a: any) => a.type === 'image');
-                                  const hasFiles = atts.some((a: any) => a.type === 'file');
-                                  let label = 'Attachment';
-                                  if (hasImages && !hasFiles) label = 'Image';
-                                  else if (hasFiles && !hasImages) label = 'File';
-                                  const plural = atts.length > 1 ? 's' : '';
-                                  
-                                  return (
-                                    <button 
-                                      onClick={() => setViewingMedia({ attachments: atts, row: globalIndex, col: header })}
-                                      className={`text-xs text-blue-600 hover:underline font-medium block leading-tight w-full ${alignClass}`}
-                                    >
-                                      [View {label}{plural}]
-                                      {atts.length > 1 && <span className="ml-1 opacity-60">({atts.length})</span>}
-                                    </button>
-                                  );
-                                })()}
-                              </div>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeCellMetadata(globalIndex, header);
-                                }}
-                                className="opacity-0 group-hover/media:opacity-100 p-1 text-slate-300 hover:text-red-500 transition-all absolute right-1 top-1 bg-white/80 rounded shadow-sm"
-                                title="Remove Attachment"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
-                          ) : isFormula ? (
-                            <div 
-                              onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                              className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text transition-all !normal-case min-h-[28px] flex items-center ${
-                                activeCell?.row === globalIndex && activeCell?.col === header 
-                                  ? 'bg-purple-50/80' 
-                                  : 'hover:bg-purple-50/50'
-                              } ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}
-                            >
-                              {(() => {
-                                const result = evaluateFormula(row[header], row, meta.format);
-                                return typeof result === 'number' 
-                                  ? formatNumberDisplay(result, meta.format || 'decimal')
-                                  : result;
-                              })()}
-                            </div>
-                          ) : (meta.type === 'number' || header === 'Amount') ? (
-                            activeCell?.row === globalIndex && activeCell?.col === header ? (
-                              <input
-                                type="number"
-                                step="0.01"
-                                data-row={globalIndex}
-                                data-col={header}
-                                autoFocus
-                                value={row[header] ?? ''}
-                                onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))}
-                                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                                className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 min-h-[28px] ${alignClass}`}
-                              />
-                            ) : (
-                              <div 
-                                onClick={() => setActiveCell({ row: globalIndex, col: header })}
-                                className={`w-full px-2 py-1 text-sm text-slate-800 cursor-text min-h-[28px] flex items-center ${
-                                  cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'
-                                }`}
-                              >
-                                {row[header] !== undefined && row[header] !== "" 
-                                  ? formatNumberDisplay(row[header], meta.format || 'decimal') 
-                                  : <span className="text-slate-300">0.00</span>}
-                              </div>
-                            )
-                          ) : (
-                            <input
-                              type="text"
-                              data-row={globalIndex}
-                              data-col={header}
-                              value={row[header] ?? ''}
-                              onFocus={() => setActiveCell({ row: globalIndex, col: header })}
-                              onChange={(e) => handleUpdateCell(globalIndex, header, header === 'Amount' ? parseFloat(e.target.value) : e.target.value)}
-                              onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                              className={`grid-input w-full px-2 py-1 text-sm text-slate-800 bg-transparent border-0 outline-none focus:ring-0 min-h-[28px] ${alignClass}`}
-                            />
-                          )}
-                        </td>
-                      );
-                    })}
-                    {/* Spacer cell to align with 'Add Column' header */}
-                    <td className="border-r border-b border-slate-200 bg-transparent"></td>
-                    <td className="px-2 py-1 text-center sticky right-0 bg-white group-hover:bg-slate-50 border-l border-slate-200 z-20 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
-                      <button onClick={() => removeTableRow(globalIndex)} className="text-slate-300 hover:text-red-600 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
+                          <GridRow 
+                            key={globalIndex}
+                            row={row}
+                            globalIndex={globalIndex}
+                            visibleHeaders={visibleHeaders}
+                            activeCell={activeCell}
+                            selection={selection}
+                            cellMetadata={cellMetadata}
+                            cellAlignments={cellAlignments}
+                            columnAlignments={columnAlignments}
+                            isFreezePanes={isFreezePanes}
+                            dragFillRange={dragFillRange}
+                            isSelecting={isSelecting}
+                            handleUpdateCell={handleUpdateCell}
+                            handleKeyDown={handleKeyDown}
+                            setActiveCell={setActiveCell}
+                            setSelection={setSelection}
+                            setIsSelecting={setIsSelecting}
+                            setContextMenu={setContextMenu}
+                            toggleCellAlignment={toggleCellAlignment}
+                            handleDragFillStart={handleDragFillStart}
+                            removeTableRow={removeTableRow}
+                            setViewingMedia={setViewingMedia}
+                            removeCellMetadata={removeCellMetadata}
+                            evaluateFormula={evaluateFormula}
+                          />
                         );
                       })}
                       {/* Section Summary Row */}
-                      <tr className="bg-slate-50/50 border-t border-slate-200 font-semibold">
-                        <td className={`w-10 min-w-[40px] border-r border-b border-slate-300 bg-slate-50/50 ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''}`}></td>
+                      <tr className="bg-muted/20 border-t border-border font-semibold transition-colors">
+                        <td className={`w-10 min-w-[40px] ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></td>
                         {visibleHeaders.map((header) => {
                           const alignClass = columnAlignments[header] === 'center' ? 'text-center' : 
                                            columnAlignments[header] === 'right' ? 'text-right' : 'text-left';
 
                           if (header === "Title / Item") {
                             return (
-                              <td key="total-label" className={`px-2 py-1 text-xs font-bold text-slate-500 text-right border-r border-slate-300 bg-slate-50 ${
-                                isFreezePanes ? 'sticky left-10 z-10 shadow-[1px_0_0_0_#cbd5e1]' : ''
+                              <td key="total-label" className={`px-2 py-1 text-xs font-bold text-muted text-right border-r border-border bg-muted/20 ${
+                                isFreezePanes ? 'sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''
                               }`}>
                                 Subtotal:
                               </td>
@@ -2381,22 +2138,22 @@ function DashboardContent() {
                           if (header === "Amount") {
                             const total = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
                             return (
-                              <td key="total-amount" className={`px-2 py-1 text-sm font-bold text-blue-700 border-r border-slate-200 ${alignClass}`}>
+                              <td key="total-amount" className={`px-2 py-1 text-sm font-bold text-accent border-r border-border ${alignClass}`}>
                                 {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </td>
                             );
                           }
-                          return <td key={`total-empty-${header}`} className="px-2 py-1 border-r border-slate-200"></td>;
+                          return <td key={`total-empty-${header}`} className="px-2 py-1 border-r border-border"></td>;
                         })}
-                        <td className="px-2 py-1 border-r border-slate-200"></td>
-                        <td className="sticky right-0 bg-slate-50/50 border-l border-slate-200 z-20"></td>
+                        <td className="px-2 py-1 border-r border-border"></td>
+                        <td className="sticky right-0 bg-muted/10 border-l border-border z-20 shadow-[-1px_0_0_0_var(--color-border)]"></td>
                       </tr>
                       {/* Option (Insert) Row */}
                       <tr>
-                        <td colSpan={visibleHeaders.length + 3} className="p-0 border-b border-slate-200">
+                        <td colSpan={visibleHeaders.length + 3} className="p-0 border-b border-border">
                           <button 
                             onClick={() => addRowToSection(sectionName)}
-                            className="w-full text-left px-4 py-2 text-xs font-bold text-blue-500 hover:bg-blue-50 transition-colors flex items-center gap-1.5"
+                            className="w-full text-left px-4 py-2 text-xs font-bold text-accent hover:bg-accent/10 transition-colors flex items-center gap-1.5"
                           >
                             <Plus size={12} /> Option (Insert)
                           </button>
@@ -2422,12 +2179,12 @@ function DashboardContent() {
       );
     } catch (e) {
       return (
-        <div className="p-12 border-2 border-dashed border-red-200 rounded-xl bg-red-50 flex flex-col items-center justify-center text-center">
-          <div className="p-3 bg-red-100 rounded-full text-red-600 mb-4">
+        <div className="p-12 border-2 border-dashed border-red-500/20 rounded-xl bg-red-500/5 flex flex-col items-center justify-center text-center">
+          <div className="p-3 bg-red-500/10 rounded-full text-red-500 mb-4">
             <Code size={24} />
           </div>
-          <h3 className="text-red-800 font-bold mb-2">JSON Syntax Error</h3>
-          <p className="text-sm text-red-600 mb-6 max-w-sm">
+          <h3 className="text-red-500 font-bold mb-2">JSON Syntax Error</h3>
+          <p className="text-sm text-red-500/70 mb-6 max-w-sm">
             {e instanceof Error ? e.message : "We encountered an error while parsing your data."}
             <br />
             <span className="opacity-70 mt-2 block">Check for missing commas, brackets, or quotes in the code view.</span>
@@ -2454,221 +2211,176 @@ function DashboardContent() {
   useEffect(() => { fetchFiles(); }, []);
 
   return (
-    <main className="flex h-screen bg-slate-50 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]">
-      <aside 
-        className={`bg-white flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap ${
-          isExplorerVisible && !isFullScreen ? 'w-72 border-r p-4' : 'w-0 border-none p-0'
-        }`}
-      >
-        <div className="flex justify-between items-center mb-4 px-1 min-w-[260px]">
-          <div className="flex items-center gap-2">
+    <main className={GRID_THEME.main}>
+      {!isFullScreen && (
+        <div className="flex h-full shrink-0">
+          {/* Vertical Icon Rail (Light Theme) */}
+          <div className={GRID_THEME.rail}>
             <button 
-              onClick={() => setIsExplorerVisible(false)} 
-              className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors" 
-              title="Hide Explorer"
+              onClick={() => setIsExplorerVisible(!isExplorerVisible)}
+              className={`p-2 rounded-lg transition-all ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+              title={isExplorerVisible ? "Collapse Sidebar" : "Expand Sidebar"}
             >
-              <PanelLeftClose size={18} />
+              {isExplorerVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
             </button>
-            <h1 className="font-bold text-slate-800 text-sm tracking-tight opacity-70 line-clamp-1">Explorer</h1>
-          </div>
-          <div className="flex items-center gap-0.5">
-            <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-slate-100 rounded-md text-slate-500 transition-colors" title="New Folder">
-              <FolderPlus size={16} />
+            <div className="h-px w-6 bg-border" />
+            <button 
+              className={`p-2 rounded-lg transition-all ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
+              onClick={() => !isExplorerVisible && setIsExplorerVisible(true)}
+            >
+              <Folder size={20} />
             </button>
-            <button onClick={() => addItem('file')} className="p-1.5 hover:bg-slate-100 rounded-md text-blue-600 transition-colors" title="New File">
-              <FilePlus size={16} />
+            <button className="p-2 text-muted hover:text-foreground transition-all" title="Search (Coming Soon)">
+              <Search size={20} />
             </button>
-          </div>
-        </div>
-        <div className="mb-4 relative group min-w-[260px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-          <input 
-            type="text" 
-            placeholder="Search files..." 
-            value={explorerSearch}
-            onChange={(e) => setExplorerSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white transition-all"
-          />
-          {explorerSearch && (
-            <button onClick={() => setExplorerSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              <X size={12} />
-            </button>
-          )}
-        </div>
-        <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-[260px]">
-          {isLoading ? (
-            <div className="flex justify-center p-4">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <div className="mt-auto flex flex-col gap-4">
+              {recentNodes.length > 0 && (
+                <div className="flex flex-col items-center gap-2 mb-2">
+                  <History size={14} className="text-muted/40 mb-1" />
+                  {recentNodes.map(node => (
+                    <button
+                      key={`recent-${node.id}`}
+                      onClick={() => setSelectedId(node.id)}
+                      className={`p-1.5 rounded transition-all group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+                    >
+                      <FileText size={16} />
+                      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-[100] shadow-2xl uppercase tracking-wider transition-opacity">
+                        {node.name}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="h-px w-6 bg-border self-center" />
+              <button 
+                onClick={toggleTheme}
+                className="p-2 text-muted hover:text-accent transition-all"
+                title={theme === 'light' ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              >
+                {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+              </button>
+              <button className="p-2 text-muted hover:text-foreground transition-all"><User size={20}/></button>
             </div>
-          ) : (
-            filteredTree.map(node => (
-              <FileNodeItem 
-                key={node.id} 
-                node={node} 
-                onDelete={handleDelete} 
-                onRename={handleRename}
-                onAdd={addItem}
-                onSelect={(node) => setSelectedId(node.id)}
-                selectedId={selectedId ?? undefined}
-                searchTerm={explorerSearch}
-                comparisonIds={comparisonIds}
-                onToggleCompare={toggleComparisonId}
+          </div>
+
+          {/* Explorer Drawer Panel */}
+          <aside 
+            className={`${GRID_THEME.drawer} ${isExplorerVisible ? 'w-64 p-4' : 'w-0 p-0 border-none'}`}
+          >
+            <div className="flex justify-between items-center mb-4 px-1 min-w-[220px] transition-colors">
+              <h1 className="font-black text-muted text-[10px] uppercase tracking-[0.2em]">Project Tree</h1>
+              <div className="flex items-center gap-0.5">
+                <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-muted/10 rounded-md text-muted transition-colors" title="New Folder">
+                  <FolderPlus size={16} />
+                </button>
+                <button onClick={() => addItem('file')} className="p-1.5 hover:bg-muted/10 rounded-md text-accent transition-colors" title="New File">
+                  <FilePlus size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="mb-4 relative group min-w-[220px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Filter nodes..." 
+                value={explorerSearch}
+                onChange={(e) => setExplorerSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground transition-all"
               />
-            ))
-          )}
+            </div>
+            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-[220px]">
+              {isLoading ? (
+                <div className="flex justify-center p-4">
+                  <Loader2 className="animate-spin text-accent" size={20} />
+                </div>
+              ) : (
+                filteredTree.map(node => (
+                  <FileNodeItem 
+                    key={node.id} node={node} onDelete={handleDelete} onRename={handleRename} onAdd={addItem}
+                    onSelect={(node) => setSelectedId(node.id)} selectedId={selectedId ?? undefined}
+                    searchTerm={explorerSearch} comparisonIds={comparisonIds} onToggleCompare={toggleComparisonId}
+                  />
+                ))
+              )}
+            </div>
+          </aside>
         </div>
-      </aside>
+      )}
 
       <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-3'}`}>
-        {!isExplorerVisible && !isFullScreen && (
-          <div className="mb-4 flex items-center">
-            <button 
-              onClick={() => setIsExplorerVisible(true)} 
-              className="p-2 bg-white border border-slate-200 rounded-md shadow-sm text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all group" 
-              title="Show Explorer"
-            >
-              <PanelLeftOpen size={20} className="group-hover:scale-110 transition-transform" />
-            </button>
-          </div>
-        )}
 
         {activeNode ? (
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === 'table' || viewMode === 'compare' ? 'w-full' : 'max-w-2xl'}`}>
+          <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card' : 'bg-card border border-border rounded-xl shadow-sm'}`}>
             {!isFullScreen && (
-              <>
-                <h2 className="text-lg font-bold mb-3 text-slate-800">{activeNode.name}</h2>
-                
-                <div className="bg-white border rounded-lg shadow-sm overflow-hidden">
-                  <button 
-                    onClick={() => setIsMetadataVisible(!isMetadataVisible)}
-                    className="w-full flex items-center justify-between p-2 hover:bg-slate-50 transition-colors"
-                  >
-                    <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Metadata</h3>
-                    {isMetadataVisible ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
-                  </button>
-
-                  {isMetadataVisible && (
-                    <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-50 pt-3">
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                          <Clock size={16} />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">Created At</p>
-                          <p className="text-xs font-medium">{new Date(activeNode.created_at).toLocaleString()}</p>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 bg-green-50 rounded-lg text-green-600">
-                          <User size={16} />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">Owner</p>
-                          <p className="text-xs font-medium">LGU Labason User</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
-                          <HardDrive size={16} />
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-500">File Size</p>
-                          <p className="text-xs font-medium">{formatSize(activeNode.size_bytes)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10">
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 bg-accent/10 text-accent rounded">
+                    <FileIcon size={14} />
+                  </div>
+                  <h2 className="text-sm font-bold text-foreground truncate max-w-[240px]">{activeNode.name}</h2>
+                  
+                  <div className="h-4 w-px bg-border mx-1" />
+                  
+                  <nav className={GRID_THEME.navContainer}>
+                    <button 
+                      onClick={() => setViewMode('table')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                        viewMode === 'table' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                      }`}
+                    >
+                      <TableIcon size={12} /> Grid
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('code')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                        viewMode === 'code' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                      }`}
+                    >
+                      <Code size={12} /> JSON
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('compare')}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                        viewMode === 'compare' ? 'bg-card text-green-600 shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                      }`}
+                    >
+                      <RefreshCcw size={12} /> Compare {comparisonIds.length > 0 && `(${comparisonIds.length})`}
+                    </button>
+                  </nav>
                 </div>
-              </>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => window.open(`/print?id=${selectedId}`, '_blank')} className="p-1.5 text-muted hover:text-accent transition-colors" title="Printable Report"><Printer size={16} /></button>
+                  <button onClick={handleShare} className="p-1.5 text-muted hover:text-accent transition-colors" title="Copy Link"><Share2 size={16} /></button>
+                  <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Toggle Focus Mode">{isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+                  <div className="h-4 w-px bg-border mx-1" />
+                  <button 
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 transition-all disabled:opacity-50 shadow-sm"
+                  >
+                    {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
             )}
             
             {activeNode.type === 'file' && (
-              <div className={`flex flex-col flex-1 min-h-0 ${isFullScreen ? 'mt-0' : 'mt-4 gap-3'}`}>
-                <div className={`flex items-center justify-between ${isFullScreen ? 'bg-white p-2 border-b border-slate-200' : ''}`}>
-                  <div className="flex items-center gap-3">
-                    {isFullScreen ? (
-                      <div className="flex items-center gap-3">
-                        <span className="p-1.5 bg-blue-50 text-blue-600 rounded-md"><TableIcon size={16} /></span>
-                        <h2 className="text-sm font-bold text-slate-700 line-clamp-1 max-w-[300px]">{activeNode.name}</h2>
-                      </div>
-                    ) : (
-                      <h3 className="text-sm font-semibold text-slate-500 tracking-wider">Data Editor</h3>
-                    )}
-                    <div className="flex bg-slate-200 p-1 rounded-lg">
-                      <button 
-                        onClick={() => setViewMode('table')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          viewMode === 'table' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        <TableIcon size={14} />
-                        Excel View
-                      </button>
-                      <button 
-                        onClick={handleShare}
-                        className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all text-slate-600 hover:text-slate-900"
-                      >
-                        <Share2 size={14} />
-                        Copy Link
-                      </button>
-                      <button 
-                        onClick={() => window.open(`/print?id=${selectedId}`, '_blank')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        <FileText size={14} />
-                        Printable Report
-                      </button>
-                      <button 
-                        onClick={() => setViewMode('code')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          viewMode === 'code' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        <Code size={14} />
-                        JSON Code
-                      </button>
-                      <button 
-                        onClick={() => setViewMode('compare')}
-                        className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                          viewMode === 'compare' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        <RefreshCcw size={14} />
-                        Compare Mode {comparisonIds.length > 0 && `(${comparisonIds.length})`}
-                      </button>
+              <div className="flex flex-col flex-1 min-h-0">
+                {isFullScreen && (
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted">
+                      <TableIcon size={14} /> {activeNode.name}
                     </div>
+                    <button onClick={() => setIsFullScreen(false)} className="text-muted hover:text-foreground"><Minimize2 size={14} /></button>
                   </div>
-                  <div className="flex gap-2 items-center print:hidden">
-                    <button 
-                      onClick={() => setIsFullScreen(!isFullScreen)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-all shadow-sm"
-                    >
-                      {isFullScreen ? (
-                        <><Minimize2 size={14} /> Exit Mode</>
-                      ) : (
-                        <><Maximize2 size={14} /> Full Screen</>
-                      )}
-                    </button>
-                    <button 
-                      onClick={handleSave}
-                      disabled={isSaving}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm"
-                    >
-                      {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                      {isSaving ? 'Saving...' : 'Save Changes'}
-                    </button>
-                  </div>
-                </div>
+                )}
 
                 {viewMode === 'code' ? (
                   <textarea
                     value={codeViewContent}
                     onChange={(e) => handleCodeChange(e.target.value)}
-                    className="w-full h-[500px] p-4 font-mono text-sm bg-slate-900 text-slate-100 rounded-lg border border-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none shadow-inner"
+                    className="w-full h-full p-4 font-mono text-sm bg-muted/5 text-foreground rounded-lg border-0 focus:ring-2 focus:ring-accent outline-none resize-none shadow-inner"
                     placeholder='{ "content": [...], "display_settings": {...} }'
                   />
                 ) : viewMode === 'table' ? (
@@ -2676,12 +2388,25 @@ function DashboardContent() {
                 ) : viewMode === 'compare' ? (
                   renderComparisonTable()
                 ) : null}
+
+                {/* High-density Status Bar */}
+                <footer className={GRID_THEME.statusBar}>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5"><Clock size={12} className="text-muted/40"/> Created {new Date(activeNode.created_at).toLocaleDateString()}</div>
+                    <div className="h-3 w-px bg-border" />
+                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40"/> {formatSize(activeNode.size_bytes)}</div>
+                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                  </div>
+                </footer>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-            <Folder size={48} className="mb-4 opacity-20" />
+          <div className="flex-1 flex flex-col items-center justify-center text-muted">
+            <Folder size={48} className="mb-4 opacity-10" />
             <p>Select a file to start data entry.</p>
           </div>
         )}
@@ -2693,49 +2418,49 @@ function DashboardContent() {
             onClick={() => setViewingMedia(null)}
           >
             <div 
-              className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" 
+              className="bg-card rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh] border border-border" 
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between p-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+              <div className="flex items-center justify-between p-4 border-b border-border shrink-0 bg-muted/5">
                 <div className="flex items-center gap-4">
-                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <Paperclip size={18} className="text-blue-500" />
+                  <h3 className="font-bold text-foreground flex items-center gap-2">
+                    <Paperclip size={18} className="text-accent" />
                     Cell Attachments ({viewingMedia.attachments.length})
                   </h3>
-                  <div className="h-4 w-px bg-slate-200" />
+                  <div className="h-4 w-px bg-border" />
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'image')}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-green-100 transition-colors border border-green-200 shadow-sm"
+                      className="flex items-center gap-1.5 px-3 py-1 bg-green-500/10 text-green-500 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-green-500/20 transition-colors border border-green-500/20 shadow-sm"
                     >
                       <ImageIcon size={12} /> Add Image
                     </button>
                     <button 
                       onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'file')}
-                      className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-700 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-100 transition-colors border border-amber-200 shadow-sm"
+                      className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-500/20 transition-colors border border-amber-500/20 shadow-sm"
                     >
                       <Paperclip size={12} /> Add File
                     </button>
                   </div>
                 </div>
-                <button onClick={() => setViewingMedia(null)} className="p-1 hover:bg-slate-100 rounded-full transition-colors text-slate-400 hover:text-slate-600">
+                <button onClick={() => setViewingMedia(null)} className="p-1 hover:bg-muted/10 rounded-full transition-colors text-muted hover:text-foreground">
                   <X size={20} />
                 </button>
               </div>
               
-              <div className="p-6 overflow-y-auto bg-slate-50/50 flex-1">
+              <div className="p-6 overflow-y-auto bg-background/50 flex-1">
                 {/* Images Section */}
                 {viewingMedia.attachments.some((m: any) => m.type === 'image') && (
                   <div className="mb-8">
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <h4 className="text-xs font-black text-muted uppercase tracking-widest mb-4 flex items-center gap-2">
                       <ImageIcon size={14} className="text-green-500" /> Images
                     </h4>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {viewingMedia.attachments.map((img: any, idx: number) => {
                         if (img.type !== 'image') return null;
                         return (
-                          <div key={idx} className="group relative bg-white p-2 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-                            <div className="relative aspect-video rounded-lg bg-slate-50 overflow-hidden">
+                          <div key={idx} className="group relative bg-card p-2 rounded-xl border border-border shadow-sm hover:shadow-md transition-all">
+                            <div className="relative aspect-video rounded-lg bg-background overflow-hidden">
                               <img src={img.url} alt={img.name} className="w-full h-full object-contain" />
                               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                 <a href={img.url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold text-white hover:underline">Open Full Size</a>
@@ -2749,7 +2474,7 @@ function DashboardContent() {
                               </div>
                             </div>
                             <div className="mt-2 px-1">
-                              <p className="text-[10px] font-bold text-slate-700 truncate">{img.name}</p>
+                              <p className="text-[10px] font-bold text-foreground truncate">{img.name}</p>
                             </div>
                           </div>
                         );
@@ -2761,28 +2486,28 @@ function DashboardContent() {
                 {/* Files Section */}
                 {viewingMedia.attachments.some((m: any) => m.type === 'file') && (
                   <div>
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                    <h4 className="text-xs font-black text-muted uppercase tracking-widest mb-4 flex items-center gap-2">
                       <FileIcon size={14} className="text-amber-500" /> Documents & Files
                     </h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {viewingMedia.attachments.map((file: any, idx: number) => {
                         if (file.type !== 'file') return null;
                         return (
-                          <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm hover:bg-slate-100 transition-colors group">
-                            <div className="p-2 bg-amber-50 rounded-lg text-amber-500">
+                          <div key={idx} className="flex items-center gap-3 bg-card p-3 rounded-xl border border-border shadow-sm hover:bg-muted/5 transition-colors group">
+                            <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500">
                               <FileIcon size={20} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-bold text-slate-800 truncate leading-tight">{file.name}</p>
-                              <p className="text-[9px] text-slate-400 uppercase tracking-tighter">{formatSize(file.size || 0)}</p>
+                              <p className="text-[10px] font-bold text-foreground truncate leading-tight">{file.name}</p>
+                              <p className="text-[9px] text-muted uppercase tracking-tighter">{formatSize(file.size || 0)}</p>
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <a href={file.url} download={file.name} className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Download">
+                              <a href={file.url} download={file.name} className="p-2 bg-muted/10 text-muted rounded-lg hover:bg-accent hover:text-accent-foreground transition-all" title="Download">
                                 <Save size={14} />
                               </a>
                               <button 
                                 onClick={() => deleteAttachment(viewingMedia.row, viewingMedia.col, idx)}
-                                className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"
+                                className="p-2 bg-muted/10 text-muted rounded-lg hover:bg-red-500 hover:text-white transition-all"
                                 title="Delete Attachment"
                               >
                                 <Trash2 size={14} />
