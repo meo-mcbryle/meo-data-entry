@@ -32,7 +32,7 @@ const GRID_THEME = {
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive
-  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all dark:bg-card",
+  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all dark:bg-card whitespace-pre-wrap break-words",
 };
 
 const FONT_FAMILIES = [
@@ -200,9 +200,9 @@ const GridRow = React.memo(({
             {header === 'Location' || header === 'Allocation' ? (
               <button 
                 onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6`}
+                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6 py-1.5`}
               >
-                <span className={`w-full truncate ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                <span className={`w-full break-words whitespace-normal ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
                   {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
                 </span>
                 <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors" />
@@ -210,7 +210,7 @@ const GridRow = React.memo(({
             ) : meta.type === 'date' ? (
               <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
                 <input type="date" value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
-                <div className={`w-full px-2 py-1 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center break-words ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
               </div>
@@ -222,7 +222,7 @@ const GridRow = React.memo(({
                 <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/media:opacity-100 p-1 text-muted hover:text-red-500 absolute right-1 top-1 bg-card/80 rounded shadow-sm transition-all"><X size={12} /></button>
               </div>
             ) : meta.type === 'formula' ? (
-              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-[28px] flex items-center break-words ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
                 {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
@@ -232,7 +232,30 @@ const GridRow = React.memo(({
                 <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
               )
             ) : (
-              <input type="text" data-row={globalIndex} data-col={header} value={row[header] ?? ''} onFocus={() => setActiveCell({ row: globalIndex, col: header })} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} className={`${GRID_THEME.tableInput} ${alignClass}`} />
+              <textarea
+                rows={1}
+                data-row={globalIndex}
+                data-col={header}
+                value={row[header] ?? ''}
+                onFocus={(e) => {
+                  setActiveCell({ row: globalIndex, col: header });
+                  e.currentTarget.style.height = 'auto';
+                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                }}
+                onChange={(e) => {
+                  handleUpdateCell(globalIndex, header, e.target.value);
+                  e.currentTarget.style.height = 'auto';
+                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                }}
+                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
+                className={`${GRID_THEME.tableInput} ${alignClass} resize-none overflow-hidden py-1.5 min-h-[28px] block`}
+                ref={(el) => {
+                  if (el) {
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }
+                }}
+              />
             )}
           </td>
         );
@@ -642,10 +665,11 @@ function DashboardContent() {
     };
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!resizingRowRef.current) return;
-      const delta = moveEvent.pageY - resizingRowRef.current.startY;
-      const newHeight = Math.max(28, resizingRowRef.current.startHeight + delta);
-      setRowHeights(prev => ({ ...prev, [resizingRowRef.current!.row]: newHeight }));
+      const current = resizingRowRef.current;
+      if (!current) return;
+      const delta = moveEvent.pageY - current.startY;
+      const newHeight = Math.max(28, current.startHeight + delta);
+      setRowHeights(prev => ({ ...prev, [current.row]: newHeight }));
     };
 
     const handleMouseUp = () => {
@@ -674,12 +698,13 @@ function DashboardContent() {
     };
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = moveEvent.pageX - resizingRef.current.startX;
-      const newWidth = Math.max(80, resizingRef.current.startWidth + delta);
+      const current = resizingRef.current;
+      if (!current) return;
+      const delta = moveEvent.pageX - current.startX;
+      const newWidth = Math.max(80, current.startWidth + delta);
       setColumnWidths(prev => ({
         ...prev,
-        [resizingRef.current!.header]: newWidth
+        [current.header]: newWidth
       }));
     };
 
@@ -2950,7 +2975,17 @@ function DashboardContent() {
                     <div className="flex items-center gap-2 text-xs font-bold text-muted">
                       <TableIcon size={14} /> {activeNode.name}
                     </div>
-                    <button onClick={() => setIsFullScreen(false)} className="text-muted hover:text-foreground"><Minimize2 size={14} /></button>
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 transition-all disabled:opacity-50 shadow-sm"
+                      >
+                        {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                        {isSaving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button onClick={() => setIsFullScreen(false)} className="text-muted hover:text-foreground p-1" title="Exit Focus Mode"><Minimize2 size={14} /></button>
+                    </div>
                   </div>
                 )}
 
