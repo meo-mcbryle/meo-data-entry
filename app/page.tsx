@@ -32,7 +32,7 @@ const GRID_THEME = {
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive
-  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all dark:bg-card whitespace-pre-wrap break-words",
+  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none transition-all dark:bg-card whitespace-pre-wrap break-words",
 };
 
 const FONT_FAMILIES = [
@@ -108,11 +108,86 @@ const formatDateDisplay = (value: string, formatId: string = 'long') => {
   }
 };
 
+/**
+ * CellEditor: Optimized uncontrolled-like component for instant typing.
+ * Uses local state for characters and debounces the global "push" to gridData.
+ */
+const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, type = "text", dataRow, dataCol }: any) => {
+  const [localValue, setLocalValue] = useState(initialValue ?? '');
+  const syncTimerRef = useRef<any>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Reset local state if external data changes (e.g., Undo/Redo)
+  useEffect(() => {
+    if (initialValue !== localValue) setLocalValue(initialValue ?? '');
+  }, [initialValue]);
+
+  const handleLocalChange = (val: any) => {
+    setLocalValue(val);
+    
+    // Debounce: Wait 300ms before updating global state
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      onSync(val);
+    }, 300);
+
+    // Height auto-grow for textareas
+    if (isTextarea && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  };
+
+  const handleBlur = () => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    onSync(localValue); // Immediate sync on exit
+  };
+
+  useEffect(() => {
+    if (isTextarea && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, []);
+
+  if (isTextarea) {
+    return (
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        data-row={dataRow}
+        data-col={dataCol}
+        value={localValue}
+        autoFocus
+        onBlur={handleBlur}
+        onChange={(e) => handleLocalChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        className={`${className} resize-none overflow-hidden py-1.5 w-full block`}
+      />
+    );
+  }
+
+  return (
+    <input
+      type={type}
+      step={type === 'number' ? '0.01' : undefined}
+      data-row={dataRow}
+      data-col={dataCol}
+      value={localValue}
+      autoFocus
+      onBlur={handleBlur}
+      onChange={(e) => handleLocalChange(type === 'number' ? (e.target.value === '' ? '' : parseFloat(e.target.value)) : e.target.value)}
+      onKeyDown={onKeyDown}
+      className={`${className} w-full`}
+    />
+  );
+};
+
 const GridRow = React.memo(({ 
   row, globalIndex, visibleHeaders, activeCell, selection, 
   cellMetadata, cellAlignments, columnAlignments, isFreezePanes,
   dragFillRange, isSelecting, handleUpdateCell, handleKeyDown,
-  setActiveCell, setSelection, setIsSelecting, setContextMenu,
+  setActiveCell, setSelection, setIsSelecting, onOpenContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
   rowHeights, startRowResizing, handleOpenDropdown
@@ -131,7 +206,6 @@ const GridRow = React.memo(({
         } ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''}`}
         onContextMenu={(e) => { 
           e.preventDefault(); 
-          // Update selection if right-clicking a row outside current selection
           const isInside = selection && globalIndex >= Math.min(selection.startRow, selection.endRow) && globalIndex <= Math.max(selection.startRow, selection.endRow);
           if (!isInside) {
             setSelection({ 
@@ -141,7 +215,7 @@ const GridRow = React.memo(({
               endCol: visibleHeaders[visibleHeaders.length - 1] 
             });
           }
-          setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: "", type: 'row' }); 
+          onOpenContextMenu(e, 'row', globalIndex, "");
         }}
         onClick={() => {
           setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
@@ -170,7 +244,6 @@ const GridRow = React.memo(({
             key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
             onContextMenu={(e) => { 
               e.preventDefault(); 
-              // Update selection if right-clicking outside current selection
               const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
               const endColIdx = selection ? visibleHeaders.indexOf(selection.endCol) : -1;
               const currentColIdx = visibleHeaders.indexOf(header);
@@ -184,10 +257,20 @@ const GridRow = React.memo(({
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setActiveCell({ row: globalIndex, col: header });
               }
-              setContextMenu({ x: e.clientX, y: e.clientY, row: globalIndex, col: header, type: 'cell' }); 
+              onOpenContextMenu(e, 'cell', globalIndex, header);
             }}
-            onMouseDown={(e) => { if (e.button === 0) { setActiveCell({ row: globalIndex, col: header }); setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); setIsSelecting(true); }}}
+            onMouseDown={(e) => { 
+              if (e.button === 0) { 
+                setActiveCell({ row: globalIndex, col: header }); 
+                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); 
+                setIsSelecting(true); 
+              } 
+            }}
             onMouseEnter={() => { if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); }}
+            onClick={() => {
+              const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
+              if (input) input.focus();
+            }}
             className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
             style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
@@ -200,17 +283,17 @@ const GridRow = React.memo(({
             {header === 'Location' || header === 'Allocation' ? (
               <button 
                 onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6 py-1.5`}
+                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6 py-1.5 w-full`}
               >
-                <span className={`w-full break-words whitespace-normal ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                <span className={`w-full break-words whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
                   {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
                 </span>
                 <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors" />
               </button>
             ) : meta.type === 'date' ? (
-              <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
-                <input type="date" value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
-                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center break-words ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+              <div className="relative w-full flex items-center group/date min-h-[28px]">
+                <input type="date" data-row={globalIndex} data-col={header} value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
+                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center break-words flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
               </div>
@@ -227,35 +310,34 @@ const GridRow = React.memo(({
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
               activeCell?.row === globalIndex && activeCell?.col === header ? (
-                <input type="number" step="0.01" data-row={globalIndex} data-col={header} autoFocus value={row[header] ?? ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value === '' ? '' : parseFloat(e.target.value))} onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} className={`${GRID_THEME.tableInput} ${alignClass}`} />
+                <CellEditor 
+                  initialValue={row[header]} 
+                  onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
+                  onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
+                  className={`${GRID_THEME.tableInput} ${alignClass}`}
+                  type="number"
+                />
               ) : (
                 <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
               )
             ) : (
-              <textarea
-                rows={1}
-                data-row={globalIndex}
-                data-col={header}
-                value={row[header] ?? ''}
-                onFocus={(e) => {
-                  setActiveCell({ row: globalIndex, col: header });
-                  e.currentTarget.style.height = 'auto';
-                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                }}
-                onChange={(e) => {
-                  handleUpdateCell(globalIndex, header, e.target.value);
-                  e.currentTarget.style.height = 'auto';
-                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
-                }}
-                onKeyDown={(e) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                className={`${GRID_THEME.tableInput} ${alignClass} resize-none overflow-hidden py-1.5 min-h-[28px] block`}
-                ref={(el) => {
-                  if (el) {
-                    el.style.height = 'auto';
-                    el.style.height = `${el.scrollHeight}px`;
-                  }
-                }}
-              />
+              activeCell?.row === globalIndex && activeCell?.col === header ? (
+                <CellEditor 
+                  isTextarea 
+                  initialValue={row[header]} 
+                  onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
+                  onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
+                  className={`${GRID_THEME.tableInput} ${alignClass}`}
+                  dataRow={globalIndex} dataCol={header}
+                />
+              ) : (
+                <div 
+                  onClick={() => setActiveCell({ row: globalIndex, col: header })} 
+                  className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-[28px] whitespace-pre-wrap break-words ${alignClass}`}
+                >
+                  {row[header] || <span className="opacity-0">.</span>}
+                </div>
+              )
             )}
           </td>
         );
@@ -264,13 +346,42 @@ const GridRow = React.memo(({
     </tr>
   );
 }, (prev, next) => {
-  // 1. Check if the row data itself changed
-  if (prev.row !== next.row) return false;
+  // 1. Check if the row data itself changed (Value-based comparison)
+  // Since 'row' is a new object on every grid update, we must check the actual cell values
+  // to determine if THIS specific row needs an update.
+  const prevRow = prev.row;
+  const nextRow = next.row;
+  for (const h of next.visibleHeaders) {
+    if (prevRow[h] !== nextRow[h]) return false;
+  }
+
   // 2. Check if the active cell/selection affects this specific row
-  if (prev.activeCell?.row === prev.globalIndex || next.activeCell?.row === next.globalIndex) return false;
-  if (prev.selection !== next.selection) return false;
+  const wasActive = prev.activeCell?.row === prev.globalIndex;
+  const isActive = next.activeCell?.row === next.globalIndex;
+  if (wasActive !== isActive) return false; // Row gained or lost active status
   
-  // 3. Performance Fix: Instead of checking the whole alignments object,
+  // If it's the active row, re-render if the active column changed
+  if (isActive && prev.activeCell?.col !== next.activeCell?.col) return false;
+
+  // 3. Precise Selection Check: Only re-render if this row's relationship to selection changed
+  const wasInSel = prev.selection && 
+    prev.globalIndex >= Math.min(prev.selection.startRow, prev.selection.endRow) && 
+    prev.globalIndex <= Math.max(prev.selection.startRow, prev.selection.endRow);
+  const isInSel = next.selection && 
+    next.globalIndex >= Math.min(next.selection.startRow, next.selection.endRow) && 
+    next.globalIndex <= Math.max(next.selection.startRow, next.selection.endRow);
+
+  if (wasInSel !== isInSel) return false;
+  
+  // If it's in the selection, re-render if selection bounds changed (to update cell highlights)
+  if (isInSel && (
+    prev.selection?.startCol !== next.selection?.startCol || 
+    prev.selection?.endCol !== next.selection?.endCol ||
+    prev.selection?.startRow !== next.selection?.startRow ||
+    prev.selection?.endRow !== next.selection?.endRow
+  )) return false;
+  
+  // 4. Performance Fix: Instead of checking the whole alignments object,
   // check if any alignment relevant to THIS row changed.
   const hasAlignChange = prev.visibleHeaders.some((h: string) => {
     const key = `${prev.globalIndex}:${h}`;
@@ -279,14 +390,14 @@ const GridRow = React.memo(({
   });
   if (hasAlignChange) return false;
   
-  // 4. Performance Fix: Only re-render if metadata specifically for THIS row changed
+  // 5. Performance Fix: Only re-render if metadata specifically for THIS row changed
   const hasMetaChange = prev.visibleHeaders.some((h: string) => {
     const key = `${prev.globalIndex}:${h}`;
     return prev.cellMetadata[key] !== next.cellMetadata[key];
   });
   if (hasMetaChange) return false;
   
-  // 5. Check if height specifically for THIS row changed
+  // 6. Check if height specifically for THIS row changed
   if (prev.rowHeights[prev.globalIndex] !== next.rowHeights[next.globalIndex]) return false;
 
   // 6. Standard UI state checks
@@ -357,6 +468,28 @@ function DashboardContent() {
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
   const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[] } | null>(null);
 
+  /**
+   * Intelligent Context Menu Positioning
+   * Calculates dimensions and flips/clamps coordinates to keep menu within viewport.
+   */
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row', row?: number, col: string = "") => {
+    e.preventDefault();
+    const menuWidth = 192; // Consistent w-48
+    const menuHeight = type === 'row' ? 320 : 480; // Estimates based on menu content
+    
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    
+    let x = e.clientX;
+    let y = e.clientY;
+    
+    // Flip to left if no space on right, flip up if no space on bottom
+    if (x + menuWidth > winW) x = Math.max(5, x - menuWidth);
+    if (y + menuHeight > winH) y = Math.max(5, y - menuHeight);
+    
+    setContextMenu({ x, y, row, col, type });
+  }, []);
+
   const handleOpenDropdown = useCallback((e: React.MouseEvent, row: number, col: string, options: string[]) => {
     e.preventDefault();
     e.stopPropagation();
@@ -391,17 +524,26 @@ function DashboardContent() {
    * History Management: Undo/Redo Engine
    * Leverages Sparse Map referential stability for efficient snapshots.
    */
+  // Optimization: Use a ref to track current state for history snapshots.
+  // This prevents 'saveStateToHistory' (and thus 'handleUpdateCell') from changing identity 
+  // on every keystroke, which is the primary cause of typing lag.
+  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights });
+  useEffect(() => {
+    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights };
+  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+
   const saveStateToHistory = useCallback(() => {
+    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights } = stateRef.current;
     const snapshot = {
       gridData: new Map(gridData),
-      rowCount,
+      rowCount: rowCount,
       cellMetadata: { ...cellMetadata },
       cellAlignments: { ...cellAlignments },
       rowHeights: { ...rowHeights }
     };
     setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
     setRedoStack([]);
-  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+  }, []); // Stable identity: never changes
 
   const undo = useCallback(() => {
     if (undoStack.length === 0) return;
@@ -592,6 +734,38 @@ function DashboardContent() {
     return allHeaders.filter(header => !hiddenColumns.includes(header) && header !== 'section');
   }, [allHeaders, columnOrder, hiddenColumns]);
 
+  // Derived Data & Filtering (Moved to top-level to satisfy Rules of Hooks)
+  // The 'data' array is now only rebuilt if gridData actually changes.
+  const data = useMemo(() => {
+    return Array.from({ length: rowCount }).map((_, i) => {
+      const rowObj: any = { _index: i };
+      allHeaders.forEach(h => rowObj[h] = gridData.get(`${i}:${h}`));
+      rowObj.section = gridData.get(`${i}:section`) || "Uncategorized";
+      return rowObj;
+    });
+  }, [gridData, rowCount, allHeaders]);
+
+  const filteredRows = useMemo(() => {
+    if (!rowFilter) return data;
+    const lowerCaseFilter = rowFilter.toLowerCase();
+    return data.filter((row: any) => 
+      Object.values(row).some(value => 
+        String(value).toLowerCase().includes(lowerCaseFilter)
+      )
+    );
+  }, [data, rowFilter]);
+
+  const sectionBlocks = useMemo(() => {
+    const blocks: { name: string, rows: any[] }[] = [];
+    filteredRows.forEach(row => {
+      const sectionName = row.section || "Uncategorized";
+      const lastBlock = blocks[blocks.length - 1];
+      if (lastBlock && lastBlock.name === sectionName) lastBlock.rows.push(row);
+      else blocks.push({ name: sectionName, rows: [row] });
+    });
+    return blocks;
+  }, [filteredRows]);
+
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
     // Clear cell-specific overrides in this column to ensure the whole column follows the new setting
@@ -702,10 +876,34 @@ function DashboardContent() {
       if (!current) return;
       const delta = moveEvent.pageX - current.startX;
       const newWidth = Math.max(80, current.startWidth + delta);
-      setColumnWidths(prev => ({
-        ...prev,
-        [current.header]: newWidth
-      }));
+      
+      // Uniform Resizing: Check if this column is part of a multi-column selection
+      const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
+      const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
+      const currentColIdx = visibleHeaders.indexOf(current.header);
+      
+      const isPartofSelection = selection && 
+        (selection.startRow === 0 || selection.startRow === -1) && 
+        selection.endRow === rowCount - 1 &&
+        currentColIdx >= Math.min(startColIdx, endColIdx) && 
+        currentColIdx <= Math.max(startColIdx, endColIdx);
+
+      if (isPartofSelection && selection) {
+        const minColIdx = Math.min(startColIdx, endColIdx);
+        const maxColIdx = Math.max(startColIdx, endColIdx);
+        setColumnWidths(prev => {
+          const next = { ...prev };
+          for (let i = minColIdx; i <= maxColIdx; i++) {
+            next[visibleHeaders[i]] = newWidth;
+          }
+          return next;
+        });
+      } else {
+        setColumnWidths(prev => ({
+          ...prev,
+          [current.header]: newWidth
+        }));
+      }
     };
 
     const handleMouseUp = () => {
@@ -718,7 +916,7 @@ function DashboardContent() {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
     document.body.style.cursor = 'col-resize';
-  }, []);
+  }, [selection, visibleHeaders, rowCount]);
 
   const scrollToTop = () => {
     tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -815,19 +1013,21 @@ function DashboardContent() {
   };
 
   const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
-    setGridData(prev => {
-      const coord = `${index}:${key}`;
-      const currentVal = prev.get(coord);
-      if (currentVal === value) return prev;
-      
-      // Atomic Undo: Only save history if this is the start of an edit
-      if (editStartValueRef.current === currentVal) saveStateToHistory();
+    const coord = `${index}:${key}`;
+    // Get current value from the latest ref to avoid stale closure issues
+    if (stateRef.current.gridData.get(coord) === value) return;
 
+    // Atomic Undo: Only save history if this is the start of an edit
+    if (editStartValueRef.current === stateRef.current.gridData.get(coord)) {
+      saveStateToHistory();
+    }
+
+    setGridData(prev => {
       const next = new Map(prev);
       next.set(coord, value);
       return next;
     });
-  }, [saveStateToHistory]);
+  }, [saveStateToHistory]); // Stable identity because saveStateToHistory is now stable
 
   /**
    * Renames only a specific contiguous block of rows.
@@ -2059,15 +2259,6 @@ function DashboardContent() {
   };
 
   const renderTableEditor = () => {
-    const data: any[] = [];
-    for(let i = 0; i < rowCount; i++) {
-      const rowObj: any = { _index: i };
-      allHeaders.forEach(h => rowObj[h] = gridData.get(`${i}:${h}`));
-      rowObj.section = gridData.get(`${i}:section`) || "Uncategorized";
-      data.push(rowObj);
-    }
-
-    let filteredRows = data;
     try {
       if (rowCount === 0) {
         return (
@@ -2086,15 +2277,6 @@ function DashboardContent() {
         );
       }
 
-      if (rowFilter) {
-        const lowerCaseFilter = rowFilter.toLowerCase();
-        filteredRows = filteredRows.filter((row: any) => 
-          Object.values(row).some(value => 
-            String(value).toLowerCase().includes(lowerCaseFilter)
-          )
-        );
-      }
-
       // Pre-calculate selection bounds for efficient highlighting
       const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
       const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
@@ -2102,19 +2284,6 @@ function DashboardContent() {
       const selMaxColIdx = Math.max(selStartColIdx, selEndColIdx);
       const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
       const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
-
-      // Group rows into contiguous blocks by section to preserve row-sequence order.
-      // This ensures that inserting a new section at a specific row index displays it correctly at that position.
-      const sectionBlocks: { name: string, rows: any[] }[] = [];
-      filteredRows.forEach(row => {
-        const sectionName = row.section || "Uncategorized";
-        const lastBlock = sectionBlocks[sectionBlocks.length - 1];
-        if (lastBlock && lastBlock.name === sectionName) {
-          lastBlock.rows.push(row);
-        } else {
-          sectionBlocks.push({ name: sectionName, rows: [row] });
-        }
-      });
 
       return (
         <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
@@ -2529,19 +2698,25 @@ function DashboardContent() {
                   {visibleHeaders.map((header, idx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
+                    const isInHeaderLabelSelection = selection && 
+                      (selection.startRow === 0 || selection.startRow === -1) && 
+                      selection.endRow === rowCount - 1 &&
+                      idx >= selMinColIdx && idx <= selMaxColIdx;
+
                     return (
                       <th 
                         key={`col-label-${idx}`} 
-                        onClick={() => {
-                            if (rowCount > 0) {
-                              setSelection({
-                                startRow: 0,
-                                endRow: data.length - 1,
-                                startCol: header,
-                                endCol: header
-                              });
-                              setActiveCell({ row: 0, col: header });
-                            }
+                        onMouseDown={(e) => {
+                          if (e.button === 0 && rowCount > 0) {
+                            setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
+                            setActiveCell({ row: 0, col: header });
+                            setIsSelecting(true);
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
+                            setSelection(prev => prev ? { ...prev, endCol: header } : null);
+                          }
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -2557,17 +2732,7 @@ function DashboardContent() {
                             });
                             setActiveCell({ row: 0, col: header });
                           }
-                          const menuWidth = 192;
-                          const menuHeight = 320; 
-                          const winW = window.innerWidth;
-                          const winH = window.innerHeight;
-                          
-                          let x = e.clientX;
-                          let y = e.clientY;
-                          if (x + menuWidth > winW) x -= menuWidth;
-                          if (y + menuHeight > winH) y -= menuHeight;
-                          
-                          setContextMenu({ x, y, col: header, type: 'header' });
+                          handleOpenContextMenu(e, 'header', undefined, header);
                         }}
                         style={{ 
                           fontFamily: headerMeta.fontFamily || 'inherit',
@@ -2575,8 +2740,8 @@ function DashboardContent() {
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
                         className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
-                          isColumnActive ? 'bg-accent/20 text-accent shadow-[inset_0_-2px_0_0_currentColor]' : 'text-muted hover:bg-muted/30 hover:text-foreground'
-                        } ${
+                          isColumnActive || isInHeaderLabelSelection ? 'bg-accent/20 text-accent shadow-[inset_0_-2px_0_0_currentColor]' : 'text-muted hover:bg-muted/30 hover:text-foreground'
+                        } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
                           isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
                         }`}
                       >
@@ -2621,17 +2786,7 @@ function DashboardContent() {
                         });
                         setActiveCell({ row: 0, col: header });
                       }
-                      const menuWidth = 192;
-                      const menuHeight = 280; // Estimated height for header menu
-                      const winW = window.innerWidth;
-                      const winH = window.innerHeight;
-                      
-                      let x = e.clientX;
-                      let y = e.clientY;
-                      if (x + menuWidth > winW) x -= menuWidth;
-                      if (y + menuHeight > winH) y -= menuHeight;
-                      
-                      setContextMenu({ x, y, col: header, type: 'header' });
+                      handleOpenContextMenu(e, 'header', undefined, header);
                     }}
                     onMouseDown={(e) => {
                       if (e.button === 0) {
@@ -2749,7 +2904,7 @@ function DashboardContent() {
                             setActiveCell={setActiveCell}
                             setSelection={setSelection}
                             setIsSelecting={setIsSelecting}
-                            setContextMenu={setContextMenu}
+                            onOpenContextMenu={handleOpenContextMenu}
                             toggleCellAlignment={toggleCellAlignment}
                             handleDragFillStart={handleDragFillStart}
                             removeTableRow={removeTableRow}
