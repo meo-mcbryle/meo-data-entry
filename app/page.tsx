@@ -470,12 +470,14 @@ function DashboardContent() {
 
   /**
    * Intelligent Context Menu Positioning
-   * Calculates dimensions and flips/clamps coordinates to keep menu within viewport.
+   * Nudges the menu coordinates just enough to keep it inside the viewport.
+   * This prevents the menu from "jumping" too far away from the cursor.
    */
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row', row?: number, col: string = "") => {
     e.preventDefault();
-    const menuWidth = 192; // Consistent w-48
-    const menuHeight = type === 'row' ? 320 : 480; // Estimates based on menu content
+    const menuWidth = 192; 
+    // Refined height estimates based on current item counts
+    const menuHeight = type === 'row' ? 280 : (type === 'header' ? 380 : 440); 
     
     const winW = window.innerWidth;
     const winH = window.innerHeight;
@@ -483,9 +485,13 @@ function DashboardContent() {
     let x = e.clientX;
     let y = e.clientY;
     
-    // Flip to left if no space on right, flip up if no space on bottom
-    if (x + menuWidth > winW) x = Math.max(5, x - menuWidth);
-    if (y + menuHeight > winH) y = Math.max(5, y - menuHeight);
+    // Nudge logic: If the menu would overflow, align its edge with the screen edge
+    if (x + menuWidth > winW) x = winW - menuWidth - 10;
+    if (y + menuHeight > winH) y = winH - menuHeight - 10;
+    
+    // Ensure it doesn't go off the top/left after adjustment
+    x = Math.max(10, x);
+    y = Math.max(10, y);
     
     setContextMenu({ x, y, row, col, type });
   }, []);
