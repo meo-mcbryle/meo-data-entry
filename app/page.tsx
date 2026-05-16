@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check } from 'lucide-react';
 
 /**
  * Theme Registry: Centralized class management for Dark/Light mode consistency.
@@ -32,7 +32,7 @@ const GRID_THEME = {
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive
-  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all",
+  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none focus:ring-1 focus:ring-accent transition-all dark:bg-card",
 };
 
 const FONT_FAMILIES = [
@@ -115,7 +115,7 @@ const GridRow = React.memo(({
   setActiveCell, setSelection, setIsSelecting, setContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing
+  rowHeights, startRowResizing, handleOpenDropdown
 }: any) => {
   const isRowActive = activeCell?.row === globalIndex;
   const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
@@ -198,10 +198,15 @@ const GridRow = React.memo(({
               {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
             </button>
             {header === 'Location' || header === 'Allocation' ? (
-              <select value={row[header] ?? ''} data-row={globalIndex} data-col={header} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className={`${GRID_THEME.tableInput} ${alignClass}`}>
-                <option value="">Select...</option>
-                {(header === 'Location' ? LOCATIONS : ALLOCATIONS).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+              <button 
+                onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
+                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6`}
+              >
+                <span className={`w-full truncate ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                  {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
+                </span>
+                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors" />
+              </button>
             ) : meta.type === 'date' ? (
               <div className="relative w-full h-full flex items-center group/date min-h-[28px]">
                 <input type="date" value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
@@ -233,9 +238,6 @@ const GridRow = React.memo(({
         );
       })}
       <td className="border-r border-b border-border bg-transparent"></td>
-      <td className="px-2 py-1 text-center sticky right-0 bg-card group-hover:bg-muted/5 border-l border-border z-20 shadow-[-1px_0_0_0_var(--color-border)] transition-colors">
-        <button onClick={() => removeTableRow(globalIndex)} className="text-muted/40 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
-      </td>
     </tr>
   );
 }, (prev, next) => {
@@ -330,6 +332,23 @@ function DashboardContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
+  const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[] } | null>(null);
+
+  const handleOpenDropdown = useCallback((e: React.MouseEvent, row: number, col: string, options: string[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    
+    setDropdownMenu({
+      x: rect.left,
+      y: rect.bottom + 4,
+      width: rect.width,
+      row,
+      col,
+      options
+    });
+  }, []);
+
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [dragFillRange, setDragFillRange] = useState<{ startRow: number; endRow: number; col: string } | null>(null);
@@ -340,6 +359,93 @@ function DashboardContent() {
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [zoom, setZoom] = useState(1);
+  const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [redoStack, setRedoStack] = useState<any[]>([]);
+  const editStartValueRef = useRef<any>(null);
+  const editingCellRef = useRef<{row: number, col: string} | null>(null);
+
+  /**
+   * History Management: Undo/Redo Engine
+   * Leverages Sparse Map referential stability for efficient snapshots.
+   */
+  const saveStateToHistory = useCallback(() => {
+    const snapshot = {
+      gridData: new Map(gridData),
+      rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights }
+    };
+    setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
+    setRedoStack([]);
+  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const prevState = undoStack[undoStack.length - 1];
+    const currentState = {
+      gridData: new Map(gridData),
+      rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights }
+    };
+    setRedoStack(prev => [...prev, currentState]);
+    setUndoStack(prev => prev.slice(0, -1));
+    setGridData(prevState.gridData);
+    setRowCount(prevState.rowCount);
+    setCellMetadata(prevState.cellMetadata);
+    setCellAlignments(prevState.cellAlignments);
+    setRowHeights(prevState.rowHeights);
+  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const nextState = redoStack[redoStack.length - 1];
+    const currentState = {
+      gridData: new Map(gridData),
+      rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights }
+    };
+    setUndoStack(prev => [...prev, currentState]);
+    setRedoStack(prev => prev.slice(0, -1));
+    setGridData(nextState.gridData);
+    setRowCount(nextState.rowCount);
+    setCellMetadata(nextState.cellMetadata);
+    setCellAlignments(nextState.cellAlignments);
+    setRowHeights(nextState.rowHeights);
+  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+
+  // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
+  useEffect(() => {
+    const handleShortcuts = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault(); redo();
+      }
+    };
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [undo, redo]);
+
+  // Track cell value before editing starts for atomic undo
+  useEffect(() => {
+    if (activeCell) {
+      const val = gridData.get(`${activeCell.row}:${activeCell.col}`);
+      if (editingCellRef.current?.row !== activeCell.row || editingCellRef.current?.col !== activeCell.col) {
+        editStartValueRef.current = val;
+        editingCellRef.current = activeCell;
+      }
+    } else {
+      editingCellRef.current = null;
+      editStartValueRef.current = null;
+    }
+  }, [activeCell, gridData]);
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
@@ -374,6 +480,7 @@ function DashboardContent() {
   // Sync theme class to document
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
     localStorage.setItem('meo-theme', theme);
   }, [theme]);
 
@@ -613,7 +720,14 @@ function DashboardContent() {
 
   // Dismiss context menu on click elsewhere
   useEffect(() => {
-    const handleGlobalClick = () => setContextMenu(null);
+    const handleGlobalClick = (e: any) => {
+      // Prevent closing if the scroll event is coming from within the dropdown or context menu
+      if (e.type === 'scroll' && e.target instanceof HTMLElement) {
+        if (e.target.closest('.dropdown-container') || e.target.closest('.context-menu-container')) return;
+      }
+      setContextMenu(null);
+      setDropdownMenu(null);
+    };
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('scroll', handleGlobalClick, true);
     return () => { window.removeEventListener('click', handleGlobalClick); window.removeEventListener('scroll', handleGlobalClick, true); };
@@ -678,13 +792,17 @@ function DashboardContent() {
   const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
     setGridData(prev => {
       const coord = `${index}:${key}`;
-      if (prev.get(coord) === value) return prev;
+      const currentVal = prev.get(coord);
+      if (currentVal === value) return prev;
       
+      // Atomic Undo: Only save history if this is the start of an edit
+      if (editStartValueRef.current === currentVal) saveStateToHistory();
+
       const next = new Map(prev);
       next.set(coord, value);
       return next;
     });
-  }, []);
+  }, [saveStateToHistory]);
 
   /**
    * Renames only a specific contiguous block of rows.
@@ -693,6 +811,7 @@ function DashboardContent() {
   const handleRenameSectionBlock = (startIndex: number, oldName: string, newName: string) => {
     if (!newName || oldName === newName) return;
     
+    saveStateToHistory();
     setGridData(prev => {
       const next = new Map(prev);
       // Find the bounds of the contiguous block starting at startIndex
@@ -714,6 +833,7 @@ function DashboardContent() {
   const handleAddSection = () => {
     const sectionName = window.prompt("Enter new section name:");
     if (!sectionName) return;
+    saveStateToHistory();
     const newIdx = rowCount;
     setGridData(prev => {
       const next = new Map(prev);
@@ -725,6 +845,7 @@ function DashboardContent() {
   };
 
   const handleInsertSection = (relativeSectionName: string, position: 'before' | 'after', specificIndex?: number) => {
+    saveStateToHistory();
     let targetRow = -1;
     if (specificIndex !== undefined) {
       targetRow = specificIndex;
@@ -823,6 +944,7 @@ function DashboardContent() {
 
   const handleDeleteSection = (sectionName: string) => {
     if (!window.confirm(`Are you sure you want to delete the entire section "${sectionName}" and all its rows?`)) return;
+    saveStateToHistory();
     
     // 1. Identify rows to keep and calculate new indices
     const rowsToKeep: number[] = [];
@@ -1045,6 +1167,7 @@ function DashboardContent() {
     const trimmedNewKey = newKey?.trim();
     if (!trimmedNewKey || oldKey === trimmedNewKey) return;
 
+    saveStateToHistory();
     if (trimmedNewKey.toLowerCase() === 'section') {
       alert("'section' is a reserved column name used for categorization.");
       return;
@@ -1104,6 +1227,7 @@ function DashboardContent() {
   };
 
   const handleAddColumn = (name?: string) => {
+    saveStateToHistory();
     const rawInput = typeof name === 'string' ? name : window.prompt("Enter new column name (leave blank for auto-name):");
     if (rawInput === null) return;
     
@@ -1134,6 +1258,7 @@ function DashboardContent() {
 
   const handleDeleteColumn = (keyToDelete: string) => {
     if (!window.confirm(`Are you sure you want to delete the column "${keyToDelete}"?`)) return;
+    saveStateToHistory();
     
     setGridData(prev => {
       const next = new Map(prev);
@@ -1160,6 +1285,7 @@ function DashboardContent() {
   };
 
   const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
+    saveStateToHistory();
     const rawInput = window.prompt(`Enter new column name (leave blank for auto-name):`);
     if (rawInput === null) return;
     
@@ -1193,10 +1319,12 @@ function DashboardContent() {
   };
 
   const addTableRow = () => {
+    saveStateToHistory();
     setRowCount(prev => prev + 1);
   };
 
   const addRowToSection = (sectionName: string) => {
+    saveStateToHistory();
     const newIdx = rowCount;
     setGridData(prev => {
       const next = new Map(prev);
@@ -1208,6 +1336,7 @@ function DashboardContent() {
   };
 
   const handleInsertRow = (index: number, position: 'above' | 'after') => {
+      saveStateToHistory();
       const section = gridData.get(`${index}:section`) || "Uncategorized";
       const insertIndex = position === 'above' ? index : index + 1;
 
@@ -1257,6 +1386,7 @@ function DashboardContent() {
 
   const handleClearRow = (index: number) => {
     if (!window.confirm("Clear all data in this row?")) return;
+    saveStateToHistory();
     
       setGridData(prev => {
         const next = new Map(prev);
@@ -1280,6 +1410,7 @@ function DashboardContent() {
 
   const handleClearColumn = (colName: string) => {
     if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
+    saveStateToHistory();
 
     setGridData(prev => {
       const next = new Map(prev);
@@ -1315,6 +1446,7 @@ function DashboardContent() {
   };
 
   const setCellType = (row: number, col: string, type: string, format: string = 'long') => {
+    saveStateToHistory();
     setCellMetadata(prev => ({
       ...prev,
       ...(() => {
@@ -1745,6 +1877,7 @@ function DashboardContent() {
 
   const applyDragFill = (range: { startRow: number; endRow: number; col: string }) => {
     const { startRow, endRow, col } = range;
+    saveStateToHistory();
     if (startRow === endRow) return;
 
     const sourceValue = gridData.get(`${startRow}:${col}`);
@@ -1774,6 +1907,7 @@ function DashboardContent() {
 
   const removeTableRow = async (index: number) => {
     if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
+    saveStateToHistory();
 
     // Identify all attachments in this row to cleanup storage
     const rowPrefix = `${index}:`;
@@ -1986,6 +2120,9 @@ function DashboardContent() {
                   <option value="2021">2021</option>
                   <option value="2022">2022</option>
                   <option value="2023">2023</option>
+                  <option value="2023">2024</option>
+                  <option value="2023">2025</option>
+                  <option value="2023">2026</option>
                 </select>
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
@@ -2002,6 +2139,24 @@ function DashboardContent() {
                 </select>
               </div>
               {/* Zoom Controls */}
+              <div className="flex items-center gap-1 px-1 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
+                <button 
+                  disabled={undoStack.length === 0}
+                  onClick={undo} 
+                  className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
+                  title="Undo (Ctrl+Z)"
+                >
+                  <History size={14} className="rotate-180 flip-y" />
+                </button>
+                <button 
+                  disabled={redoStack.length === 0}
+                  onClick={redo} 
+                  className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
+                  title="Redo (Ctrl+Y)"
+                >
+                  <History size={14} />
+                </button>
+              </div>
               <div className="flex items-center gap-1 px-2 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
                 <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom Out">
                   <ZoomOut size={14} />
@@ -2030,13 +2185,13 @@ function DashboardContent() {
           {/* Cell Context Menu */}
           {contextMenu && (
             <div 
-              className="fixed z-[100] bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100"
+              className="fixed z-[100] bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100 context-menu-container"
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
               {contextMenu.type === 'header' ? (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Column Options</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Column Options</div>
                   <button 
                     onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
@@ -2056,13 +2211,13 @@ function DashboardContent() {
                     {contextMenu.showFonts && (
                       <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {FONT_FAMILIES.map(f => (
-                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
                   </div>
                   <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Alignment</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Alignment</div>
                   <button onClick={() => setColumnAlignment(contextMenu.col, 'left')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
                     <AlignLeft size={14} className={columnAlignments[contextMenu.col] === 'left' ? "text-accent" : "text-muted"} /> Left Alignment
                   </button>
@@ -2121,7 +2276,7 @@ function DashboardContent() {
                 </>
               ) : contextMenu.type === 'row' ? (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Row Options</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Row Options</div>
                   <button 
                     onClick={() => handleInsertRow(contextMenu.row!, 'above')} 
                     className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
@@ -2141,7 +2296,7 @@ function DashboardContent() {
                     <X size={14} className="text-orange-500" /> Clear Row Content
                   </button>
                   <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Section Actions</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Section Actions</div>
                   <button 
                     onClick={() => {
                       const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
@@ -2182,7 +2337,7 @@ function DashboardContent() {
                 </>
               ) : (
                 <>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Selection Actions</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Selection Actions</div>
                   <button 
                     onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
@@ -2202,11 +2357,14 @@ function DashboardContent() {
 
                   <div className="h-px bg-border my-1"></div>
 
-                  {cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.type === 'media' && (
-                    <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2 border-b border-border font-bold"><Trash2 size={14} /> Remove Attachment</button>
+                  {cellMetadata[`${contextMenu.row!}:${contextMenu.col}`]?.type === 'media' && (
+                    <>
+                      <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2 font-bold"><Trash2 size={14} /> Remove Attachment</button>
+                      <div className="h-px bg-border my-1"></div>
+                    </>
                   )}
 
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest border-b border-border uppercase">Format Cell</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Format Cell</div>
                   <button 
                     onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)}
                     onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'text')} 
@@ -2224,7 +2382,7 @@ function DashboardContent() {
                     {contextMenu.showFormats && (
                       <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
@@ -2242,7 +2400,7 @@ function DashboardContent() {
                     {contextMenu.showNumberFormats && (
                       <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         {NUMBER_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
@@ -2261,20 +2419,20 @@ function DashboardContent() {
                       <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
                         <button 
                           onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula')} 
-                          className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground font-bold"
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground font-bold"
                         >
                           Standard (Sum/Number)
                         </button>
                         <div className="h-px bg-border my-1"></div>
-                        <div className="px-3 py-1 text-[9px] font-bold text-muted tracking-widest uppercase">Date Result Format</div>
+                        <div className="px-3 py-1 text-[9px] font-black text-muted/50 tracking-widest uppercase">Date Result Format</div>
                         {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-[11px] hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
+                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
                         ))}
                       </div>
                     )}
                   </div>
                   <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-bold text-muted tracking-widest uppercase">Media</div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Media</div>
                   <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
                   <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
                 </>
@@ -2407,7 +2565,6 @@ function DashboardContent() {
                     );
                   })}
                   <th className="border-r border-b border-border bg-muted/5"></th>
-                  <th className="sticky right-0 border-l border-b border-border z-40 bg-muted/20 shadow-[-1px_0_0_0_var(--color-border)]"></th>
                 </tr>
                 <tr>
                   <th className={`w-10 min-w-[40px] ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
@@ -2503,7 +2660,6 @@ function DashboardContent() {
                       <Plus size={14} className="text-accent/60" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 w-12 bg-muted/10 sticky right-0 border-l border-b border-border z-40 shadow-[-1px_0_0_0_var(--color-border)]"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -2513,7 +2669,7 @@ function DashboardContent() {
                     <Fragment key={`${sectionName}-${blockIdx}`}>
                       {/* Section Header */}
                       <tr className="bg-muted/30 group/section transition-colors">
-                        <td colSpan={visibleHeaders.length + 3} className="px-3 py-1 border-b border-border">
+                        <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
                           <div className="flex items-center justify-between">
                             <input
                               defaultValue={sectionName}
@@ -2577,49 +2733,10 @@ function DashboardContent() {
                             evaluateFormula={evaluateFormula}
                             rowHeights={rowHeights}
                             startRowResizing={startRowResizing}
+                            handleOpenDropdown={handleOpenDropdown}
                           />
                         );
                       })}
-                      {/* Section Summary Row */}
-                      <tr className="bg-muted/20 border-t border-border font-semibold transition-colors">
-                        <td className={`w-10 min-w-[40px] ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></td>
-                        {visibleHeaders.map((header) => {
-                          const alignClass = columnAlignments[header] === 'center' ? 'text-center' : 
-                                           columnAlignments[header] === 'right' ? 'text-right' : 'text-left';
-
-                          if (header === "Title / Item") {
-                            return (
-                              <td key="total-label" className={`px-2 py-1 text-xs font-bold text-muted text-right border-r border-border bg-muted/20 ${
-                                isFreezePanes ? 'sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]' : ''
-                              }`}>
-                                Subtotal:
-                              </td>
-                            );
-                          }
-                          if (header === "Amount") {
-                            const total = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
-                            return (
-                              <td key="total-amount" className={`px-2 py-1 text-sm font-bold text-accent border-r border-border ${alignClass}`}>
-                                {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </td>
-                            );
-                          }
-                          return <td key={`total-empty-${header}`} className="px-2 py-1 border-r border-border"></td>;
-                        })}
-                        <td className="px-2 py-1 border-r border-border"></td>
-                        <td className="sticky right-0 bg-muted/10 border-l border-border z-20 shadow-[-1px_0_0_0_var(--color-border)]"></td>
-                      </tr>
-                      {/* Option (Insert) Row */}
-                      <tr>
-                        <td colSpan={visibleHeaders.length + 3} className="p-0 border-b border-border">
-                          <button 
-                            onClick={() => addRowToSection(sectionName)}
-                            className="w-full text-left px-4 py-2 text-xs font-bold text-accent hover:bg-accent/10 transition-colors flex items-center gap-1.5"
-                          >
-                            <Plus size={12} /> Option (Insert)
-                          </button>
-                        </td>
-                      </tr>
                     </Fragment>
                   );
                 })}
@@ -2871,6 +2988,60 @@ function DashboardContent() {
             <p>Select a file to start data entry.</p>
           </div>
         )}
+
+          {/* Custom Dropdown Menu (Location/Allocation) */}
+          {dropdownMenu && (() => {
+            const cellKey = `${dropdownMenu.row}:${dropdownMenu.col}`;
+            const meta = cellMetadata[cellKey] || {};
+            const dropdownFont = meta.fontFamily || 'inherit';
+            // Respect both font family and size
+            const dropdownSize = meta.fontSize ? (typeof meta.fontSize === 'number' ? `${meta.fontSize}px` : meta.fontSize) : '0.875rem';
+            
+            return (
+              <div 
+                className="fixed z-[120] bg-card border border-border shadow-2xl rounded-xl py-1.5 max-h-[300px] overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200 custom-scrollbar dropdown-container"
+                style={{ 
+                  left: Math.min(dropdownMenu.x, window.innerWidth - dropdownMenu.width - 20), 
+                  top: Math.min(dropdownMenu.y, window.innerHeight - 310),
+                  width: dropdownMenu.width,
+                  fontFamily: dropdownFont,
+                  fontSize: dropdownSize
+                }}
+                onClick={e => e.stopPropagation()}
+              >
+                {dropdownMenu.options.map((opt) => {
+                  const isSelected = gridData.get(`${dropdownMenu.row}:${dropdownMenu.col}`) === opt;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => {
+                        handleUpdateCell(dropdownMenu.row, dropdownMenu.col, opt);
+                        setDropdownMenu(null);
+                      }}
+                      className={`w-full text-left px-4 py-2 transition-colors flex items-center justify-between group ${
+                        isSelected 
+                        ? 'bg-accent/10 text-accent font-bold' 
+                        : 'hover:bg-muted/10 text-foreground hover:text-accent'
+                      }`}
+                    >
+                      <span className="truncate mr-2">{opt}</span>
+                      {isSelected && <Check size={12} className="shrink-0" />}
+                    </button>
+                  );
+                })}
+                <div className="h-px bg-border my-1 mx-2" />
+                <button
+                  onClick={() => {
+                    handleUpdateCell(dropdownMenu.row, dropdownMenu.col, "");
+                    setDropdownMenu(null);
+                  }}
+                  className="w-full text-left px-4 py-2 text-muted hover:text-red-500 hover:bg-red-500/5 transition-colors italic"
+                >
+                  Clear Selection
+                </button>
+              </div>
+            );
+          })()}
 
         {/* Media Preview Modal */}
         {viewingMedia && (
