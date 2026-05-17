@@ -539,19 +539,21 @@ function DashboardContent() {
   // Optimization: Use a ref to track current state for history snapshots.
   // This prevents 'saveStateToHistory' (and thus 'handleUpdateCell') from changing identity 
   // on every keystroke, which is the primary cause of typing lag.
-  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights });
+  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
   useEffect(() => {
-    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights };
-  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
+  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
 
   const saveStateToHistory = useCallback(() => {
-    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights } = stateRef.current;
+    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
     const snapshot = {
       gridData: new Map(gridData),
       rowCount: rowCount,
       cellMetadata: { ...cellMetadata },
       cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights }
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
     };
     setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
     setRedoStack([]);
@@ -565,7 +567,9 @@ function DashboardContent() {
       rowCount,
       cellMetadata: { ...cellMetadata },
       cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights }
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
     };
     setRedoStack(prev => [...prev, currentState]);
     setUndoStack(prev => prev.slice(0, -1));
@@ -574,7 +578,9 @@ function DashboardContent() {
     setCellMetadata(prevState.cellMetadata);
     setCellAlignments(prevState.cellAlignments);
     setRowHeights(prevState.rowHeights);
-  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+    setMasterColumnOrder(prevState.masterColumnOrder);
+    setColumnOrder(prevState.columnOrder);
+  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
 
   const redo = useCallback(() => {
     if (redoStack.length === 0) return;
@@ -584,7 +590,9 @@ function DashboardContent() {
       rowCount,
       cellMetadata: { ...cellMetadata },
       cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights }
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
     };
     setUndoStack(prev => [...prev, currentState]);
     setRedoStack(prev => prev.slice(0, -1));
@@ -593,7 +601,9 @@ function DashboardContent() {
     setCellMetadata(nextState.cellMetadata);
     setCellAlignments(nextState.cellAlignments);
     setRowHeights(nextState.rowHeights);
-  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights]);
+    setMasterColumnOrder(nextState.masterColumnOrder);
+    setColumnOrder(nextState.columnOrder);
+  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
 
   // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
   useEffect(() => {
@@ -1103,7 +1113,6 @@ function DashboardContent() {
     const newIdx = rowCount;
     setGridData(prev => {
       const next = new Map(prev);
-      next.set(toA1Key(newIdx, masterColumnOrder.indexOf("Title / Item")), "a.");
       next.set(`${newIdx}:section`, sectionName);
       return next;
     });
@@ -1155,13 +1164,13 @@ function DashboardContent() {
       
       const transform = (k: string) => {
         const c = fromA1Key(k);
-        if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
-        return { r: c.row, ci: c.colIndex, isS: false } as const;
+        if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), ci: -1, isS: true } : null;
+        return { r: c.row, ci: c.colIndex, isS: false };
       };
 
       Object.keys(prev).forEach(key => {
         if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-        const info = transform(key);
+        const info = transform(key) as { r: number, ci: number, isS: boolean } | null;
         if (!info) { next[key] = prev[key]; return; }
 
         const { r, ci, isS } = info;
@@ -1169,7 +1178,7 @@ function DashboardContent() {
         
         const val = { ...prev[key] };
         if (val.mergedIn) {
-          const h = transform(val.mergedIn);
+          const h = transform(val.mergedIn) as { r: number, ci: number, isS: boolean } | null;
           if (h && !h.isS && h.r >= insertionIndex) val.mergedIn = toA1Key(h.r + 1, h.ci);
         }
         next[nk] = val;
@@ -1218,7 +1227,6 @@ function DashboardContent() {
       
       // Insert the new header row
       next.set(`${insertionIndex}:section`, sectionName);
-      next.set(toA1Key(insertionIndex, masterColumnOrder.indexOf("Title / Item")), "a.");
       return next;
     });
     setRowCount(prev => prev + 1);
@@ -1617,7 +1625,6 @@ function DashboardContent() {
     setGridData(prev => {
       const next = new Map(prev);
       next.set(`${newIdx}:section`, sectionName);
-      next.set(toA1Key(newIdx, masterColumnOrder.indexOf("Title / Item")), "a.");
       return next;
     });
     setRowCount(prev => prev + 1);
@@ -1632,13 +1639,13 @@ function DashboardContent() {
         const next: Record<string, any> = {};
         const transform = (k: string) => {
           const c = fromA1Key(k);
-          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
-          return { r: c.row, ci: c.colIndex, isS: false } as const;
+          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), ci: -1, isS: true } : null;
+          return { r: c.row, ci: c.colIndex, isS: false };
         };
 
         Object.keys(prev).forEach(key => {
           if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-          const info = transform(key);
+          const info = transform(key) as { r: number, ci: number, isS: boolean } | null;
           if (!info) { next[key] = prev[key]; return; }
 
           const { r, ci, isS } = info;
@@ -1646,7 +1653,7 @@ function DashboardContent() {
           
           const val = { ...prev[key] };
           if (val.mergedIn) {
-            const h = transform(val.mergedIn);
+            const h = transform(val.mergedIn) as { r: number, ci: number, isS: boolean } | null;
             if (h && !h.isS && h.r >= insertIndex) val.mergedIn = toA1Key(h.r + 1, h.ci);
           }
           next[nk] = val;
@@ -1668,7 +1675,7 @@ function DashboardContent() {
       setGridData(prev => {
         const next = new Map();
         prev.forEach((val, key) => {
-          const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0]), colIndex: -1 } : null);
+          const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0]), colIndex: -1 } : null) as { row: number, colIndex: number } | null;
           if (!coords) { next.set(key, val); return; }
           
           const { row, colIndex } = coords;
@@ -2260,13 +2267,13 @@ function DashboardContent() {
         const next: Record<string, any> = {};
         const transform = (k: string) => {
           const c = fromA1Key(k);
-          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
+          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), ci: -1, isS: true } : null;
           return { r: c.row, ci: c.colIndex, isS: false };
         };
 
         Object.keys(prev).forEach(key => {
           if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-          const info: any = transform(key);
+          const info = transform(key) as { r: number, ci: number, isS: boolean } | null;
           if (!info) { next[key] = prev[key]; return; }
 
           const { r, ci, isS } = info;
@@ -2275,8 +2282,8 @@ function DashboardContent() {
             const nk = isS ? `${r - 1}:section` : toA1Key(r - 1, ci);
             const val = { ...prev[key] };
             if (val.mergedIn) {
-              const h = transform(val.mergedIn);
-              if (h && h.r > index) val.mergedIn = toA1Key(h.r - 1, h.ci);
+              const h = transform(val.mergedIn) as { r: number, ci: number, isS: boolean } | null;
+              if (h && !h.isS && h.r > index) val.mergedIn = toA1Key(h.r - 1, h.ci);
             }
             next[nk] = val;
           }
