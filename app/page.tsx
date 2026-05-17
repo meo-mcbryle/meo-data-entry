@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical } from 'lucide-react';
 
 /**
  * Theme Registry: Centralized class management for Dark/Light mode consistency.
@@ -14,12 +14,12 @@ const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
   rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-20 border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
+  drawer: "bg-card flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
   
   // Grid Editor Components
   editor: "flex flex-col h-full overflow-hidden bg-card",
-  toolbar: "flex items-center justify-between p-2 bg-background border-b border-border gap-2",
+  toolbar: "flex items-center justify-between p-2 bg-background border-b border-border gap-2 overflow-x-auto no-scrollbar whitespace-nowrap",
   formulaBar: "flex items-start gap-2 p-1.5 bg-card border-b border-border shadow-inner z-20",
   statusBar: "h-7 bg-background border-t border-border flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",
   navContainer: "flex bg-muted/10 p-0.5 rounded-md border border-border",
@@ -275,7 +275,13 @@ const GridRow = React.memo(({
             style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
             {activeCell?.row === globalIndex && activeCell?.col === header && (
-              <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full" />
+              <>
+                <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full" />
+                {/* Mobile-friendly context menu trigger */}
+                <button onClick={(e) => onOpenContextMenu(e, 'cell', globalIndex, header)} className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30">
+                  <MoreVertical size={12} />
+                </button>
+              </>
             )}
             <button onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }} className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-accent bg-card/90 rounded shadow-sm z-30 transition-all">
               {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
@@ -457,7 +463,7 @@ function DashboardContent() {
   const [newColName, setNewColName] = useState<string>('');
   const [selectedYear, setSelectedYear] = useState<string>('2020');
   const searchParams = useSearchParams();
-  const [isExplorerVisible, setIsExplorerVisible] = useState(true);
+  const [isExplorerVisible, setIsExplorerVisible] = useState(false);
   const [explorerSearch, setExplorerSearch] = useState('');
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -487,7 +493,19 @@ function DashboardContent() {
     });
     observer.observe(tableContainerRef.current);
     return () => observer.disconnect();
-  }, [viewMode, selectedId]);
+  }, [viewMode, selectedId, isExplorerVisible]);
+
+  // Responsive Sidebar: Desktop: Open by default, Mobile: Hidden by default
+  useEffect(() => {
+    const handleResponsiveSidebar = () => {
+      // Threshold 768px (md breakpoint)
+      if (window.innerWidth >= 768) setIsExplorerVisible(true);
+      else setIsExplorerVisible(false);
+    };
+    handleResponsiveSidebar();
+    window.addEventListener('resize', handleResponsiveSidebar);
+    return () => window.removeEventListener('resize', handleResponsiveSidebar);
+  }, []);
 
   /**
    * Intelligent Context Menu Positioning
@@ -2361,7 +2379,7 @@ function DashboardContent() {
         <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
           {/* Excel Toolbar */}
           <div className={GRID_THEME.toolbar}>
-            <div className="flex items-center gap-2 flex-1">
+            <div className="flex items-center gap-2 shrink-0">
               <div className="relative flex-1 max-w-sm">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
                 <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1.5 text-xs border border-border rounded focus:ring-1 focus:ring-accent outline-none bg-background text-foreground placeholder:text-muted/50" />
@@ -2386,9 +2404,9 @@ function DashboardContent() {
                   <option value="2021">2021</option>
                   <option value="2022">2022</option>
                   <option value="2023">2023</option>
-                  <option value="2023">2024</option>
-                  <option value="2023">2025</option>
-                  <option value="2023">2026</option>
+                  <option value="2024">2024</option>
+                  <option value="2025">2025</option>
+                  <option value="2026">2026</option>
                 </select>
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
@@ -2441,7 +2459,7 @@ function DashboardContent() {
                 <RefreshCcw size={14} /> Reset Widths
               </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0 ml-4">
               <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
                 <HardDrive size={14} /> Export CSV
               </button>
@@ -3046,12 +3064,16 @@ function DashboardContent() {
   useEffect(() => { fetchFiles(); }, []);
 
   return (
-    <main className={GRID_THEME.main}>
+    <main className={`${GRID_THEME.main} relative`}>
       {!isFullScreen && (
-        <div className="flex h-full shrink-0">
+        <div className="flex h-full shrink-0 relative">
           {/* Vertical Icon Rail (Light Theme) */}
-          <div className={GRID_THEME.rail}>
-            <button 
+          <div className={`${GRID_THEME.rail} ${
+            isExplorerVisible 
+              ? 'fixed md:relative left-0 top-0 h-full md:h-auto z-50 translate-x-0 opacity-100 flex' 
+              : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
+          } transition-all duration-300`}>
+            <button
               onClick={() => setIsExplorerVisible(!isExplorerVisible)}
               className={`p-2 rounded-lg transition-all ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
               title={isExplorerVisible ? "Collapse Sidebar" : "Expand Sidebar"}
@@ -3099,8 +3121,18 @@ function DashboardContent() {
           </div>
 
           {/* Explorer Drawer Panel */}
-          <aside 
-            className={`${GRID_THEME.drawer} ${isExplorerVisible ? 'w-64 p-4' : 'w-0 p-0 border-none'}`}
+          {isExplorerVisible && (
+            <div 
+              className="md:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-40"
+              onClick={() => setIsExplorerVisible(false)}
+            />
+          )}
+          <aside
+            className={`${GRID_THEME.drawer} ${
+              isExplorerVisible 
+                ? 'w-64 p-4 opacity-100 translate-x-12 md:translate-x-0' 
+                : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 border-none pointer-events-none'
+            } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
           >
             <div className="flex justify-between items-center mb-4 px-1 min-w-[220px] transition-colors">
               <h1 className="font-black text-muted text-[10px] uppercase tracking-[0.2em]">Project Tree</h1>
@@ -3142,17 +3174,27 @@ function DashboardContent() {
         </div>
       )}
 
-      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-3'}`}>
+      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-2 md:p-3'}`}>
+
+        {/* Floating Mobile Toggle Button - Restored for better access while keeping the spreadsheet view maximized */}
+        {!isFullScreen && !isExplorerVisible && (
+          <button 
+            onClick={() => setIsExplorerVisible(true)}
+            className="md:hidden fixed bottom-6 left-6 z-[60] p-4 bg-accent text-accent-foreground rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-4 duration-300"
+          >
+            <PanelLeftOpen size={24} />
+          </button>
+        )}
 
         {activeNode ? (
           <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card' : 'bg-card border border-border rounded-xl shadow-sm'}`}>
             {!isFullScreen && (
-              <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10">
-                <div className="flex items-center gap-3">
-                  <div className="p-1.5 bg-accent/10 text-accent rounded">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10 overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="md:p-1.5 p-0.5 bg-accent/10 text-accent rounded">
                     <FileIcon size={14} />
                   </div>
-                  <h2 className="text-sm font-bold text-foreground truncate max-w-[240px]">{activeNode.name}</h2>
+                  <h2 className="text-sm font-bold text-foreground truncate max-w-[120px] md:max-w-[240px]">{activeNode.name}</h2>
                   
                   <div className="h-4 w-px bg-border mx-1" />
                   
@@ -3183,7 +3225,7 @@ function DashboardContent() {
                     </button>
                   </nav>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0 ml-4">
                   <button onClick={() => window.open(`/print?id=${selectedId}`, '_blank')} className="p-1.5 text-muted hover:text-accent transition-colors" title="Printable Report"><Printer size={16} /></button>
                   <button onClick={handleShare} className="p-1.5 text-muted hover:text-accent transition-colors" title="Copy Link"><Share2 size={16} /></button>
                   <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Toggle Focus Mode">{isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
@@ -3203,11 +3245,11 @@ function DashboardContent() {
             {activeNode.type === 'file' && (
               <div className="flex flex-col flex-1 min-h-0">
                 {isFullScreen && (
-                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card">
-                    <div className="flex items-center gap-2 text-xs font-bold text-muted">
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted shrink-0">
                       <TableIcon size={14} /> {activeNode.name}
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0 ml-4">
                       <button 
                         onClick={handleSave}
                         disabled={isSaving}
@@ -3253,6 +3295,14 @@ function DashboardContent() {
           <div className="flex-1 flex flex-col items-center justify-center text-muted">
             <Folder size={48} className="mb-4 opacity-10" />
             <p>Select a file to start data entry.</p>
+            {!isExplorerVisible && (
+              <button 
+                onClick={() => setIsExplorerVisible(true)}
+                className="md:hidden mt-4 flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg font-bold text-sm shadow-sm"
+              >
+                <PanelLeftOpen size={16} /> Open Sidebar
+              </button>
+            )}
           </div>
         )}
 

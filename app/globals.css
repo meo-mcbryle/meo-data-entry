@@ -51,3 +51,11 @@ body {
 ::view-transition-new(root) {
   animation-duration: 0.3s;
 }
+
+/* Utility to hide scrollbars while keeping functionality */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
