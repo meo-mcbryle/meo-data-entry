@@ -55,7 +55,16 @@ body {
 /* Utility to hide scrollbars while keeping functionality */
 @utility no-scrollbar {
   scrollbar-width: none;
+  -ms-overflow-style: none;
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* Excel-style header highlighting */
+.active-header {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent) !important;
+  color: var(--accent) !important;
+  font-weight: 900 !important;
+  box-shadow: inset 0 -2px 0 0 currentColor !important;
 }

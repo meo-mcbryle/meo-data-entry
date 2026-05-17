@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, u
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
+import { toA1Key, fromA1Key, getExcelColumnLabel, hydrateMapToArray, dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord } from '@/lib/excel-utils';
 import FileNodeItem from '@/components/FileNodeItem';
 import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical } from 'lucide-react';
 
@@ -72,16 +73,6 @@ const LOCATIONS = [
   "Ubay, Labason, Zamboanga del Norte"
 ];
 const ALLOCATIONS = ["20%", "DepEd", "DA"];
-
-const getExcelColumnLabel = (index: number): string => {
-  let label = '';
-  let i = index;
-  while (i >= 0) {
-    label = String.fromCharCode((i % 26) + 65) + label;
-    i = Math.floor(i / 26) - 1;
-  }
-  return label;
-};
 
 const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
   if (value === "" || value === undefined || value === null) return "0.00";
@@ -190,7 +181,7 @@ const GridRow = React.memo(({
   setActiveCell, setSelection, setIsSelecting, onOpenContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing, handleOpenDropdown
+  rowHeights, startRowResizing, handleOpenDropdown, masterColumnOrder
 }: any) => {
   const isRowActive = activeCell?.row === globalIndex;
   const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
@@ -201,9 +192,9 @@ const GridRow = React.memo(({
   return (
     <tr className={GRID_THEME.tableBodyRow} style={{ height: rowHeights[globalIndex] ? `${rowHeights[globalIndex]}px` : undefined }}>
       <td
-        className={`relative group/row-index w-10 min-w-[40px] text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${
-          isRowActive ? 'bg-accent/10 text-accent shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'
-        } ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''}`}
+        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'} ${
+          isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
+        }`}
         onContextMenu={(e) => { 
           e.preventDefault(); 
           const isInside = selection && globalIndex >= Math.min(selection.startRow, selection.endRow) && globalIndex <= Math.max(selection.startRow, selection.endRow);
@@ -230,7 +221,8 @@ const GridRow = React.memo(({
         />
       </td>
       {visibleHeaders.map((header: string, colIndex: number) => {
-        const cellKey = `${globalIndex}:${header}`;
+        // Performance: Use index from stable master order for A1 keys
+        const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header)); 
         const meta = cellMetadata[cellKey] || {};
         if (meta.mergedIn) return null;
         const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
@@ -276,7 +268,7 @@ const GridRow = React.memo(({
           >
             {activeCell?.row === globalIndex && activeCell?.col === header && (
               <>
-                <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-[3px] -mr-[3px] shadow-sm rounded-full" />
+                <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-0.75 -mr-0.75 shadow-sm rounded-full" />
                 {/* Mobile-friendly context menu trigger */}
                 <button onClick={(e) => onOpenContextMenu(e, 'cell', globalIndex, header)} className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30">
                   <MoreVertical size={12} />
@@ -289,29 +281,29 @@ const GridRow = React.memo(({
             {header === 'Location' || header === 'Allocation' ? (
               <button 
                 onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-[28px] hover:bg-accent/5 pr-6 py-1.5 w-full`}
+                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-7 hover:bg-accent/5 pr-6 py-1.5 w-full`}
               >
-                <span className={`w-full break-words whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                <span className={`w-full wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
                   {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
                 </span>
                 <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors" />
               </button>
             ) : meta.type === 'date' ? (
-              <div className="relative w-full flex items-center group/date min-h-[28px]">
+              <div className="relative w-full flex items-center group/date min-h-7">
                 <input type="date" data-row={globalIndex} data-col={header} value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
-                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center break-words flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center wrap-break-word flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
               </div>
             ) : meta.type === 'media' ? (
-              <div className="flex items-center group/media relative min-h-[28px] w-full px-2 py-1">
+              <div className="flex items-center group/media relative min-h-7 w-full px-2 py-1">
                 {meta.attachments?.length > 0 && (
                   <button onClick={() => setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header })} className={`text-xs text-accent hover:underline font-medium w-full ${alignClass}`}>[View Attachment{meta.attachments.length > 1 ? 's' : ''}]</button>
                 )}
                 <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/media:opacity-100 p-1 text-muted hover:text-red-500 absolute right-1 top-1 bg-card/80 rounded shadow-sm transition-all"><X size={12} /></button>
               </div>
             ) : meta.type === 'formula' ? (
-              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-[28px] flex items-center break-words ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex items-center wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
                 {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
@@ -324,7 +316,7 @@ const GridRow = React.memo(({
                   type="number"
                 />
               ) : (
-                <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-[28px] flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
+                <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-7 flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
               )
             ) : (
               activeCell?.row === globalIndex && activeCell?.col === header ? (
@@ -339,7 +331,7 @@ const GridRow = React.memo(({
               ) : (
                 <div 
                   onClick={() => setActiveCell({ row: globalIndex, col: header })} 
-                  className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-[28px] whitespace-pre-wrap break-words ${alignClass}`}
+                  className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 whitespace-pre-wrap wrap-break-word ${alignClass}`}
                 >
                   {row[header] || <span className="opacity-0">.</span>}
                 </div>
@@ -390,7 +382,8 @@ const GridRow = React.memo(({
   // 4. Performance Fix: Instead of checking the whole alignments object,
   // check if any alignment relevant to THIS row changed.
   const hasAlignChange = prev.visibleHeaders.some((h: string) => {
-    const key = `${prev.globalIndex}:${h}`;
+    const colIdx = prev.masterColumnOrder.indexOf(h);
+    const key = toA1Key(prev.globalIndex, colIdx);
     return prev.cellAlignments[key] !== next.cellAlignments[key] || 
            prev.columnAlignments[h] !== next.columnAlignments[h];
   });
@@ -398,7 +391,8 @@ const GridRow = React.memo(({
   
   // 5. Performance Fix: Only re-render if metadata specifically for THIS row changed
   const hasMetaChange = prev.visibleHeaders.some((h: string) => {
-    const key = `${prev.globalIndex}:${h}`;
+    const colIdx = prev.masterColumnOrder.indexOf(h);
+    const key = toA1Key(prev.globalIndex, colIdx);
     return prev.cellMetadata[key] !== next.cellMetadata[key];
   });
   if (hasMetaChange) return false;
@@ -411,43 +405,17 @@ const GridRow = React.memo(({
     prev.isSelecting === next.isSelecting && 
     prev.isFreezePanes === next.isFreezePanes &&
     prev.visibleHeaders === next.visibleHeaders &&
-    prev.dragFillRange === next.dragFillRange
+    prev.dragFillRange === next.dragFillRange &&
+    prev.masterColumnOrder === next.masterColumnOrder
   );
 });
-
-/**
- * Sparse Model Utilities
- * Converts Array of Objects [{col: val}] to Map "row:col" -> val
- */
-const arrayToSparseMap = (data: any[]): Map<string, any> => {
-  const map = new Map<string, any>();
-  data.forEach((row, rowIndex) => {
-    Object.entries(row).forEach(([colName, value]) => {
-      map.set(`${rowIndex}:${colName}`, value);
-    });
-  });
-  return map;
-};
-
-const sparseMapToArray = (map: Map<string, any>, rowCount: number, headers: string[]): any[] => {
-  const result = [];
-  for (let r = 0; r < rowCount; r++) {
-    const row: any = {};
-    headers.forEach(h => {
-      const val = map.get(`${r}:${h}`);
-      if (val !== undefined) row[h] = val;
-    });
-    // Critical: Ensure the section property is preserved in the exported array
-    row.section = map.get(`${r}:section`) || "Uncategorized";
-    result.push(row);
-  }
-  return result;
-};
 
 function DashboardContent() {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const [masterColumnOrder, setMasterColumnOrder] = useState<string[]>([]);
   const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
   const [rowCount, setRowCount] = useState(0);
   const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
@@ -483,15 +451,14 @@ function DashboardContent() {
   useEffect(() => {
     if (!tableContainerRef.current || viewMode !== 'table') return;
     
-    // Immediate initial measurement to sync virtualization bounds
-    setContainerHeight(tableContainerRef.current.clientHeight || 800);
-
     const observer = new ResizeObserver((entries) => {
       for (let entry of entries) {
-        setContainerHeight(entry.contentRect.height);
+        // Use requestAnimationFrame to debounce height updates and prevent layout thrashing
+        requestAnimationFrame(() => setContainerHeight(entry.contentRect.height));
       }
     });
     observer.observe(tableContainerRef.current);
+    setContainerHeight(tableContainerRef.current.clientHeight || 800);
     return () => observer.disconnect();
   }, [viewMode, selectedId, isExplorerVisible]);
 
@@ -646,7 +613,9 @@ function DashboardContent() {
   // Track cell value before editing starts for atomic undo
   useEffect(() => {
     if (activeCell) {
-      const val = gridData.get(`${activeCell.row}:${activeCell.col}`);
+      const colIdx = masterColumnOrder.indexOf(activeCell.col);
+      const coord = colIdx !== -1 ? toA1Key(activeCell.row, colIdx) : '';
+      const val = coord ? gridData.get(coord) : undefined;
       if (editingCellRef.current?.row !== activeCell.row || editingCellRef.current?.col !== activeCell.col) {
         editStartValueRef.current = val;
         editingCellRef.current = activeCell;
@@ -655,7 +624,7 @@ function DashboardContent() {
       editingCellRef.current = null;
       editStartValueRef.current = null;
     }
-  }, [activeCell, gridData]);
+  }, [activeCell, gridData, masterColumnOrder]);
 
   const activeNode = useMemo(() => 
     selectedId ? findNodeById(tree, selectedId) : null
@@ -713,31 +682,29 @@ function DashboardContent() {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
   }, []);
 
-  // Synchronize code view content when switching to code mode or selecting a node
+  // Synchronize code view content (JSON) from state
   useEffect(() => {
-    // If we are currently editing the code, don't overwrite the user's input
-    // unless the view mode or active node has actually changed.
-    if (viewMode !== 'code') return;
+    // Only synchronize state TO the code view when entering the mode or changing files.
+    // This prevents the cursor from jumping to the end of the text while you are editing the JSON.
+    if (viewMode !== 'code' || !activeNode || activeNode.type !== 'file') return;
 
-    if (viewMode === 'code' && activeNode) {
-      const fullData = {
-        content: gridData, // No parsing needed
-        display_settings: {
-          columnAlignments,
-          cellAlignments,
-          hiddenColumns,
-          selectedYear,
-          columnOrder,
-          columnWidths,
-          cellMetadata
-        }
-      };
-      const newCode = JSON.stringify(fullData, null, 2);
-      if (newCode !== codeViewContent) {
-        setCodeViewContent(newCode);
+    const contentArray = hydrateMapToArray(gridData, rowCount, allHeaders, masterColumnOrder);
+    const fullData = {
+      content: contentArray,
+      display_settings: {
+        columnAlignments,
+        cellAlignments,
+        hiddenColumns,
+        selectedYear,
+        columnOrder,
+        columnWidths,
+        cellMetadata,
+        rowHeights
       }
-    }
-  }, [viewMode, activeNode?.id, gridData, columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, codeViewContent]);
+    };
+    setCodeViewContent(JSON.stringify(fullData, null, 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, activeNode?.id]);
 
   const handleCodeChange = (val: string) => {
     setCodeViewContent(val);
@@ -746,10 +713,12 @@ function DashboardContent() {
       
       // If user pasted/typed the full document structure
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.content)) {
-        setGridData(arrayToSparseMap(parsed.content)); // Update native state
-        setRowCount(parsed.content.length);
         if (parsed.display_settings) {
           const ds = parsed.display_settings;
+          const master = ds.masterColumnOrder || ds.columnOrder || allHeaders;
+          setMasterColumnOrder(master);
+          setGridData(dehydrateArrayToMap(parsed.content, ds.columnOrder || allHeaders, master));
+          setRowCount(parsed.content.length);
           setColumnAlignments(ds.columnAlignments || {});
           setCellAlignments(ds.cellAlignments || {});
           setHiddenColumns(ds.hiddenColumns || []);
@@ -762,7 +731,7 @@ function DashboardContent() {
       } 
       // If user pasted/typed just the data array (backward compatibility)
       else if (Array.isArray(parsed)) {
-        setGridData(arrayToSparseMap(parsed));
+        setGridData(dehydrateArrayToMap(parsed, allHeaders, masterColumnOrder));
         setRowCount(parsed.length);
       }
     } catch (e) {
@@ -779,37 +748,36 @@ function DashboardContent() {
     return allHeaders.filter(header => !hiddenColumns.includes(header) && header !== 'section');
   }, [allHeaders, columnOrder, hiddenColumns]);
 
-  // Derived Data & Filtering (Moved to top-level to satisfy Rules of Hooks)
-  // The 'data' array is now only rebuilt if gridData actually changes.
-  const data = useMemo(() => {
-    return Array.from({ length: rowCount }).map((_, i) => {
-      const rowObj: any = { _index: i };
-      allHeaders.forEach(h => rowObj[h] = gridData.get(`${i}:${h}`));
-      rowObj.section = gridData.get(`${i}:section`) || "Uncategorized";
-      return rowObj;
-    });
-  }, [gridData, rowCount, allHeaders]);
-
-  const filteredRows = useMemo(() => {
-    if (!rowFilter) return data;
+  /**
+   * PERFORMANCE OPTIMIZATION: Index-based Virtualization
+   * Instead of generating a full array of row objects (O(N*M)), we work with 
+   * a flat array of indices. This keeps the JS main thread clear for typing.
+   */
+  const filteredRowIndices = useMemo(() => {
+    const indices = Array.from({ length: rowCount }, (_, i) => i);
+    if (!rowFilter) return indices;
+    
     const lowerCaseFilter = rowFilter.toLowerCase();
-    return data.filter((row: any) => 
-      Object.values(row).some(value => 
-        String(value).toLowerCase().includes(lowerCaseFilter)
-      )
-    );
-  }, [data, rowFilter]);
+    return indices.filter((i) => {
+      return allHeaders.some(h => {
+        const colIdx = masterColumnOrder.indexOf(h);
+        const coord = colIdx !== -1 ? toA1Key(i, colIdx) : '';
+        const val = coord ? gridData.get(coord) : undefined;
+        return val !== undefined && String(val).toLowerCase().includes(lowerCaseFilter);
+      });
+    });
+  }, [gridData, rowCount, allHeaders, rowFilter, masterColumnOrder]);
 
   const sectionBlocks = useMemo(() => {
-    const blocks: { name: string, rows: any[] }[] = [];
-    filteredRows.forEach(row => {
-      const sectionName = row.section || "Uncategorized";
+    const blocks: { name: string, indices: number[] }[] = [];
+    filteredRowIndices.forEach(idx => {
+      const sectionName = gridData.get(`${idx}:section`) || "Uncategorized";
       const lastBlock = blocks[blocks.length - 1];
-      if (lastBlock && lastBlock.name === sectionName) lastBlock.rows.push(row);
-      else blocks.push({ name: sectionName, rows: [row] });
+      if (lastBlock && lastBlock.name === sectionName) lastBlock.indices.push(idx);
+      else blocks.push({ name: sectionName, indices: [idx] });
     });
     return blocks;
-  }, [filteredRows]);
+  }, [filteredRowIndices, gridData]);
 
   // Virtualization: Flatten sections and rows with accurate height offsets
   const { flatItems, itemOffsets, totalVirtualHeight } = useMemo(() => {
@@ -819,13 +787,13 @@ function DashboardContent() {
 
     sectionBlocks.forEach((block, blockIdx) => {
       offsets.push(currentOffset);
-      items.push({ type: 'section', name: block.name, startIndex: block.rows[0]._index, blockIdx });
+      items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
       currentOffset += 32; // Header is h-8 (32px)
 
-      block.rows.forEach(row => {
+      block.indices.forEach(idx => {
         offsets.push(currentOffset);
-        items.push({ type: 'row', data: row });
-        currentOffset += (rowHeights[row._index] || 32);
+        items.push({ type: 'row', index: idx });
+        currentOffset += (rowHeights[idx] || 32);
       });
     });
 
@@ -834,16 +802,19 @@ function DashboardContent() {
 
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
-    // Clear cell-specific overrides in this column to ensure the whole column follows the new setting
+    
+    // PERFORMANCE FIX: Clear cell-specific overrides using A1 keys
+    const colIdx = masterColumnOrder.indexOf(header);
     setCellAlignments(prev => {
       const next = { ...prev };
       Object.keys(next).forEach(key => {
-        if (key.endsWith(`:${header}`)) delete next[key];
+        const coords = fromA1Key(key);
+        if (coords && coords.colIndex === colIdx) delete next[key];
       });
       return next;
     });
     setContextMenu(null);
-  }, []);
+  }, [masterColumnOrder, setCellAlignments]);
 
   // Kept for backward compatibility if needed elsewhere, but cycles alignments
   const toggleAlignment = useCallback((header: string) => {
@@ -1032,7 +1003,8 @@ function DashboardContent() {
 
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
-    const { data, error } = await supabase.from('nodes').select('*').order('name');
+    // Optimization: Exclude heavy 'content' and 'display_settings' blobs from the tree fetch
+    const { data, error } = await supabase.from('nodes').select('id, name, type, parent_id, created_at, size_bytes').order('name');
     
     if (error) {
       console.error('Error fetching files:', error.message);
@@ -1079,7 +1051,10 @@ function DashboardContent() {
   };
 
   const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
-    const coord = `${index}:${key}`;
+    const colIndex = masterColumnOrder.indexOf(key);
+    if (colIndex === -1) return;
+    const coord = toA1Key(index, colIndex);
+    
     // Get current value from the latest ref to avoid stale closure issues
     if (stateRef.current.gridData.get(coord) === value) return;
 
@@ -1093,13 +1068,13 @@ function DashboardContent() {
       next.set(coord, value);
       return next;
     });
-  }, [saveStateToHistory]); // Stable identity because saveStateToHistory is now stable
+  }, [saveStateToHistory, masterColumnOrder]); // Added masterColumnOrder to prevent stale closures
 
   /**
    * Renames only a specific contiguous block of rows.
    * This prevents split sections from being merged back together accidentally.
    */
-  const handleRenameSectionBlock = (startIndex: number, oldName: string, newName: string) => {
+  const handleRenameSectionBlock = useCallback((startIndex: number, oldName: string, newName: string) => {
     if (!newName || oldName === newName) return;
     
     saveStateToHistory();
@@ -1119,7 +1094,7 @@ function DashboardContent() {
       }
       return next;
     });
-  };
+  }, [rowCount, saveStateToHistory]);
 
   const handleAddSection = () => {
     const sectionName = window.prompt("Enter new section name:");
@@ -1128,14 +1103,14 @@ function DashboardContent() {
     const newIdx = rowCount;
     setGridData(prev => {
       const next = new Map(prev);
-      next.set(`${newIdx}:Title / Item`, "a.");
+      next.set(toA1Key(newIdx, masterColumnOrder.indexOf("Title / Item")), "a.");
       next.set(`${newIdx}:section`, sectionName);
       return next;
     });
     setRowCount(prev => prev + 1);
   };
 
-  const handleInsertSection = (relativeSectionName: string, position: 'before' | 'after', specificIndex?: number) => {
+  const handleInsertSection = useCallback((relativeSectionName: string, position: 'before' | 'after', specificIndex?: number) => {
     saveStateToHistory();
     let targetRow = -1;
     if (specificIndex !== undefined) {
@@ -1175,22 +1150,35 @@ function DashboardContent() {
       return; 
     }
 
-    // INSERT MODE: Create a new row slot and shift existing data (used for header buttons or appending)
-    const shiftKeys = (prev: Record<string, any>) => {
+    const shiftMetadata = (prev: Record<string, any>) => {
       const next: Record<string, any> = {};
+      
+      const transform = (k: string) => {
+        const c = fromA1Key(k);
+        if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
+        return { r: c.row, ci: c.colIndex, isS: false } as const;
+      };
+
       Object.keys(prev).forEach(key => {
         if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-        const [rStr, ...cParts] = key.split(':');
-        const r = parseInt(rStr);
-        if (isNaN(r)) { next[key] = prev[key]; return; }
-        if (r < insertionIndex) next[key] = prev[key];
-        else next[`${r + 1}:${cParts.join(':')}`] = prev[key];
+        const info = transform(key);
+        if (!info) { next[key] = prev[key]; return; }
+
+        const { r, ci, isS } = info;
+        const nk = (r < insertionIndex) ? key : (isS ? `${r + 1}:section` : toA1Key(r + 1, ci));
+        
+        const val = { ...prev[key] };
+        if (val.mergedIn) {
+          const h = transform(val.mergedIn);
+          if (h && !h.isS && h.r >= insertionIndex) val.mergedIn = toA1Key(h.r + 1, h.ci);
+        }
+        next[nk] = val;
       });
       return next;
     };
 
-    setCellMetadata(shiftKeys);
-    setCellAlignments(shiftKeys);
+    setCellMetadata(shiftMetadata);
+    setCellAlignments(shiftMetadata);
     setRowHeights(prev => {
       const next: Record<number, number> = {};
       Object.keys(prev).forEach(k => {
@@ -1206,34 +1194,37 @@ function DashboardContent() {
       const next = new Map();
       // Shift existing rows
       prev.forEach((val, key) => {
-        const [rStr, col] = key.split(':');
-        const r = parseInt(rStr);
+        const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0]), colIndex: -1 } : null);
+        if (!coords) { next.set(key, val); return; }
+
+        const { row: r, colIndex } = coords;
+        const isSectionKey = key.includes(':section');
+
         if (r < insertionIndex) {
           next.set(key, val);
         } else {
           // Rows being pushed down
           const newIdx = r + 1;
-          const isSectionKey = col === 'section';
           
           // If we are pushing down rows that were part of the split section block,
           // they move into the NEW section.
           if (isSectionKey && val === splitSourceSection && r >= targetRow) {
             next.set(`${newIdx}:section`, sectionName);
           } else {
-            next.set(`${newIdx}:${col}`, val);
+              next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), val);
           }
         }
       });
       
       // Insert the new header row
       next.set(`${insertionIndex}:section`, sectionName);
-      next.set(`${insertionIndex}:Title / Item`, "a.");
+      next.set(toA1Key(insertionIndex, masterColumnOrder.indexOf("Title / Item")), "a.");
       return next;
     });
     setRowCount(prev => prev + 1);
-  };
+  }, [rowCount, gridData, masterColumnOrder, allHeaders, saveStateToHistory]);
 
-  const handleDeleteSection = (sectionName: string) => {
+  const handleDeleteSection = useCallback((sectionName: string) => {
     if (!window.confirm(`Are you sure you want to delete the entire section "${sectionName}" and all its rows?`)) return;
     saveStateToHistory();
     
@@ -1251,9 +1242,12 @@ function DashboardContent() {
     setGridData(prev => {
       const next = new Map();
       rowsToKeep.forEach((oldR, newR) => {
-        allHeaders.forEach(h => {
-          const val = prev.get(`${oldR}:${h}`);
-          if (val !== undefined) next.set(`${newR}:${h}`, val);
+        // Performance Fix: Iterate over all internal keys in the master order 
+        // instead of just visible/default headers to prevent accidental data loss.
+        masterColumnOrder.forEach((_, colIdx) => {
+          const key = toA1Key(oldR, colIdx);
+          const val = prev.get(key);
+          if (val !== undefined) next.set(toA1Key(newR, colIdx), val);
         });
         next.set(`${newR}:section`, prev.get(`${oldR}:section`));
       });
@@ -1262,13 +1256,17 @@ function DashboardContent() {
 
     const shiftMeta = (prev: Record<string, any>) => {
       const next: Record<string, any> = {};
-      rowsToKeep.forEach((oldR, newR) => {
-        Object.keys(prev).forEach(key => {
-          if (key.startsWith(`${oldR}:`)) {
-            const col = key.split(':').slice(1).join(':');
-            next[`${newR}:${col}`] = prev[key];
-          }
-        });
+      const rowMap = new Map(rowsToKeep.map((oldR, newR) => [oldR, newR]));
+      
+      Object.keys(prev).forEach(key => {
+        if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+        if (key.includes(':section')) return;
+        
+        const coords = fromA1Key(key);
+        if (coords && rowMap.has(coords.row)) {
+          const newR = rowMap.get(coords.row)!;
+          next[toA1Key(newR, coords.colIndex)] = prev[key];
+        }
       });
       return next;
     };
@@ -1287,7 +1285,7 @@ function DashboardContent() {
     setRowCount(newRowCount);
     if (newRowCount === 0) setSelectedId(null);
     setContextMenu(null);
-  };
+  }, [rowCount, gridData, allHeaders, masterColumnOrder, saveStateToHistory]);
 
   const handleShare = () => {
     if (!selectedId) return;
@@ -1302,9 +1300,13 @@ function DashboardContent() {
       const headers = allHeaders;
       const csvContent = [
         headers.join(','),
-        ...Array.from({ length: rowCount }).map((_, r) => 
-          headers.map(h => `"${String(gridData.get(`${r}:${h}`) || '').replace(/"/g, '""')}"`).join(',')
-        )
+        ...Array.from({ length: rowCount }).map((_, r) => {
+          return headers.map(h => {
+            const colIdx = masterColumnOrder.indexOf(h);
+            const val = colIdx !== -1 ? gridData.get(toA1Key(r, colIdx)) : '';
+            return `"${String(val || '').replace(/"/g, '""')}"`;
+          }).join(',');
+        })
       ].join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1365,7 +1367,7 @@ function DashboardContent() {
     }
   }, [rowCount]);
 
-  const setCellFontFamily = (row: number, col: string, fontFamily: string) => {
+  const setCellFontFamily = useCallback((row: number, col: string, fontFamily: string) => {
     setCellMetadata(prev => {
       const next = { ...prev };
       const visibleHeaders = allHeaders.filter(h => !hiddenColumns.includes(h) && h !== 'section');
@@ -1391,24 +1393,26 @@ function DashboardContent() {
 
           for (let r = minRow; r <= maxRow; r++) {
             for (let c = minColIdx; c <= maxColIdx; c++) {
-              const key = r === -1 ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+              const mIdx = masterColumnOrder.indexOf(visibleHeaders[c]);
+              const key = r === -1 ? `header:${visibleHeaders[c]}` : toA1Key(r, mIdx);
               next[key] = { ...next[key], fontFamily };
             }
           }
         } else {
-          const key = row === -1 ? `header:${col}` : `${row}:${col}`;
+          const mIdx = masterColumnOrder.indexOf(col);
+          const key = row === -1 ? `header:${col}` : toA1Key(row, mIdx);
           next[key] = { ...next[key], fontFamily };
         }
       return next;
     });
     setContextMenu(null);
-  };
+  }, [allHeaders, hiddenColumns, selection, masterColumnOrder]);
 
   const toggleCellAlignment = useCallback((rowIndex: number, header: string) => {
     setCellAlignments(prev => {
       const next = { ...prev };
       // Determine next alignment based on the specific clicked cell
-      const targetKey = `${rowIndex}:${header}`;
+      const targetKey = toA1Key(rowIndex, masterColumnOrder.indexOf(header));
       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
       const currentAlign = prev[targetKey] || columnAlignments[header] || defaultAlign;
       
@@ -1437,7 +1441,8 @@ function DashboardContent() {
           for (let r = minRow; r <= maxRow; r++) {
             for (let c = minColIdx; c <= maxColIdx; c++) {
               // Support header key if selected
-              const key = r === -1 ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+              const mIdx = masterColumnOrder.indexOf(visibleHeaders[c]);
+              const key = r === -1 ? `header:${visibleHeaders[c]}` : toA1Key(r, mIdx);
               next[key] = nextAlign;
             }
           }
@@ -1446,7 +1451,7 @@ function DashboardContent() {
         }
       return next;
     });
-  }, [columnAlignments, selection, visibleHeaders, setCellAlignments]);
+  }, [columnAlignments, selection, visibleHeaders, masterColumnOrder, setCellAlignments]);
 
   const toggleColumnVisibility = (key: string) => {
     setHiddenColumns(prev => 
@@ -1454,7 +1459,7 @@ function DashboardContent() {
     );
   };
 
-  const handleRenameColumn = (oldKey: string, newKey: string) => {
+  const handleRenameColumn = useCallback((oldKey: string, newKey: string) => {
     const trimmedNewKey = newKey?.trim();
     if (!trimmedNewKey || oldKey === trimmedNewKey) return;
 
@@ -1469,19 +1474,14 @@ function DashboardContent() {
       return;
     }
 
-      setGridData(prev => {
-        const next = new Map(prev);
-        for (let r = 0; r < rowCount; r++) {
-          const val = next.get(`${r}:${oldKey}`);
-          if (val !== undefined) {
-            next.set(`${r}:${trimmedNewKey}`, val);
-            next.delete(`${r}:${oldKey}`);
-          }
-        }
-        return next;
+      // A1 keys are index-based and stable. Renaming doesn't move data in the Map.
+      setColumnOrder(prev => {
+        const currentOrder = prev.length > 0 ? prev : allHeaders;
+        return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
       });
+      setMasterColumnOrder(prev => prev.map(col => col === oldKey ? trimmedNewKey : col));
 
-      // Migrate alignments and metadata to the new column name
+      // Migrate alignments and header metadata to the new column name
       setColumnAlignments(prev => {
         const next = { ...prev };
         if (next[oldKey]) {
@@ -1501,23 +1501,20 @@ function DashboardContent() {
       const migrateKeys = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
         Object.keys(prev).forEach(key => {
-          if (key.endsWith(`:${oldKey}`)) {
-            const [r] = key.split(':');
-            next[`${r}:${trimmedNewKey}`] = prev[key];
-          } else { next[key] = prev[key]; }
+          if (key === `header:${oldKey}`) {
+            next[`header:${trimmedNewKey}`] = prev[key];
+          } else {
+            // A1 keys and row-based keys (like :section) are stable; they don't depend on column names
+            next[key] = prev[key];
+          }
         });
         return next;
       };
       setCellMetadata(migrateKeys);
       setCellAlignments(migrateKeys);
+  }, [allHeaders, saveStateToHistory]);
 
-      setColumnOrder(prev => {
-        const currentOrder = prev.length > 0 ? prev : allHeaders;
-        return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
-      });
-  };
-
-  const handleAddColumn = (name?: string) => {
+  const handleAddColumn = useCallback((name?: string) => {
     saveStateToHistory();
     const rawInput = typeof name === 'string' ? name : window.prompt("Enter new column name (leave blank for auto-name):");
     if (rawInput === null) return;
@@ -1540,42 +1537,39 @@ function DashboardContent() {
         return;
       }
 
-      setColumnOrder(prev => {
-        const currentOrder = prev.length > 0 ? prev : allHeaders;
-        return [...currentOrder, colName];
-      });
-      // Map structure handles this automatically; we don't need to loop rows to "initialize" them
-  };
+    setColumnOrder(prev => {
+      const currentOrder = prev.length > 0 ? prev : [...allHeaders];
+      return [...currentOrder, colName];
+    });
 
-  const handleDeleteColumn = (keyToDelete: string) => {
+    // CRITICAL: New columns must be added to the master order to allow data entry (A1 key generation)
+    setMasterColumnOrder(prev => [...prev, colName]);
+  }, [allHeaders, saveStateToHistory]);
+
+  const handleDeleteColumn = useCallback((keyToDelete: string) => {
     if (!window.confirm(`Are you sure you want to delete the column "${keyToDelete}"?`)) return;
     saveStateToHistory();
     
-    setGridData(prev => {
-      const next = new Map(prev);
-      for (let r = 0; r < rowCount; r++) {
-        next.delete(`${r}:${keyToDelete}`);
-      }
-      return next;
-    });
+    const colIdx = masterColumnOrder.indexOf(keyToDelete);
+    if (colIdx === -1) return;
 
+    const oldOrder = [...masterColumnOrder];
+    const newOrder = masterColumnOrder.filter(col => col !== keyToDelete);
+
+    // CRITICAL: Re-key everything because shifting the masterColumnOrder changes all A1 indices
+    setGridData(prev => rekeySparseMap(prev, oldOrder, newOrder));
+    setCellMetadata(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
+    setCellAlignments(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
+
+    setMasterColumnOrder(newOrder);
+    setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
+    
       // Cleanup metadata and alignments for the deleted column
       setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
       setColumnWidths(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
-      const filterKeys = (prev: Record<string, any>) => {
-        const next: Record<string, any> = {};
-        Object.keys(prev).forEach(key => {
-          if (!key.endsWith(`:${keyToDelete}`)) next[key] = prev[key];
-        });
-        return next;
-      };
-      setCellMetadata(filterKeys);
-      setCellAlignments(filterKeys);
+  }, [rowCount, masterColumnOrder, saveStateToHistory]);
 
-      setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
-  };
-
-  const handleInsertColumn = (relativeCol: string, position: 'before' | 'after') => {
+  const handleInsertColumn = useCallback((relativeCol: string, position: 'before' | 'after') => {
     saveStateToHistory();
     const rawInput = window.prompt(`Enter new column name (leave blank for auto-name):`);
     if (rawInput === null) return;
@@ -1607,49 +1601,60 @@ function DashboardContent() {
       }
 
       setColumnOrder(newOrder);
-  };
+      
+      // New columns must be registered in the master order to enable coordinate mapping
+      setMasterColumnOrder(prev => [...prev, colName]);
+  }, [allHeaders, saveStateToHistory]);
 
-  const addTableRow = () => {
+  const addTableRow = useCallback(() => {
     saveStateToHistory();
     setRowCount(prev => prev + 1);
-  };
+  }, [saveStateToHistory]);
 
-  const addRowToSection = (sectionName: string) => {
+  const addRowToSection = useCallback((sectionName: string) => {
     saveStateToHistory();
     const newIdx = rowCount;
     setGridData(prev => {
       const next = new Map(prev);
       next.set(`${newIdx}:section`, sectionName);
-      next.set(`${newIdx}:Title / Item`, "a.");
+      next.set(toA1Key(newIdx, masterColumnOrder.indexOf("Title / Item")), "a.");
       return next;
     });
     setRowCount(prev => prev + 1);
-  };
+  }, [rowCount, masterColumnOrder, saveStateToHistory]);
 
-  const handleInsertRow = (index: number, position: 'above' | 'after') => {
+  const handleInsertRow = useCallback((index: number, position: 'above' | 'after') => {
       saveStateToHistory();
       const section = gridData.get(`${index}:section`) || "Uncategorized";
       const insertIndex = position === 'above' ? index : index + 1;
 
-      const shiftKeys = (prev: Record<string, any>) => {
+      const shiftMetadata = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
+        const transform = (k: string) => {
+          const c = fromA1Key(k);
+          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
+          return { r: c.row, ci: c.colIndex, isS: false } as const;
+        };
+
         Object.keys(prev).forEach(key => {
-          if (key.startsWith('header:')) {
-            next[key] = prev[key];
-            return;
-          }
-          const [rStr, ...cParts] = key.split(':');
-          const r = parseInt(rStr);
-          const col = cParts.join(':');
-          if (isNaN(r)) { next[key] = prev[key]; return; }
+          if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+          const info = transform(key);
+          if (!info) { next[key] = prev[key]; return; }
+
+          const { r, ci, isS } = info;
+          const nk = (r < insertIndex) ? key : (isS ? `${r + 1}:section` : toA1Key(r + 1, ci));
           
-          if (r < insertIndex) next[key] = prev[key];
-          else next[`${r + 1}:${col}`] = prev[key];
+          const val = { ...prev[key] };
+          if (val.mergedIn) {
+            const h = transform(val.mergedIn);
+            if (h && !h.isS && h.r >= insertIndex) val.mergedIn = toA1Key(h.r + 1, h.ci);
+          }
+          next[nk] = val;
         });
         return next;
       };
-      setCellMetadata(shiftKeys);
-      setCellAlignments(shiftKeys);
+      setCellMetadata(shiftMetadata);
+      setCellAlignments(shiftMetadata);
       setRowHeights(prev => {
         const next: Record<number, number> = {};
         Object.keys(prev).forEach(k => {
@@ -1663,25 +1668,32 @@ function DashboardContent() {
       setGridData(prev => {
         const next = new Map();
         prev.forEach((val, key) => {
-          const [rStr, col] = key.split(':');
-          const r = parseInt(rStr);
-          if (r < insertIndex) next.set(key, val);
-          else next.set(`${r+1}:${col}`, val);
+          const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0]), colIndex: -1 } : null);
+          if (!coords) { next.set(key, val); return; }
+          
+          const { row, colIndex } = coords;
+          const isSection = key.includes(':section');
+
+          if (row < insertIndex) next.set(key, val);
+          else next.set(isSection ? `${row + 1}:section` : toA1Key(row + 1, colIndex), val);
         });
         next.set(`${insertIndex}:section`, section);
         return next;
       });
       setRowCount(prev => prev + 1);
       setContextMenu(null);
-  };
+  }, [gridData, masterColumnOrder, saveStateToHistory]);
 
-  const handleClearRow = (index: number) => {
+  const handleClearRow = useCallback((index: number) => {
     if (!window.confirm("Clear all data in this row?")) return;
     saveStateToHistory();
     
       setGridData(prev => {
         const next = new Map(prev);
-        allHeaders.forEach(h => next.delete(`${index}:${h}`));
+        allHeaders.forEach(h => {
+          const colIdx = masterColumnOrder.indexOf(h);
+          if (colIdx !== -1) next.delete(toA1Key(index, colIdx));
+        });
         next.set(`${index}:section`, prev.get(`${index}:section`));
         return next;
       });
@@ -1689,7 +1701,8 @@ function DashboardContent() {
       const clearRowMeta = (prev: Record<string, any>) => {
         const next = { ...prev };
         Object.keys(next).forEach(key => {
-          if (key.startsWith(`${index}:`)) delete next[key];
+          const coords = fromA1Key(key);
+          if (coords && coords.row === index) delete next[key];
         });
         return next;
       };
@@ -1697,30 +1710,30 @@ function DashboardContent() {
       setCellMetadata(clearRowMeta);
       setCellAlignments(clearRowMeta);
       setContextMenu(null);
-  };
+  }, [allHeaders, masterColumnOrder, saveStateToHistory]);
 
-  const handleClearColumn = (colName: string) => {
+  const handleClearColumn = useCallback((colName: string) => {
     if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
     saveStateToHistory();
 
     setGridData(prev => {
       const next = new Map(prev);
-      for (let r = 0; r < rowCount; r++) next.delete(`${r}:${colName}`);
+      const colIdx = masterColumnOrder.indexOf(colName);
+      if (colIdx !== -1) {
+        for (let r = 0; r < rowCount; r++) next.delete(toA1Key(r, colIdx));
+      }
       return next;
     });
 
       const clearColMeta = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
+        const targetColIdx = masterColumnOrder.indexOf(colName);
         Object.keys(prev).forEach(key => {
-          if (key.startsWith('header:')) {
-            next[key] = prev[key];
-            return;
-          }
-          const [rStr, ...cParts] = key.split(':');
-          const col = cParts.join(':');
-          if (col !== colName) {
-            next[key] = prev[key];
-          }
+          if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+          
+          const coords = fromA1Key(key);
+          if (coords && coords.colIndex === targetColIdx) return; // Skip (clear) this column
+          next[key] = prev[key];
         });
         return next;
       };
@@ -1728,7 +1741,7 @@ function DashboardContent() {
       setCellMetadata(clearColMeta);
       setCellAlignments(clearColMeta);
       setContextMenu(null);
-  };
+  }, [masterColumnOrder, rowCount, saveStateToHistory]);
 
   const handleResetWidths = () => {
     if (window.confirm('Reset all column widths? This will allow columns to auto-fit based on their content.')) {
@@ -1736,7 +1749,7 @@ function DashboardContent() {
     }
   };
 
-  const setCellType = (row: number, col: string, type: string, format: string = 'long') => {
+  const setCellType = useCallback((row: number, col: string, type: string, format: string = 'long') => {
     saveStateToHistory();
     setCellMetadata(prev => ({
       ...prev,
@@ -1756,43 +1769,44 @@ function DashboardContent() {
             })();
 
           if (isPartofSelection && selection) {
-            const minRow = Math.min(selection.startRow, selection.endRow);
-            const maxRow = Math.max(selection.startRow, selection.endRow);
+            const minR = Math.min(selection.startRow, selection.endRow);
+            const maxR = Math.max(selection.startRow, selection.endRow);
             const startColIdx = visibleHeaders.indexOf(selection.startCol);
             const endColIdx = visibleHeaders.indexOf(selection.endCol);
             const minColIdx = Math.min(startColIdx, endColIdx);
             const maxColIdx = Math.max(startColIdx, endColIdx);
 
-            for (let r = minRow; r <= maxRow; r++) {
+            for (let r = minR; r <= maxR; r++) {
               for (let c = minColIdx; c <= maxColIdx; c++) {
-                const k = `${r}:${visibleHeaders[c]}`;
+                const colIdxInMaster = masterColumnOrder.indexOf(visibleHeaders[c]);
+                const k = toA1Key(r, colIdxInMaster);
                 next[k] = { ...prev[k], type, format };
               }
             }
           } else {
-            next[`${row}:${col}`] = { ...prev[`${row}:${col}`], type, format };
+            next[toA1Key(row, masterColumnOrder.indexOf(col))] = { ...prev[toA1Key(row, masterColumnOrder.indexOf(col))], type, format };
           }
         return next;
       })()
     }));
     setContextMenu(null);
-  };
+  }, [allHeaders, hiddenColumns, selection, masterColumnOrder, saveStateToHistory]);
 
-  const insertMedia = (row: number, col: string, mediaType: 'image' | 'file') => {
+  const insertMedia = useCallback((row: number, col: string, mediaType: 'image' | 'file') => {
     setPendingMedia({ row, col, type: mediaType });
     setContextMenu(null);
     // Use timeout to ensure state update doesn't interfere with the click event
     setTimeout(() => {
       fileInputRef.current?.click();
     }, 0);
-  };
+  }, []);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !pendingMedia || !activeNode) return;
 
-    const { row, col, type } = pendingMedia;
-    const key = `${row}:${col}`;
+    const { row: r, col, type } = pendingMedia;
+    const key = toA1Key(r, masterColumnOrder.indexOf(col));
     
     setIsSaving(true);
     try {
@@ -1848,10 +1862,9 @@ function DashboardContent() {
     }
   };
 
-  const removeCellMetadata = async (row: number, col: string) => {
-    if (!window.confirm("Are you sure you want to remove all attachments and formatting from this cell?")) return;
-
-    const key = `${row}:${col}`;
+  const removeCellMetadata = useCallback(async (row: number, col: string) => {
+     if (!window.confirm("Are you sure you want to remove all attachments and formatting from this cell?")) return;
+    const key = toA1Key(row, masterColumnOrder.indexOf(col));
     const meta = cellMetadata[key];
 
     // Cleanup all files in this cell from storage
@@ -1868,12 +1881,12 @@ function DashboardContent() {
       return next;
     });
     setContextMenu(null);
-  };
+  }, [cellMetadata, masterColumnOrder]);
 
-  const deleteAttachment = async (row: number, col: string, index: number) => {
+  const deleteAttachment = useCallback(async (row: number, col: string, index: number) => {
     if (!window.confirm("Are you sure you want to permanently delete this attachment?")) return;
+    const key = toA1Key(row, masterColumnOrder.indexOf(col));
 
-    const key = `${row}:${col}`;
     const existing = cellMetadata[key];
     if (!existing || !existing.attachments) return;
 
@@ -1906,7 +1919,7 @@ function DashboardContent() {
     } catch (err: any) {
       alert('Failed to delete file from storage: ' + err.message);
     }
-  };
+  }, [cellMetadata, masterColumnOrder]);
 
   const toggleComparisonId = (id: string) => {
     setComparisonIds(prev => 
@@ -2050,7 +2063,7 @@ function DashboardContent() {
                               <td className="p-3 text-sm font-mono text-right border-r">
                           {v ? Number(v.Amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-slate-300">-</span>}
                               </td>
-                              <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-[120px]">
+                              <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-30">
                                 {v?.Location || v?.Allocation || ""}
                               </td>
                             </Fragment>
@@ -2094,12 +2107,14 @@ function DashboardContent() {
     if (!window.confirm(`Merge ${isHeaderSelection ? colSpan : rowSpan * colSpan} ${isHeaderSelection ? 'headers' : 'cells'}?`)) return;
 
     const hostCol = visibleHeaders[minColIdx];
-    const hostKey = isHeaderSelection ? `header:${hostCol}` : `${minRow}:${hostCol}`;
+    const hostMasterIdx = masterColumnOrder.indexOf(hostCol);
+    const hostKey = isHeaderSelection ? `header:${hostCol}` : toA1Key(minRow, hostMasterIdx);
     const newMetadata = { ...cellMetadata };
 
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minColIdx; c <= maxColIdx; c++) {
-        const key = isHeaderSelection ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        const mIdx = masterColumnOrder.indexOf(visibleHeaders[c]);
+        const key = isHeaderSelection ? `header:${visibleHeaders[c]}` : toA1Key(r, mIdx);
         const m = { ...newMetadata[key] };
         delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
         newMetadata[key] = m;
@@ -2114,7 +2129,8 @@ function DashboardContent() {
     
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minColIdx; c <= maxColIdx; c++) {
-        const currentKey = isHeaderSelection ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        const mIdx = masterColumnOrder.indexOf(visibleHeaders[c]);
+        const currentKey = isHeaderSelection ? `header:${visibleHeaders[c]}` : toA1Key(r, mIdx);
         if (currentKey !== hostKey) {
           newMetadata[currentKey] = { ...newMetadata[currentKey], mergedIn: hostKey };
         }
@@ -2122,11 +2138,11 @@ function DashboardContent() {
     }
     setCellMetadata(newMetadata);
     setSelection(null);
-  }, [selection, cellMetadata]);
+  }, [selection, cellMetadata, masterColumnOrder]);
 
   const handleUnmergeCells = useCallback((row: number, col: string, visibleHeaders: string[]) => {
     const isHeader = row === -1;
-    const key = isHeader ? `header:${col}` : `${row}:${col}`;
+    const key = isHeader ? `header:${col}` : toA1Key(row, masterColumnOrder.indexOf(col));
     const meta = cellMetadata[key];
     if (!meta || (!meta.rowSpan && !meta.colSpan)) return;
 
@@ -2139,7 +2155,8 @@ function DashboardContent() {
 
     for (let r = startR; r <= endR; r++) {
       for (let c = colIdx; c < colIdx + colSpan; c++) {
-        const currentKey = isHeader ? `header:${visibleHeaders[c]}` : `${r}:${visibleHeaders[c]}`;
+        const mIdx = masterColumnOrder.indexOf(visibleHeaders[c]);
+        const currentKey = isHeader ? `header:${visibleHeaders[c]}` : toA1Key(r, mIdx);
         const m = { ...newMetadata[currentKey] };
         delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
         if (Object.keys(m).length === 0) delete newMetadata[currentKey];
@@ -2147,9 +2164,9 @@ function DashboardContent() {
       }
     }
     setCellMetadata(newMetadata);
-  }, [cellMetadata]);
+  }, [cellMetadata, masterColumnOrder]);
 
-  const handleDragFillStart = (e: React.MouseEvent, row: number, col: string) => {
+   const handleDragFillStart = useCallback((e: React.MouseEvent, row: number, col: string) => {
     e.preventDefault();
     e.stopPropagation();
     setDragFillRange({ startRow: row, endRow: row, col });
@@ -2164,15 +2181,18 @@ function DashboardContent() {
       });
     };
     window.addEventListener('mouseup', handleMouseUp);
-  };
+  }, []);
 
   const applyDragFill = (range: { startRow: number; endRow: number; col: string }) => {
     const { startRow, endRow, col } = range;
     saveStateToHistory();
     if (startRow === endRow) return;
 
-    const sourceValue = gridData.get(`${startRow}:${col}`);
-      const sourceMeta = cellMetadata[`${startRow}:${col}`];
+    const colIdx = masterColumnOrder.indexOf(col);
+    if (colIdx === -1) return;
+    
+    const sourceValue = gridData.get(toA1Key(startRow, colIdx));
+    const sourceMeta = cellMetadata[toA1Key(startRow, colIdx)];
       
       const newMetadata = { ...cellMetadata };
       const nextMap = new Map(gridData);
@@ -2183,8 +2203,8 @@ function DashboardContent() {
       for (let i = min; i <= max; i++) {
         if (i === startRow) continue;
         
-        if (sourceValue !== undefined) nextMap.set(`${i}:${col}`, sourceValue);
-        const targetKey = `${i}:${col}`;
+        if (sourceValue !== undefined) nextMap.set(toA1Key(i, colIdx), sourceValue);
+        const targetKey = toA1Key(i, colIdx);
         if (sourceMeta) {
           newMetadata[targetKey] = { ...sourceMeta };
         } else {
@@ -2196,15 +2216,15 @@ function DashboardContent() {
       setCellMetadata(newMetadata);
   };
 
-  const removeTableRow = async (index: number) => {
+  const removeTableRow = useCallback(async (index: number) => {
     if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
     saveStateToHistory();
 
     // Identify all attachments in this row to cleanup storage
-    const rowPrefix = `${index}:`;
     const pathsToDelete: string[] = [];
     Object.keys(cellMetadata).forEach(key => {
-      if (key.startsWith(rowPrefix)) {
+      const coords = fromA1Key(key);
+      if (coords && coords.row === index) {
         const meta = cellMetadata[key];
         if (meta?.attachments) {
           meta.attachments.forEach((a: any) => { if (a.path) pathsToDelete.push(a.path); });
@@ -2222,35 +2242,49 @@ function DashboardContent() {
       setGridData(prev => {
         const next = new Map();
         prev.forEach((val, key) => {
-          const [rStr, col] = key.split(':');
-          const r = parseInt(rStr);
-          if (r < index) next.set(key, val);
-          else if (r > index) next.set(`${r - 1}:${col}`, val);
+          const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0]), colIndex: -1 } : null);
+          if (!coords) { next.set(key, val); return; }
+          
+          const { row, colIndex } = coords;
+          const isSection = key.includes(':section');
+          
+          if (row < index) next.set(key, val);
+          else if (row > index) next.set(isSection ? `${row - 1}:section` : toA1Key(row - 1, colIndex), val);
         });
         return next;
       });
       setRowCount(prev => prev - 1);
 
       // Shift metadata and alignments for all rows following the deleted one
-      const shiftKeys = (prev: Record<string, any>) => {
+      const shiftMetadata = (prev: Record<string, any>) => {
         const next: Record<string, any> = {};
-        Object.keys(prev).forEach(key => {
-          if (key.startsWith('header:')) {
-            next[key] = prev[key];
-            return;
-          }
-          const [rStr, ...cParts] = key.split(':');
-          const r = parseInt(rStr);
-          const col = cParts.join(':');
-          if (isNaN(r)) { next[key] = prev[key]; return; }
+        const transform = (k: string) => {
+          const c = fromA1Key(k);
+          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0]), isS: true } : null;
+          return { r: c.row, ci: c.colIndex, isS: false };
+        };
 
+        Object.keys(prev).forEach(key => {
+          if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+          const info: any = transform(key);
+          if (!info) { next[key] = prev[key]; return; }
+
+          const { r, ci, isS } = info;
           if (r < index) next[key] = prev[key];
-          else if (r > index) next[`${r - 1}:${col}`] = prev[key];
+          else if (r > index) {
+            const nk = isS ? `${r - 1}:section` : toA1Key(r - 1, ci);
+            const val = { ...prev[key] };
+            if (val.mergedIn) {
+              const h = transform(val.mergedIn);
+              if (h && h.r > index) val.mergedIn = toA1Key(h.r - 1, h.ci);
+            }
+            next[nk] = val;
+          }
         });
         return next;
       };
-      setCellMetadata(shiftKeys);
-      setCellAlignments(shiftKeys);
+      setCellMetadata(shiftMetadata);
+      setCellAlignments(shiftMetadata);
       setRowHeights(prev => {
         const next: Record<number, number> = {};
         Object.keys(prev).forEach(k => {
@@ -2263,49 +2297,76 @@ function DashboardContent() {
     } catch (e) {
       console.error("Failed to remove row");
     }
-  };
+   }, [cellMetadata, masterColumnOrder, allHeaders, rowCount, saveStateToHistory]);
+
 
   useEffect(() => {
-    if (activeNode?.type === 'file') {
-      const content = Array.isArray(activeNode.content) ? activeNode.content : [];
-      setGridData(arrayToSparseMap(content));
-      setRowCount(content.length);
-      setColumnAlignments(activeNode.display_settings?.columnAlignments || {});
-      setCellAlignments(activeNode.display_settings?.cellAlignments || {});
-      setColumnOrder(activeNode.display_settings?.columnOrder || []);
-      setHiddenColumns(activeNode.display_settings?.hiddenColumns || []);
-      setColumnWidths(activeNode.display_settings?.columnWidths || {});
-      setCellMetadata(activeNode.display_settings?.cellMetadata || {});
-      setRowHeights((activeNode.display_settings as any)?.rowHeights || {});
-      setSelectedYear(activeNode.display_settings?.selectedYear || '2020');
-      setActiveCell(null);
-      setRowFilter('');
-      setShowBackToTop(false);
-      setScrollTop(0); // Synchronize virtualization state on file change
-      tableContainerRef.current?.scrollTo({ top: 0 });
-    } else {
-      setGridData(new Map());
-      setRowCount(0);
-      setColumnAlignments({});
-      setCellAlignments({});
-      setColumnOrder([]);
-      setHiddenColumns([]);
-      setCellMetadata({});
-      setRowHeights({});
-      setActiveCell(null);
-      setSelectedYear('2020');
-      setRowFilter('');
-      setShowBackToTop(false);
-    }
-  }, [activeNode?.id, activeNode?.type, activeNode?.content, activeNode?.display_settings]);
+    const loadFileContent = async () => {
+      if (!selectedId) {
+        setGridData(new Map());
+        setRowCount(0);
+        setUndoStack([]);
+        setRedoStack([]);
+        setMasterColumnOrder([]);
+        setColumnAlignments({});
+        setCellAlignments({});
+        setColumnOrder([]);
+        setHiddenColumns([]);
+        setCellMetadata({});
+        setRowHeights({});
+        setActiveCell(null);
+        setSelectedYear('2020');
+        setRowFilter('');
+        return;
+      }
+
+      setIsLoadingFile(true);
+      // Lazy Load: Fetch content and settings only for the selected file
+      const { data, error } = await supabase
+        .from('nodes')
+        .select('content, display_settings')
+        .eq('id', selectedId)
+        .single();
+
+      if (!error && data) {
+        setUndoStack([]);
+        setRedoStack([]);
+        const content = Array.isArray(data.content) ? data.content : [];
+        const ds = data.display_settings || {};
+        
+        const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+        const master = ds.masterColumnOrder || currentHeaders;
+        
+        setMasterColumnOrder(master);
+        setGridData(dehydrateArrayToMap(content, currentHeaders, master));
+        setRowCount(content.length);
+        
+        setColumnAlignments(ds.columnAlignments || {});
+        setCellAlignments(ds.cellAlignments || {});
+        setColumnOrder(ds.columnOrder || []);
+        setHiddenColumns(ds.hiddenColumns || []);
+        setColumnWidths(ds.columnWidths || {});
+        setCellMetadata(ds.cellMetadata || {});
+        setRowHeights(ds.rowHeights || {});
+        setSelectedYear(ds.selectedYear || '2020');
+        setActiveCell(null);
+        setRowFilter('');
+        setScrollTop(0);
+        tableContainerRef.current?.scrollTo({ top: 0 });
+      }
+      setIsLoadingFile(false);
+    };
+
+    loadFileContent();
+  }, [selectedId]);
 
   const handleSave = async () => {
     if (!activeNode || activeNode.type !== 'file') return;
     
     setIsSaving(true);
     try {
-      const contentArray = sparseMapToArray(gridData, rowCount, allHeaders);
-      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, rowHeights };
+      const contentArray = hydrateMapToArray(gridData, rowCount, allHeaders, masterColumnOrder);
+      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, rowHeights, masterColumnOrder };
       const { error } = await supabase.from('nodes').update({ content: contentArray, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
@@ -2315,12 +2376,20 @@ function DashboardContent() {
   };
 
   const initializeExcelTemplate = () => {
+    const master = ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+    setMasterColumnOrder(master);
+    setColumnOrder(master);
+
     const next = new Map();
-    next.set("0:Title / Item", "a."); next.set("0:Amount", 0); next.set("0:section", "Work A");
-    next.set("1:Title / Item", "b."); next.set("1:Amount", 0); next.set("1:section", "Work A");
-    next.set("2:Title / Item", "c."); next.set("2:Amount", 0); next.set("2:section", "Work A");
-    next.set("3:Title / Item", "a."); next.set("3:Amount", 0); next.set("3:section", "Work B");
-    setColumnOrder(["Title / Item", "Amount", "Location", "Allocation", "Notes"]);
+    [0, 1, 2].forEach(r => {
+      next.set(toA1Key(r, 0), String.fromCharCode(97 + r) + "."); // a., b., c.
+      next.set(toA1Key(r, 1), 0);
+      next.set(`${r}:section`, "Work A");
+    });
+    next.set(toA1Key(3, 0), "a.");
+    next.set(toA1Key(3, 1), 0);
+    next.set("3:section", "Work B");
+    
     setGridData(next);
     setRowCount(4);
   };
@@ -2387,9 +2456,14 @@ function DashboardContent() {
               <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
                 <Type size={14} className="text-muted" />
                 <select 
-                  value={activeCell ? (cellMetadata[`${activeCell.row}:${activeCell.col}`]?.fontFamily || "") : ""} 
+                  value={(() => {
+                    if (!activeCell) return "";
+                    const mIdx = masterColumnOrder.indexOf(activeCell.col);
+                    const key = toA1Key(activeCell.row, mIdx);
+                    return cellMetadata[key]?.fontFamily || "";
+                  })()} 
                   onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)} 
-                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-[120px] dark:bg-card"
+                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-30 dark:bg-card"
                 >
                   <option value="">Font Family...</option>
                   {FONT_FAMILIES.map(f => (
@@ -2414,7 +2488,7 @@ function DashboardContent() {
                 <select 
                   value="" 
                   onChange={(e) => { if(e.target.value) toggleColumnVisibility(e.target.value); e.target.value = ""; }}
-                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-[110px] dark:bg-card"
+                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-27.5 dark:bg-card"
                 >
                   <option value="">{hiddenColumns.length > 0 ? `(${hiddenColumns.length} Hidden)` : "All Visible"}</option>
                   {allHeaders.filter(h => h !== 'section').map(h => (
@@ -2469,7 +2543,7 @@ function DashboardContent() {
           {/* Cell Context Menu */}
           {contextMenu && (
             <div 
-              className="fixed z-[100] bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100 context-menu-container"
+              className="fixed z-100 bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100 context-menu-container"
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -2630,23 +2704,32 @@ function DashboardContent() {
                   </button>
                   
                   {/* Unmerge only shows if the specific cell clicked is a merge host */}
-                  {(cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.rowSpan > 1 || cellMetadata[`${contextMenu.row}:${contextMenu.col}`]?.colSpan > 1) && (
+                  {(() => {
+                    const key = toA1Key(contextMenu.row!, masterColumnOrder.indexOf(contextMenu.col));
+                    const meta = cellMetadata[key];
+                    return (meta?.rowSpan > 1 || meta?.colSpan > 1) && (
                     <button 
                       onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
                       className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
                     >
                       <X size={14} className="text-orange-500" /> Unmerge Cells
                     </button>
-                  )}
+                    );
+                  })()}
 
                   <div className="h-px bg-border my-1"></div>
 
-                  {cellMetadata[`${contextMenu.row!}:${contextMenu.col}`]?.type === 'media' && (
+                  {(() => {
+                    const colIdx = masterColumnOrder.indexOf(contextMenu.col);
+                    const key = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
+                    const meta = cellMetadata[key];
+                    return meta?.type === 'media' && (
                     <>
                       <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2 font-bold"><Trash2 size={14} /> Remove Attachment</button>
                       <div className="h-px bg-border my-1"></div>
                     </>
-                  )}
+                   );
+                  })()}
 
                   <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Format Cell</div>
                   <button 
@@ -2735,8 +2818,12 @@ function DashboardContent() {
 
           {/* Formula Bar - Relocated for a cleaner grid view */}
           <div className={GRID_THEME.formulaBar}>
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-[120px] justify-center shadow-sm mt-0.5">
-              {activeCell ? `${activeCell.col} : Row ${activeCell.row + 1}` : 'Select a cell'}
+            <div 
+              id="address-indicator"
+              className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
+            >
+              {/* Sync with visual sequential labels (A, B, C...) regardless of internal master index */}
+              {activeCell ? toA1Key(activeCell.row, visibleHeaders.indexOf(activeCell.col)) : 'Select...'}
             </div>
             <div className="h-4 w-px bg-border mx-1 self-center"></div>
             <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
@@ -2747,7 +2834,7 @@ function DashboardContent() {
               ref={formulaBarRef}
               rows={1}
               placeholder="Enter formula (e.g., =SUM(A,B)) or value..."
-              value={activeCell ? (data[activeCell.row][activeCell.col] || '') : ''}
+              value={activeCell ? (gridData.get(toA1Key(activeCell.row, masterColumnOrder.indexOf(activeCell.col))) || '') : ''}
               onChange={(e) => {
                 if (activeCell) {
                   handleUpdateCell(activeCell.row, activeCell.col, e.target.value);
@@ -2780,17 +2867,17 @@ function DashboardContent() {
                   {/* The Corner Cell - Standardized border and background */}
                   <th 
                     onClick={() => {
-                      if (data.length > 0 && visibleHeaders.length > 0) {
+                      if (rowCount > 0 && visibleHeaders.length > 0) {
                         setSelection({
                           startRow: -1, // Include headers in selection
-                          endRow: data.length - 1,
+                          endRow: rowCount - 1,
                           startCol: visibleHeaders[0],
                           endCol: visibleHeaders[visibleHeaders.length - 1]
                         });
                         setActiveCell({ row: 0, col: visibleHeaders[0] });
                       }
                     }}
-                    className={`w-10 min-w-[40px] h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
+                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
                   >
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
                   </th>
@@ -2820,12 +2907,12 @@ function DashboardContent() {
                         onContextMenu={(e) => {
                           e.preventDefault();
                           // Excel behavior: Right-click selects the whole column ONLY if not already in selection
-                          const isFullColumnSelected = selection && selection.startRow === 0 && selection.endRow === data.length - 1 && idx >= selMinColIdx && idx <= selMaxColIdx;
+                          const isFullColumnSelected = selection && selection.startRow === 0 && selection.endRow === rowCount - 1 && idx >= selMinColIdx && idx <= selMaxColIdx;
                           
                           if (!isFullColumnSelected && rowCount > 0) {
                             setSelection({
                               startRow: 0,
-                              endRow: data.length - 1,
+                              endRow: rowCount - 1,
                               startCol: header,
                               endCol: header
                             });
@@ -2839,7 +2926,7 @@ function DashboardContent() {
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
                         className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
-                          isColumnActive || isInHeaderLabelSelection ? 'bg-accent/20 text-accent shadow-[inset_0_-2px_0_0_currentColor]' : 'text-muted hover:bg-muted/30 hover:text-foreground'
+                          isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
                           isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
                         }`}
@@ -2856,7 +2943,7 @@ function DashboardContent() {
                   <th className="border-r border-b border-border bg-muted/5"></th>
                 </tr>
                 <tr>
-                  <th className={`w-10 min-w-[40px] ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
+                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
@@ -2879,7 +2966,7 @@ function DashboardContent() {
                       if (!isInHeaderSelection && rowCount > 0) {
                         setSelection({
                           startRow: 0,
-                          endRow: data.length - 1,
+                          endRow: rowCount - 1,
                           startCol: header,
                           endCol: header
                         });
@@ -2922,7 +3009,7 @@ function DashboardContent() {
                       </th>
                     );
                   })}
-                  <th className="p-2 min-w-[140px] border-r border-b border-border bg-muted/5">
+                  <th className="p-2 min-w-35 border-r border-b border-border bg-muted/5">
                     <div className="flex items-center gap-1 px-1">
                       <input
                         value={newColName}
@@ -2982,11 +3069,19 @@ function DashboardContent() {
                     );
                   }
 
-                  const globalIndex = item.data._index;
+                  const globalIndex = item.index;
+                  // Construct row object ONLY for visible rows to save memory
+                  const rowData: any = { _index: globalIndex };
+                  allHeaders.forEach(h => {
+                    const colIdx = masterColumnOrder.indexOf(h);
+                    rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
+                  });
+                  rowData.section = gridData.get(`${globalIndex}:section`);
+
                   return (
                     <GridRow 
                       key={globalIndex}
-                      row={item.data}
+                      row={rowData}
                       globalIndex={globalIndex}
                       visibleHeaders={visibleHeaders}
                       activeCell={activeCell}
@@ -3012,6 +3107,7 @@ function DashboardContent() {
                       rowHeights={rowHeights}
                       startRowResizing={startRowResizing}
                       handleOpenDropdown={handleOpenDropdown}
+                      masterColumnOrder={masterColumnOrder}
                     />
                   );
                 })}
@@ -3101,7 +3197,7 @@ function DashboardContent() {
                       className={`p-1.5 rounded transition-all group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
                     >
                       <FileText size={16} />
-                      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-[100] shadow-2xl uppercase tracking-wider transition-opacity">
+                      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
                         {node.name}
                       </div>
                     </button>
@@ -3134,7 +3230,7 @@ function DashboardContent() {
                 : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 border-none pointer-events-none'
             } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
           >
-            <div className="flex justify-between items-center mb-4 px-1 min-w-[220px] transition-colors">
+            <div className="flex justify-between items-center mb-4 px-1 min-w-55 transition-colors">
               <h1 className="font-black text-muted text-[10px] uppercase tracking-[0.2em]">Project Tree</h1>
               <div className="flex items-center gap-0.5">
                 <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-muted/10 rounded-md text-muted transition-colors" title="New Folder">
@@ -3145,7 +3241,7 @@ function DashboardContent() {
                 </button>
               </div>
             </div>
-            <div className="mb-4 relative group min-w-[220px]">
+            <div className="mb-4 relative group min-w-55">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" />
               <input 
                 type="text" 
@@ -3155,7 +3251,7 @@ function DashboardContent() {
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground transition-all"
               />
             </div>
-            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-[220px]">
+            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55">
               {isLoading ? (
                 <div className="flex justify-center p-4">
                   <Loader2 className="animate-spin text-accent" size={20} />
@@ -3180,7 +3276,7 @@ function DashboardContent() {
         {!isFullScreen && !isExplorerVisible && (
           <button 
             onClick={() => setIsExplorerVisible(true)}
-            className="md:hidden fixed bottom-6 left-6 z-[60] p-4 bg-accent text-accent-foreground rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-4 duration-300"
+            className="md:hidden fixed bottom-6 left-6 z-60 p-4 bg-accent text-accent-foreground rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-4 duration-300"
           >
             <PanelLeftOpen size={24} />
           </button>
@@ -3194,7 +3290,7 @@ function DashboardContent() {
                   <div className="md:p-1.5 p-0.5 bg-accent/10 text-accent rounded">
                     <FileIcon size={14} />
                   </div>
-                  <h2 className="text-sm font-bold text-foreground truncate max-w-[120px] md:max-w-[240px]">{activeNode.name}</h2>
+                  <h2 className="text-sm font-bold text-foreground truncate max-w-30 md:max-w-60">{activeNode.name}</h2>
                   
                   <div className="h-4 w-px bg-border mx-1" />
                   
@@ -3308,7 +3404,8 @@ function DashboardContent() {
 
           {/* Custom Dropdown Menu (Location/Allocation) */}
           {dropdownMenu && (() => {
-            const cellKey = `${dropdownMenu.row}:${dropdownMenu.col}`;
+            const colIdx = masterColumnOrder.indexOf(dropdownMenu.col);
+            const cellKey = colIdx !== -1 ? toA1Key(dropdownMenu.row, colIdx) : '';
             const meta = cellMetadata[cellKey] || {};
             const dropdownFont = meta.fontFamily || 'inherit';
             // Respect both font family and size
@@ -3316,7 +3413,7 @@ function DashboardContent() {
             
             return (
               <div 
-                className="fixed z-[120] bg-card border border-border shadow-2xl rounded-xl py-1.5 max-h-[300px] overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200 custom-scrollbar dropdown-container"
+                className="fixed z-120 bg-card border border-border shadow-2xl rounded-xl py-1.5 max-h-75 overflow-y-auto animate-in fade-in slide-in-from-top-1 duration-200 custom-scrollbar dropdown-container"
                 style={{ 
                   left: Math.min(dropdownMenu.x, window.innerWidth - dropdownMenu.width - 20), 
                   top: Math.min(dropdownMenu.y, window.innerHeight - 310),
@@ -3327,7 +3424,10 @@ function DashboardContent() {
                 onClick={e => e.stopPropagation()}
               >
                 {dropdownMenu.options.map((opt) => {
-                  const isSelected = gridData.get(`${dropdownMenu.row}:${dropdownMenu.col}`) === opt;
+                  const mIdx = masterColumnOrder.indexOf(dropdownMenu.col);
+                  const coord = mIdx !== -1 ? toA1Key(dropdownMenu.row, mIdx) : '';
+                  const isSelected = coord ? gridData.get(coord) === opt : false;
+
                   return (
                     <button
                       key={opt}
@@ -3363,7 +3463,7 @@ function DashboardContent() {
         {/* Media Preview Modal */}
         {viewingMedia && (
           <div 
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" 
+            className="fixed inset-0 z-200 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" 
             onClick={() => setViewingMedia(null)}
           >
             <div 
