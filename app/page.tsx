@@ -468,6 +468,27 @@ function DashboardContent() {
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
   const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[] } | null>(null);
 
+  // Virtualization State
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
+  const DEFAULT_ROW_HEIGHT = 32; // Standard height for our rows
+
+  // Resize Observer to track viewport height for virtualization
+  useEffect(() => {
+    if (!tableContainerRef.current || viewMode !== 'table') return;
+    
+    // Immediate initial measurement to sync virtualization bounds
+    setContainerHeight(tableContainerRef.current.clientHeight || 800);
+
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        setContainerHeight(entry.contentRect.height);
+      }
+    });
+    observer.observe(tableContainerRef.current);
+    return () => observer.disconnect();
+  }, [viewMode, selectedId]);
+
   /**
    * Intelligent Context Menu Positioning
    * Nudges the menu coordinates just enough to keep it inside the viewport.
@@ -771,6 +792,27 @@ function DashboardContent() {
     });
     return blocks;
   }, [filteredRows]);
+
+  // Virtualization: Flatten sections and rows with accurate height offsets
+  const { flatItems, itemOffsets, totalVirtualHeight } = useMemo(() => {
+    const items: any[] = [];
+    const offsets: number[] = [];
+    let currentOffset = 0;
+
+    sectionBlocks.forEach((block, blockIdx) => {
+      offsets.push(currentOffset);
+      items.push({ type: 'section', name: block.name, startIndex: block.rows[0]._index, blockIdx });
+      currentOffset += 32; // Header is h-8 (32px)
+
+      block.rows.forEach(row => {
+        offsets.push(currentOffset);
+        items.push({ type: 'row', data: row });
+        currentOffset += (rowHeights[row._index] || 32);
+      });
+    });
+
+    return { flatItems: items, itemOffsets: offsets, totalVirtualHeight: currentOffset };
+  }, [sectionBlocks, rowHeights]);
 
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
@@ -2221,6 +2263,7 @@ function DashboardContent() {
       setActiveCell(null);
       setRowFilter('');
       setShowBackToTop(false);
+      setScrollTop(0); // Synchronize virtualization state on file change
       tableContainerRef.current?.scrollTo({ top: 0 });
     } else {
       setGridData(new Map());
@@ -2290,6 +2333,29 @@ function DashboardContent() {
       const selMaxColIdx = Math.max(selStartColIdx, selEndColIdx);
       const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
       const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
+
+      // Binary search for the first visible item based on accumulated offsets
+      // This handles variable row heights (resized rows) correctly.
+      let startIdx = 0;
+      let low = 0;
+      let high = itemOffsets.length - 1;
+      const adjustedScrollTop = scrollTop / zoom; // Adjust for zoom factor
+      
+      while (low <= high) {
+        let mid = Math.floor((low + high) / 2);
+        if (itemOffsets[mid] <= adjustedScrollTop) {
+          startIdx = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      const startIndex = Math.max(0, startIdx - 5);
+      const endIndex = Math.min(flatItems.length, startIndex + Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom)) + 15);
+      
+      const visibleItems = flatItems.slice(startIndex, endIndex);
+      const translateY = itemOffsets[startIndex] || 0;
 
       return (
         <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
@@ -2675,12 +2741,21 @@ function DashboardContent() {
 
           <div
             ref={tableContainerRef}
-            onScroll={(e) => setShowBackToTop(e.currentTarget.scrollTop > 300)}
+            onScroll={(e) => {
+              setShowBackToTop(e.currentTarget.scrollTop > 300);
+              setScrollTop(e.currentTarget.scrollTop);
+            }}
             className="flex-1 overflow-auto relative"
           >
+            {/* Virtual Scroll Spacer to force correct scrollbar height */}
+            <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+            
             <table 
-              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left"
-              style={{ zoom: zoom } as any}
+              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left relative"
+              style={{ 
+                zoom: zoom, 
+                transform: `translateY(${translateY}px)`,
+              } as any}
             >
               <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} ${GRID_THEME.tableHeader}`}>
                 <tr className={GRID_THEME.tableHeaderRow}>
@@ -2849,36 +2924,34 @@ function DashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {sectionBlocks.map((block: any, blockIdx: number) => {
-                  const { name: sectionName, rows: sectionRows } = block;
+                {visibleItems.map((item, i) => {
+                  if (item.type === 'section') {
                   return (
-                    <Fragment key={`${sectionName}-${blockIdx}`}>
-                      {/* Section Header */}
-                      <tr className="bg-muted/30 group/section transition-colors">
+                      <tr key={`section-${item.name}-${item.blockIdx}`} className="bg-muted/30 group/section transition-colors h-8">
                         <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
                           <div className="flex items-center justify-between">
                             <input
-                              defaultValue={sectionName}
-                              onBlur={(e) => handleRenameSectionBlock(sectionRows[0]._index, sectionName, e.target.value)}
+                              defaultValue={item.name}
+                              onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
                               className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
                             />
                             <div className="flex items-center gap-1">
                               <button 
-                                onClick={() => handleInsertSection(sectionName, 'before')}
+                                onClick={() => handleInsertSection(item.name, 'before')}
                                 className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
                                 title="Insert Section Before"
                               >
                                 <ChevronUp size={12} />
                               </button>
                               <button 
-                                onClick={() => handleInsertSection(sectionName, 'after')}
+                                onClick={() => handleInsertSection(item.name, 'after')}
                                 className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
                                 title="Insert Section After"
                               >
                                 <ChevronDown size={12} />
                               </button>
                             <button 
-                              onClick={() => handleDeleteSection(sectionName)}
+                              onClick={() => handleDeleteSection(item.name)}
                               className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
                               title="Delete Section"
                             >
@@ -2888,42 +2961,40 @@ function DashboardContent() {
                           </div>
                         </td>
                       </tr>
-                      {/* Data Rows */}
-                      {sectionRows.map((row: any) => {
-                        const globalIndex = row._index;
-                        return (
-                          <GridRow 
-                            key={globalIndex}
-                            row={row}
-                            globalIndex={globalIndex}
-                            visibleHeaders={visibleHeaders}
-                            activeCell={activeCell}
-                            selection={selection}
-                            cellMetadata={cellMetadata}
-                            cellAlignments={cellAlignments}
-                            columnAlignments={columnAlignments}
-                            isFreezePanes={isFreezePanes}
-                            dragFillRange={dragFillRange}
-                            isSelecting={isSelecting}
-                            handleUpdateCell={handleUpdateCell}
-                            handleKeyDown={handleKeyDown}
-                            setActiveCell={setActiveCell}
-                            setSelection={setSelection}
-                            setIsSelecting={setIsSelecting}
-                            onOpenContextMenu={handleOpenContextMenu}
-                            toggleCellAlignment={toggleCellAlignment}
-                            handleDragFillStart={handleDragFillStart}
-                            removeTableRow={removeTableRow}
-                            setViewingMedia={setViewingMedia}
-                            removeCellMetadata={removeCellMetadata}
-                            evaluateFormula={evaluateFormula}
-                            rowHeights={rowHeights}
-                            startRowResizing={startRowResizing}
-                            handleOpenDropdown={handleOpenDropdown}
-                          />
-                        );
-                      })}
-                    </Fragment>
+                    );
+                  }
+
+                  const globalIndex = item.data._index;
+                  return (
+                    <GridRow 
+                      key={globalIndex}
+                      row={item.data}
+                      globalIndex={globalIndex}
+                      visibleHeaders={visibleHeaders}
+                      activeCell={activeCell}
+                      selection={selection}
+                      cellMetadata={cellMetadata}
+                      cellAlignments={cellAlignments}
+                      columnAlignments={columnAlignments}
+                      isFreezePanes={isFreezePanes}
+                      dragFillRange={dragFillRange}
+                      isSelecting={isSelecting}
+                      handleUpdateCell={handleUpdateCell}
+                      handleKeyDown={handleKeyDown}
+                      setActiveCell={setActiveCell}
+                      setSelection={setSelection}
+                      setIsSelecting={setIsSelecting}
+                      onOpenContextMenu={handleOpenContextMenu}
+                      toggleCellAlignment={toggleCellAlignment}
+                      handleDragFillStart={handleDragFillStart}
+                      removeTableRow={removeTableRow}
+                      setViewingMedia={setViewingMedia}
+                      removeCellMetadata={removeCellMetadata}
+                      evaluateFormula={evaluateFormula}
+                      rowHeights={rowHeights}
+                      startRowResizing={startRowResizing}
+                      handleOpenDropdown={handleOpenDropdown}
+                    />
                   );
                 })}
               </tbody>
