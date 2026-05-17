@@ -116,18 +116,36 @@ function PrintContent() {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
     
     try {
-      const getColumnValue = (colName: string) => {
+      const getArgValue = (arg: string) => {
+        const a1Match = arg.match(/^([A-Z]+)(\d+)$/i);
+        if (a1Match) {
+          const colLetters = a1Match[1].toUpperCase();
+          const targetRowIdx = parseInt(a1Match[2], 10) - 1;
+          let vIdx = 0;
+          for (let i = 0; i < colLetters.length; i++) {
+            vIdx = vIdx * 26 + (colLetters.charCodeAt(i) - 64);
+          }
+          vIdx--;
+          
+          const targetRow = data[targetRowIdx];
+          if (!targetRow) return null;
+          
+          const headers = node.display_settings?.columnOrder || Object.keys(data[0]);
+          const colName = headers.filter(h => h !== 'section')[vIdx];
+          return targetRow[colName];
+        }
+
         const actualKey = Object.keys(rowData).find(
-          key => key.toLowerCase() === colName.toLowerCase()
+          key => key.toLowerCase() === arg.toLowerCase()
         );
-        return actualKey ? rowData[actualKey] : null;
+        return actualKey ? rowData[actualKey] : (isNaN(Number(arg)) ? arg : Number(arg));
       };
 
       if (value.toUpperCase().startsWith('=SUM(')) {
         const match = value.match(/\=SUM\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
-        return args.reduce((acc, colName) => acc + (Number(getColumnValue(colName)) || 0), 0);
+        return args.reduce((acc, arg) => acc + (Number(getArgValue(arg)) || 0), 0);
       }
 
       if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
@@ -136,8 +154,8 @@ function PrintContent() {
         const args = match[1].split(',').map(s => s.trim());
         if (args.length !== 2) return '#ARGS!';
 
-        const startDateRaw = getColumnValue(args[0]);
-        const daysToAdd = Number(getColumnValue(args[1]) ?? args[1]) || 0;
+        const startDateRaw = getArgValue(args[0]);
+        const daysToAdd = Number(getArgValue(args[1])) || 0;
 
         if (!startDateRaw) return '';
 

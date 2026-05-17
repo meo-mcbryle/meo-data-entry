@@ -845,25 +845,48 @@ function DashboardContent() {
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
     try {
-      const getColumnValue = (colName: string) => {
-        const actualKey = Object.keys(rowData).find(key => key.toLowerCase() === colName.toLowerCase());
-        return actualKey ? rowData[actualKey] : null;
+       const getArgValue = (arg: string) => {
+        // 1. Handle A1 Cell References (e.g., "B2", "A10")
+        const a1Match = arg.match(/^([A-Z]+)(\d+)$/i);
+        if (a1Match) {
+          const colLetters = a1Match[1].toUpperCase();
+          const targetRow = parseInt(a1Match[2], 10) - 1;
+          
+          // Convert "B" -> 1, "AA" -> 26, etc.
+          let visibleColIdx = 0;
+          for (let i = 0; i < colLetters.length; i++) {
+            visibleColIdx = visibleColIdx * 26 + (colLetters.charCodeAt(i) - 64);
+          }
+          visibleColIdx--; // 0-based
+
+          const { masterColumnOrder, columnOrder, gridData } = stateRef.current;
+          const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+          const colName = headers[visibleColIdx];
+          const mIdx = masterColumnOrder.indexOf(colName);
+          
+          if (mIdx !== -1) return gridData.get(toA1Key(targetRow, mIdx));
+          return null;
+        }
+
+        // 2. Fallback: Handle Named Columns in Current Row or Literals
+        const actualKey = Object.keys(rowData).find(key => key.toLowerCase() === arg.toLowerCase());
+        return actualKey ? rowData[actualKey] : (isNaN(Number(arg)) ? arg : Number(arg));
       };
       if (value.toUpperCase().startsWith('=SUM(')) {
         const match = value.match(/=SUM\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
-        return args.reduce((acc, colName) => acc + (Number(getColumnValue(colName)) || 0), 0);
+        return args.reduce((acc, arg) => acc + (Number(getArgValue(arg)) || 0), 0);
       }
       if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
         const match = value.match(/=ADD_DAYS\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
         if (args.length !== 2) return '#ARGS!';
-        const startDateRaw = getColumnValue(args[0]);
-        const daysToAdd = Number(getColumnValue(args[1]) ?? args[1]) || 0;
+        const startDateRaw = getArgValue(args[0]);
+        const daysToAdd = Number(getArgValue(args[1])) || 0;
         if (!startDateRaw) return '';
-        let date = new Date(startDateRaw);
+        let date = new Date(String(startDateRaw));
         if (isNaN(date.getTime())) return '#DATE!';
         date.setDate(date.getDate() + daysToAdd);
         return formatDateDisplay(date.toISOString().split('T')[0], formatId);
