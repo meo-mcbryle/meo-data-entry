@@ -129,12 +129,20 @@ const formatDateDisplay = (value: any, formatId: string = 'long') => {
 const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, type = "text", dataRow, dataCol }: any) => {
   const [localValue, setLocalValue] = useState(initialValue ?? '');
   const syncTimerRef = useRef<any>(null);
+  const inputRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset local state if external data changes (e.g., Undo/Redo)
   useEffect(() => {
+    // Numeric Stability: If we are typing a decimal (e.g. "1."), don't let the parent 
+    // state update (which parses to 1) snap the value back and delete the dot.
+    if (type === 'number') {
+      const pInit = parseFloat(initialValue);
+      const pLocal = parseFloat(localValue);
+      if (pInit === pLocal || (isNaN(pInit) && isNaN(pLocal))) return;
+    }
     if (initialValue !== localValue) setLocalValue(initialValue ?? '');
-  }, [initialValue]);
+  }, [initialValue, type]);
 
   const handleLocalChange = (val: any) => {
     setLocalValue(val);
@@ -184,6 +192,7 @@ const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, ty
 
   return (
     <input
+      ref={inputRef}
       type={type}
       step={type === 'number' ? '0.01' : undefined}
       data-row={dataRow}
@@ -222,7 +231,7 @@ interface GridRowProps {
   setViewingMedia: (media: any) => void;
   removeCellMetadata: (row: number, col: string) => void;
   evaluateFormula: (value: any, row: any, format?: string) => any;
-  rowHeights: Record<number, number>;
+  rowHeights: Record<string, number>;
   startRowResizing: (row: number, e: React.MouseEvent) => void;
   handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
   masterColumnOrder: string[];
@@ -244,7 +253,7 @@ const GridRow = React.memo(({
   const selMaxColIdx = selection ? Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
 
   return (
-    <tr className={GRID_THEME.tableBodyRow} style={{ height: rowHeights[globalIndex] ? `${rowHeights[globalIndex]}px` : undefined }}>
+    <tr className={GRID_THEME.tableBodyRow} style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}>
       <td
         className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'} ${
           isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
@@ -486,7 +495,7 @@ const GridRow = React.memo(({
   if (hasMetaChange) return false;
   
   // 6. Check if height specifically for THIS row changed
-  if (prev.rowHeights[prev.globalIndex] !== next.rowHeights[next.globalIndex]) return false;
+  if (prev.rowHeights[String(prev.globalIndex)] !== next.rowHeights[String(next.globalIndex)]) return false;
 
   // 6. Standard UI state checks
   return (
@@ -506,7 +515,7 @@ function DashboardContent() {
   const [masterColumnOrder, setMasterColumnOrder] = useState<string[]>([]);
   const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
   const [rowCount, setRowCount] = useState(0);
-  const [rowHeights, setRowHeights] = useState<Record<number, number>>({});
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
@@ -891,7 +900,7 @@ function DashboardContent() {
       block.indices.forEach(idx => {
         offsets.push(currentOffset);
         items.push({ type: 'row', index: idx });
-        currentOffset += (rowHeights[idx] || 32);
+        currentOffset += (rowHeights[String(idx)] || 32);
       });
     });
 
@@ -934,25 +943,15 @@ function DashboardContent() {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
     try {
        const getArgValue = (arg: string) => {
-        // 1. Handle A1 Cell References (e.g., "B2", "A10")
-        const a1Match = arg.match(/^([A-Z]+)(\d+)$/i);
-        if (a1Match) {
-          const colLetters = a1Match[1].toUpperCase();
-          const targetRow = parseInt(a1Match[2], 10) - 1;
-          
-          // Convert "B" -> 1, "AA" -> 26, etc.
-          let visibleColIdx = 0;
-          for (let i = 0; i < colLetters.length; i++) {
-            visibleColIdx = visibleColIdx * 26 + (colLetters.charCodeAt(i) - 64);
-          }
-          visibleColIdx--; // 0-based
-
+        // 1. Handle A1 Cell References using shared utility
+        const coords = fromA1Key(arg.toUpperCase());
+        if (coords) {
           const { masterColumnOrder, columnOrder, gridData } = stateRef.current;
           const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
-          const colName = headers[visibleColIdx];
+          const colName = headers[coords.colIndex];
           const mIdx = masterColumnOrder.indexOf(colName);
           
-          if (mIdx !== -1) return gridData.get(toA1Key(targetRow, mIdx));
+          if (mIdx !== -1) return gridData.get(toA1Key(coords.row, mIdx));
           return null;
         }
 
@@ -1001,7 +1000,7 @@ function DashboardContent() {
       if (!current) return;
       const delta = moveEvent.pageY - current.startY;
       const newHeight = Math.max(28, current.startHeight + delta);
-      setRowHeights(prev => ({ ...prev, [current.row]: newHeight }));
+      setRowHeights(prev => ({ ...prev, [String(current.row)]: newHeight }));
     };
 
     const handleMouseUp = () => {
@@ -1300,11 +1299,11 @@ function DashboardContent() {
     setCellMetadata(shiftMetadata);
     setCellAlignments(shiftMetadata);
     setRowHeights(prev => {
-      const next: Record<number, number> = {};
+        const next: Record<string, number> = {};
       Object.keys(prev).forEach(k => {
         const r = parseInt(k);
-        if (r < insertionIndex) next[r] = prev[r];
-        else next[r + 1] = prev[r];
+          if (r < insertionIndex) next[k] = prev[k];
+          else next[String(r + 1)] = prev[k];
       });
       return next;
     });
@@ -1390,10 +1389,10 @@ function DashboardContent() {
       return next;
     };
 
-    const shiftHeights = (prev: Record<number, number>) => {
-      const next: Record<number, number> = {};
+    const shiftHeights = (prev: Record<string, number>) => {
+      const next: Record<string, number> = {};
       rowsToKeep.forEach((oldR, newR) => {
-        if (prev[oldR]) next[newR] = prev[oldR];
+        if (prev[String(oldR)]) next[String(newR)] = prev[String(oldR)];
       });
       return next;
     };
@@ -1774,11 +1773,11 @@ function DashboardContent() {
       setCellMetadata(shiftMetadata);
       setCellAlignments(shiftMetadata);
       setRowHeights(prev => {
-        const next: Record<number, number> = {};
+        const next: Record<string, number> = {};
         Object.keys(prev).forEach(k => {
           const r = parseInt(k);
-          if (r < insertIndex) next[r] = prev[r];
-          else next[r + 1] = prev[r];
+          if (r < insertIndex) next[k] = prev[k];
+          else next[String(r + 1)] = prev[k];
         });
         return next;
       });
@@ -2404,11 +2403,11 @@ function DashboardContent() {
       setCellMetadata(shiftMetadata);
       setCellAlignments(shiftMetadata);
       setRowHeights(prev => {
-        const next: Record<number, number> = {};
+        const next: Record<string, number> = {};
         Object.keys(prev).forEach(k => {
           const r = parseInt(k);
-          if (r < index) next[r] = prev[r];
-          else if (r > index) next[r - 1] = prev[r];
+          if (r < index) next[k] = prev[k];
+          else if (r > index) next[String(r - 1)] = prev[k];
         });
         return next;
       });

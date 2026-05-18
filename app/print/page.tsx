@@ -357,7 +357,7 @@ function PrintContent() {
                         <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
                           isAmount || isTitle ? "font-mono bg-slate-50/20" : "text-slate-700 normal-case font-sans"
                         }`}>
-                          {meta.attachments?.length > 0 ? (
+                          {(meta.attachments?.length ?? 0) > 0 ? (
                             <span className="text-[10px] font-bold text-blue-800 underline italic" style={{ fontFamily: meta.fontFamily || 'inherit' }}>[View Attachment]</span>
                           ) : (
                             content
