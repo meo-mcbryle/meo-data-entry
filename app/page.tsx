@@ -222,12 +222,27 @@ const GridRow = React.memo(({
       </td>
       {visibleHeaders.map((header: string, colIndex: number) => {
         // Performance: Use index from stable master order for A1 keys
-        const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header)); 
-        const meta = cellMetadata[cellKey] || {};
+        const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header));
+        const legacyKey = `${globalIndex}:${header}`;
+        const meta = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
+
         if (meta.mergedIn) return null;
-        const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
+        const cellAlign = cellAlignments[cellKey] || cellAlignments[legacyKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
         // Fix: Use both text-alignment and flex-justification classes
         const alignClass = cellAlign === 'center' ? 'text-center justify-center' : cellAlign === 'right' ? 'text-right justify-end' : 'text-left justify-start';
+
+        const attachmentLink = meta.attachments?.length > 0 && (
+          <a 
+            href="#"
+            role="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header }); }} 
+            className="text-sm text-blue-500 hover:underline cursor-pointer"
+            style={{ fontFamily: meta.fontFamily || 'inherit' }}
+            title={`View ${meta.attachments.length} attachment${meta.attachments.length > 1 ? 's' : ''}`}
+          >
+            [View Attachment]
+          </a>
+        );
 
         const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
 
@@ -266,6 +281,13 @@ const GridRow = React.memo(({
             className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
             style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
+            {/* Metadata Clear Button - Visible on hover for cells with formatting or files */}
+            {(meta.attachments?.length > 0 || meta.type || meta.fontFamily) && (
+              <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-red-500 absolute right-0.5 bottom-0.5 bg-card/80 rounded shadow-sm transition-all z-30 scale-90">
+                <X size={10} />
+              </button>
+            )}
+
             {activeCell?.row === globalIndex && activeCell?.col === header && (
               <>
                 <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-0.75 -mr-0.75 shadow-sm rounded-full" />
@@ -278,64 +300,67 @@ const GridRow = React.memo(({
             <button onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }} className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-accent bg-card/90 rounded shadow-sm z-30 transition-all">
               {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
             </button>
-            {header === 'Location' || header === 'Allocation' ? (
-              <button 
-                onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                className={`${GRID_THEME.tableInput} relative flex items-center group/drop min-h-7 hover:bg-accent/5 pr-6 py-1.5 w-full`}
-              >
-                <span className={`w-full wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                  {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
-                </span>
-                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors" />
-              </button>
+            {meta.attachments?.length > 0 ? (
+              <div className={`flex items-center w-full min-h-7 px-2 py-1.5 ${alignClass}`}>
+                {attachmentLink}
+              </div>
+            ) : header === 'Location' || header === 'Allocation' ? (
+              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 transition-colors flex-wrap gap-x-2 ${alignClass}`}>
+                <button 
+                  onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
+                  className="flex flex-wrap items-center gap-x-2 outline-none"
+                >
+                  <span className={`wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                    {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
+                  </span>
+                </button>
+                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors pointer-events-none" />
+              </div>
             ) : meta.type === 'date' ? (
               <div className="relative w-full flex items-center group/date min-h-7">
                 <input type="date" data-row={globalIndex} data-col={header} value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
-                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex items-center wrap-break-word flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex flex-wrap items-center gap-x-2 flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
               </div>
-            ) : meta.type === 'media' ? (
-              <div className="flex items-center group/media relative min-h-7 w-full px-2 py-1">
-                {meta.attachments?.length > 0 && (
-                  <button onClick={() => setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header })} className={`text-xs text-accent hover:underline font-medium w-full ${alignClass}`}>[View Attachment{meta.attachments.length > 1 ? 's' : ''}]</button>
-                )}
-                <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/media:opacity-100 p-1 text-muted hover:text-red-500 absolute right-1 top-1 bg-card/80 rounded shadow-sm transition-all"><X size={12} /></button>
-              </div>
             ) : meta.type === 'formula' ? (
-              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex items-center wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
                 {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
-              activeCell?.row === globalIndex && activeCell?.col === header ? (
-                <CellEditor 
-                  initialValue={row[header]} 
-                  onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
-                  onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
-                  className={`${GRID_THEME.tableInput} ${alignClass}`}
-                  type="number"
-                />
-              ) : (
-                <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1 text-sm text-foreground cursor-text min-h-7 flex items-center ${alignClass}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
-              )
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 px-2 py-1`}>
+                {activeCell?.row === globalIndex && activeCell?.col === header ? (
+                  <CellEditor 
+                    initialValue={row[header]} 
+                    onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
+                    onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
+                    className={`${GRID_THEME.tableInput} flex-1`}
+                    type="number"
+                  />
+                ) : (
+                  <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`text-sm text-foreground cursor-text`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
+                )}
+              </div>
             ) : (
-              activeCell?.row === globalIndex && activeCell?.col === header ? (
-                <CellEditor 
-                  isTextarea 
-                  initialValue={row[header]} 
-                  onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
-                  onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
-                  className={`${GRID_THEME.tableInput} ${alignClass}`}
-                  dataRow={globalIndex} dataCol={header}
-                />
-              ) : (
-                <div 
-                  onClick={() => setActiveCell({ row: globalIndex, col: header })} 
-                  className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 whitespace-pre-wrap wrap-break-word ${alignClass}`}
-                >
-                  {row[header] || <span className="opacity-0">.</span>}
-                </div>
-              )
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 px-2 py-1.5`}>
+                {activeCell?.row === globalIndex && activeCell?.col === header ? (
+                  <CellEditor 
+                    isTextarea 
+                    initialValue={row[header]} 
+                    onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
+                    onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
+                    className={`${GRID_THEME.tableInput} flex-1`}
+                    dataRow={globalIndex} dataCol={header}
+                  />
+                ) : (
+                  <div 
+                    onClick={() => setActiveCell({ row: globalIndex, col: header })} 
+                    className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word`}
+                  >
+                    {row[header] || <span className="opacity-0">.</span>}
+                  </div>
+                )}
+              </div>
             )}
           </td>
         );
@@ -2395,8 +2420,32 @@ function DashboardContent() {
     
     setIsSaving(true);
     try {
+      // A1 Migration: Convert legacy 'row:header' keys to A1 notation on save
+      const normalizeKeys = (metaRecord: Record<string, any>) => {
+        const next: Record<string, any> = {};
+        Object.keys(metaRecord).forEach(key => {
+          // Identify legacy keys (containing ':' but not a header/section/A1 key)
+          if (key.includes(':') && !key.startsWith('header:') && !key.includes(':section')) {
+            const parts = key.split(':');
+            if (parts.length === 2) {
+              const rowIdx = parseInt(parts[0], 10);
+              const headerName = parts[1];
+              const mIdx = masterColumnOrder.indexOf(headerName);
+              if (mIdx !== -1) {
+                const newA1Key = toA1Key(rowIdx, mIdx);
+                next[newA1Key] = metaRecord[key];
+                return;
+              }
+            }
+          }
+          next[key] = metaRecord[key];
+        });
+        return next;
+      };
+
       const contentArray = hydrateMapToArray(gridData, rowCount, allHeaders, masterColumnOrder);
-      const display_settings = { columnAlignments, cellAlignments, hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata, rowHeights, masterColumnOrder };
+      const display_settings = { columnAlignments, cellAlignments: normalizeKeys(cellAlignments), hiddenColumns, selectedYear, columnOrder, columnWidths, cellMetadata: normalizeKeys(cellMetadata), rowHeights, masterColumnOrder };
+      
       const { error } = await supabase.from('nodes').update({ content: contentArray, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
       await fetchFiles();
@@ -2975,7 +3024,7 @@ function DashboardContent() {
                 <tr>
                   <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
                   {visibleHeaders.map((header, colIdx) => {
-                    const headerMeta = cellMetadata[`header:${header}`] || {};
+                    const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${masterColumnOrder.indexOf(header)}:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
                     if (headerMeta.mergedIn) return null;
 

@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { FileNode } from '@/lib/tree-utils';
 import { FileText, Printer, Check, Table } from 'lucide-react';
+import { toA1Key } from '@/lib/excel-utils';
 
 function PrintContent() {
   const searchParams = useSearchParams();
@@ -288,7 +289,8 @@ function PrintContent() {
         <thead>
           <tr className="bg-slate-100 text-[9px] tracking-widest text-slate-900 font-black border-b-2 border-slate-400">
             {visibleHeaders.map(header => {
-              const headerMeta = cellMetadata[`header:${header}`] || {};
+              const master = (node.display_settings as any)?.masterColumnOrder || node.display_settings?.columnOrder || allHeaders;
+              const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${master.indexOf(header)}:${header}`] || {};
               if (headerMeta.mergedIn) return null;
 
               const columnAlignments = node.display_settings?.columnAlignments || {};
@@ -298,7 +300,7 @@ function PrintContent() {
                                align === 'right' ? 'text-right' : 'text-left';
               
               return (
-                <th key={header} colSpan={headerMeta.colSpan} className={`py-2 px-3 border-r border-slate-400 last:border-0 whitespace-nowrap ${alignClass}`}>
+                <th key={header} colSpan={headerMeta.colSpan} className={`py-2 px-3 border-r border-slate-400 last:border-0 whitespace-nowrap ${alignClass}`} style={{ fontFamily: headerMeta.fontFamily || 'inherit' }}>
                   {header}
                 </th>
               );
@@ -321,15 +323,18 @@ function PrintContent() {
                 {sectionRows.map((row: any, idx: number) => (
                   <tr key={idx} className="border-b border-slate-200 text-[10px] leading-normal">
                     {visibleHeaders.map(header => {
-                      const cellKey = `${data.indexOf(row)}:${header}`;
-                      const meta = cellMetadata[cellKey] || {};
+                      const rowIndex = data.indexOf(row);
+                      const master = (node.display_settings as any)?.masterColumnOrder || node.display_settings?.columnOrder || allHeaders;
+                      const cellKey = toA1Key(rowIndex, master.indexOf(header));
+                      const legacyKey = `${rowIndex}:${header}`;
+                      const meta = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
+                      const alignments = node.display_settings?.cellAlignments || {};
 
                       if (meta.mergedIn) return null;
 
                       const columnAlignments = node.display_settings?.columnAlignments || {};
-                      const cellAlignments = node.display_settings?.cellAlignments || {};
                       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
-                      const cellAlign = cellAlignments[cellKey] || columnAlignments[header] || defaultAlign;
+                      const cellAlign = alignments[cellKey] || alignments[legacyKey] || columnAlignments[header] || defaultAlign;
                       const alignClass = cellAlign === 'center' ? 'text-center' : 
                                        cellAlign === 'right' ? 'text-right' : 'text-left';
 
@@ -340,20 +345,7 @@ function PrintContent() {
                       if (isAmount) content = Number(content).toLocaleString(undefined, { minimumFractionDigits: 2 });
                       if (isAmount || meta.type === 'number') content = formatNumberDisplay(content, meta.format);
                       if (meta.type === 'date') content = formatDateDisplay(content, meta.format);
-                      if (meta.type === 'media') {
-                        const atts = meta.attachments || [];
-                        if (atts.length === 0) {
-                          content = '';
-                        } else {
-                          const hasImages = atts.some((a: any) => a.type === 'image');
-                          const hasFiles = atts.some((a: any) => a.type === 'file');
-                          let label = 'Attachment';
-                          if (hasImages && !hasFiles) label = 'Image';
-                          else if (hasFiles && !hasImages) label = 'File';
-                          const plural = atts.length > 1 ? 's' : '';
-                          content = `[${label}${plural}${atts.length > 1 ? ` (${atts.length})` : ''}]`;
-                        }
-                      }
+                      
                       if (meta.type === 'formula') {
                         const result = evaluateFormula(content, row, meta.format);
                         content = typeof result === 'number' 
@@ -365,7 +357,11 @@ function PrintContent() {
                         <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
                           isAmount || isTitle ? "font-mono bg-slate-50/20" : "text-slate-700 normal-case font-sans"
                         }`}>
-                          {content}
+                          {meta.attachments?.length > 0 ? (
+                            <span className="text-[10px] font-bold text-blue-800 underline italic" style={{ fontFamily: meta.fontFamily || 'inherit' }}>[View Attachment]</span>
+                          ) : (
+                            content
+                          )}
                         </td>
                       );
                     })}
