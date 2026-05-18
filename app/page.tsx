@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
+import { buildTree, FileNode, findNodeById, CellMetadata, GridRowData } from '@/lib/tree-utils';
 import { toA1Key, fromA1Key, getExcelColumnLabel, hydrateMapToArray, dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord } from '@/lib/excel-utils';
 import FileNodeItem from '@/components/FileNodeItem';
 import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical } from 'lucide-react';
@@ -86,15 +86,33 @@ const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
   }
 };
 
-const formatDateDisplay = (value: string, formatId: string = 'long') => {
-  if (!value) return '';
-  const [y, m, d] = value.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  if (isNaN(date.getTime())) return value;
+const formatDateDisplay = (value: any, formatId: string = 'long') => {
+  if (value === null || value === undefined || value === '') return '';
+
+  let date: Date;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'number') {
+    date = new Date(value);
+  } else {
+    const strValue = String(value);
+    const parts = strValue.split('-');
+    // Only manually parse if it looks like YYYY-MM-DD (ISO)
+    // This prevents MM-DD-YYYY from being parsed as Year 01, Month 23...
+    if (parts.length === 3 && parts[0].length === 4) {
+      const [y, m, d] = parts.map(Number);
+      date = new Date(y, m - 1, d);
+    } else {
+      date = new Date(strValue);
+    }
+  }
+
+  if (isNaN(date.getTime())) return String(value);
+
   switch (formatId) {
     case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
     case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
-    case 'iso': return value;
+    case 'iso': return date.toISOString().split('T')[0];
     default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   }
 };
@@ -174,6 +192,36 @@ const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, ty
   );
 };
 
+interface GridRowProps {
+  row: GridRowData & { section?: string; _index?: number };
+  globalIndex: number;
+  visibleHeaders: string[];
+  activeCell: { row: number, col: string } | null;
+  selection: { startRow: number; endRow: number; startCol: string; endCol: string } | null;
+  cellMetadata: Record<string, CellMetadata>;
+  cellAlignments: Record<string, 'left' | 'center' | 'right'>;
+  columnAlignments: Record<string, 'left' | 'center' | 'right'>;
+  isFreezePanes: boolean;
+  dragFillRange: { startRow: number; endRow: number; col: string } | null;
+  isSelecting: boolean;
+  handleUpdateCell: (index: number, key: string, value: any) => void;
+  handleKeyDown: (e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => void;
+  setActiveCell: (cell: { row: number, col: string } | null) => void;
+  setSelection: (selection: any) => void;
+  setIsSelecting: (selecting: boolean) => void;
+  onOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row', col: string, row?: number) => void;
+  toggleCellAlignment: (rowIndex: number, header: string) => void;
+  handleDragFillStart: (e: React.MouseEvent, row: number, col: string) => void;
+  removeTableRow: (index: number) => void;
+  setViewingMedia: (media: any) => void;
+  removeCellMetadata: (row: number, col: string) => void;
+  evaluateFormula: (value: any, row: any, format?: string) => any;
+  rowHeights: Record<number, number>;
+  startRowResizing: (row: number, e: React.MouseEvent) => void;
+  handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
+  masterColumnOrder: string[];
+}
+
 const GridRow = React.memo(({ 
   row, globalIndex, visibleHeaders, activeCell, selection, 
   cellMetadata, cellAlignments, columnAlignments, isFreezePanes,
@@ -182,7 +230,7 @@ const GridRow = React.memo(({
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
   rowHeights, startRowResizing, handleOpenDropdown, masterColumnOrder
-}: any) => {
+}: GridRowProps) => {
   const isRowActive = activeCell?.row === globalIndex;
   const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
   const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
@@ -206,7 +254,7 @@ const GridRow = React.memo(({
               endCol: visibleHeaders[visibleHeaders.length - 1] 
             });
           }
-          onOpenContextMenu(e, 'row', globalIndex, "");
+          onOpenContextMenu(e, 'row', "", globalIndex);
         }}
         onClick={() => {
           setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
@@ -224,21 +272,21 @@ const GridRow = React.memo(({
         // Performance: Use index from stable master order for A1 keys
         const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header));
         const legacyKey = `${globalIndex}:${header}`;
-        const meta = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
+        const meta: CellMetadata = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
 
         if (meta.mergedIn) return null;
         const cellAlign = cellAlignments[cellKey] || cellAlignments[legacyKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
         // Fix: Use both text-alignment and flex-justification classes
         const alignClass = cellAlign === 'center' ? 'text-center justify-center' : cellAlign === 'right' ? 'text-right justify-end' : 'text-left justify-start';
 
-        const attachmentLink = meta.attachments?.length > 0 && (
+        const attachmentLink = (meta.attachments?.length ?? 0) > 0 && (
           <a 
             href="#"
             role="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header }); }} 
             className="text-sm text-blue-500 hover:underline cursor-pointer"
             style={{ fontFamily: meta.fontFamily || 'inherit' }}
-            title={`View ${meta.attachments.length} attachment${meta.attachments.length > 1 ? 's' : ''}`}
+            title={`View ${meta.attachments?.length ?? 0} attachment${(meta.attachments?.length ?? 0) > 1 ? 's' : ''}`}
           >
             [View Attachment]
           </a>
@@ -264,7 +312,7 @@ const GridRow = React.memo(({
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setActiveCell({ row: globalIndex, col: header });
               }
-              onOpenContextMenu(e, 'cell', globalIndex, header);
+              onOpenContextMenu(e, 'cell', header, globalIndex);
             }}
             onMouseDown={(e) => { 
               if (e.button === 0) { 
@@ -282,7 +330,7 @@ const GridRow = React.memo(({
             style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
             {/* Metadata Clear Button - Visible on hover for cells with formatting or files */}
-            {(meta.attachments?.length > 0 || meta.type || meta.fontFamily) && (
+            {((meta.attachments?.length ?? 0) > 0 || meta.type || meta.fontFamily) && (
               <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-red-500 absolute right-0.5 bottom-0.5 bg-card/80 rounded shadow-sm transition-all z-30 scale-90">
                 <X size={10} />
               </button>
@@ -292,7 +340,7 @@ const GridRow = React.memo(({
               <>
                 <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-0.75 -mr-0.75 shadow-sm rounded-full" />
                 {/* Mobile-friendly context menu trigger */}
-                <button onClick={(e) => onOpenContextMenu(e, 'cell', globalIndex, header)} className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30">
+                <button onClick={(e) => onOpenContextMenu(e, 'cell', header, globalIndex)} className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30">
                   <MoreVertical size={12} />
                 </button>
               </>
@@ -300,7 +348,7 @@ const GridRow = React.memo(({
             <button onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }} className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-accent bg-card/90 rounded shadow-sm z-30 transition-all">
               {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
             </button>
-            {meta.attachments?.length > 0 ? (
+            {(meta.attachments?.length ?? 0) > 0 ? (
               <div className={`flex items-center w-full min-h-7 px-2 py-1.5 ${alignClass}`}>
                 {attachmentLink}
               </div>
@@ -318,7 +366,16 @@ const GridRow = React.memo(({
               </div>
             ) : meta.type === 'date' ? (
               <div className="relative w-full flex items-center group/date min-h-7">
-                <input type="date" data-row={globalIndex} data-col={header} value={row[header] || ''} onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" />
+                <input 
+                  type="date" data-row={globalIndex} data-col={header} 
+                  value={typeof row[header] === 'boolean' ? String(row[header]) : (row[header] ?? '')} 
+                  onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} 
+                  onClick={(e) => {
+                    // Modern browsers support showPicker() to trigger the date selector programmatically
+                    try { (e.target as any).showPicker(); } catch (err) {}
+                  }}
+                  className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" 
+                />
                 <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex flex-wrap items-center gap-x-2 flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
@@ -504,7 +561,7 @@ function DashboardContent() {
    * Nudges the menu coordinates just enough to keep it inside the viewport.
    * This prevents the menu from "jumping" too far away from the cursor.
    */
-  const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row', row?: number, col: string = "") => {
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row', col: string = "", row?: number) => {
     e.preventDefault();
     const menuWidth = 192; 
     // Refined height estimates based on current item counts
@@ -2782,6 +2839,13 @@ function DashboardContent() {
                     <TableIcon size={14} className="text-accent" /> Merge Selected Cells
                   </button>
                   
+                  <button 
+                    onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date'); setContextMenu(null); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground font-medium"
+                  >
+                    <Calendar size={14} className="text-accent" /> Insert Calendar
+                  </button>
+
                   {/* Unmerge only shows if the specific cell clicked is a merge host */}
                   {(() => {
                     const key = toA1Key(contextMenu.row!, masterColumnOrder.indexOf(contextMenu.col));
@@ -2997,7 +3061,7 @@ function DashboardContent() {
                             });
                             setActiveCell({ row: 0, col: header });
                           }
-                          handleOpenContextMenu(e, 'header', undefined, header);
+                          handleOpenContextMenu(e, 'header', header);
                         }}
                         style={{ 
                           fontFamily: headerMeta.fontFamily || 'inherit',
@@ -3051,7 +3115,7 @@ function DashboardContent() {
                         });
                         setActiveCell({ row: 0, col: header });
                       }
-                      handleOpenContextMenu(e, 'header', undefined, header);
+                        handleOpenContextMenu(e, 'header', header);
                     }}
                     onMouseDown={(e) => {
                       if (e.button === 0) {
