@@ -112,7 +112,12 @@ const formatDateDisplay = (value: any, formatId: string = 'long') => {
   switch (formatId) {
     case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
     case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
-    case 'iso': return date.toISOString().split('T')[0];
+    case 'iso': {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
     default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   }
 };
@@ -137,7 +142,8 @@ const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, ty
     // Debounce: Wait 300ms before updating global state
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(() => {
-      onSync(val);
+      // Only parse numbers when syncing to the global state to preserve typing state (like decimals)
+      onSync(type === 'number' ? (val === '' ? '' : parseFloat(val)) : val);
     }, 300);
 
     // Height auto-grow for textareas
@@ -185,7 +191,7 @@ const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, ty
       value={localValue}
       autoFocus
       onBlur={handleBlur}
-      onChange={(e) => handleLocalChange(type === 'number' ? (e.target.value === '' ? '' : parseFloat(e.target.value)) : e.target.value)}
+        onChange={(e) => handleLocalChange(e.target.value)}
       onKeyDown={onKeyDown}
       className={`${className} w-full`}
     />
@@ -371,8 +377,8 @@ const GridRow = React.memo(({
                   value={typeof row[header] === 'boolean' ? String(row[header]) : (row[header] ?? '')} 
                   onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} 
                   onClick={(e) => {
-                    // Modern browsers support showPicker() to trigger the date selector programmatically
-                    try { (e.target as any).showPicker(); } catch (err) {}
+                    // Modern browsers support showPicker() on input elements to trigger the calendar
+                    try { (e.currentTarget as HTMLInputElement).showPicker(); } catch (err) {}
                   }}
                   className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" 
                 />
@@ -2477,18 +2483,18 @@ function DashboardContent() {
     
     setIsSaving(true);
     try {
-      // A1 Migration: Convert legacy 'row:header' keys to A1 notation on save
+      // Performance: Pre-map master column indices for O(1) lookup during normalization
+      const colMap = new Map(masterColumnOrder.map((name, i) => [name, i]));
+
       const normalizeKeys = (metaRecord: Record<string, any>) => {
         const next: Record<string, any> = {};
         Object.keys(metaRecord).forEach(key => {
-          // Identify legacy keys (containing ':' but not a header/section/A1 key)
           if (key.includes(':') && !key.startsWith('header:') && !key.includes(':section')) {
             const parts = key.split(':');
             if (parts.length === 2) {
               const rowIdx = parseInt(parts[0], 10);
-              const headerName = parts[1];
-              const mIdx = masterColumnOrder.indexOf(headerName);
-              if (mIdx !== -1) {
+              const mIdx = colMap.get(parts[1]);
+              if (mIdx !== undefined) {
                 const newA1Key = toA1Key(rowIdx, mIdx);
                 next[newA1Key] = metaRecord[key];
                 return;
