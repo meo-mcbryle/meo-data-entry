@@ -368,10 +368,10 @@ const GridRow = React.memo(({
                 {attachmentLink}
               </div>
             ) : header === 'Location' || header === 'Allocation' ? (
-              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 transition-colors flex-wrap gap-x-2 ${alignClass}`}>
+              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 transition-colors ${alignClass}`}>
                 <button 
                   onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                  className="flex flex-wrap items-center gap-x-2 outline-none"
+                  className={`flex flex-wrap items-center gap-x-2 outline-none w-full h-full text-inherit ${alignClass}`}
                 >
                   <span className={`wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
                     {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
@@ -602,7 +602,9 @@ function DashboardContent() {
   const handleOpenDropdown = useCallback((e: React.MouseEvent, row: number, col: string, options: string[]) => {
     e.preventDefault();
     e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // Find the cell container (the div with group/drop) to align the dropdown correctly with the column
+    const container = (e.currentTarget as HTMLElement).closest('div');
+    const rect = container ? container.getBoundingClientRect() : (e.currentTarget as HTMLElement).getBoundingClientRect();
     
     setDropdownMenu({
       x: rect.left,
