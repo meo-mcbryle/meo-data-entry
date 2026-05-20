@@ -549,13 +549,24 @@ function DashboardContent() {
     if (!tableContainerRef.current || viewMode !== 'table') return;
     
     const observer = new ResizeObserver((entries) => {
-      for (let entry of entries) {
-        // Use requestAnimationFrame to debounce height updates and prevent layout thrashing
-        requestAnimationFrame(() => setContainerHeight(entry.contentRect.height));
-      }
+      requestAnimationFrame(() => {
+        const entry = entries[0];
+        if (!entry) return;
+        
+        // EXCEL STABILITY FIX: Use contentRect.height instead of clientHeight.
+        // contentRect measures the box height BEFORE scrollbars are subtracted.
+        // This breaks the feedback loop where a horizontal scrollbar appearing 
+        // would otherwise shrink the 'visible height' and trigger a re-render.
+        const h = Math.floor(entry.contentRect.height);
+        if (h > 0) {
+          // STABILITY FIX: Threshold increased to 20px (larger than a scrollbar).
+          // This prevents the "Scrollbar Toggle Loop" from triggering a re-render.
+          setContainerHeight(prev => (Math.abs(prev - h) > 20) ? h : prev);
+        }
+      });
     });
     observer.observe(tableContainerRef.current);
-    setContainerHeight(tableContainerRef.current.clientHeight || 800);
+    setContainerHeight(tableContainerRef.current.getBoundingClientRect().height || 800);
     return () => observer.disconnect();
   }, [viewMode, selectedId, isExplorerVisible]);
 
@@ -908,7 +919,11 @@ function DashboardContent() {
       });
     });
 
-    return { flatItems: items, itemOffsets: offsets, totalVirtualHeight: currentOffset };
+    return { 
+      flatItems: items, 
+      itemOffsets: offsets, 
+      totalVirtualHeight: currentOffset + 40 // Optimized buffer for stability without excessive whitespace
+    };
   }, [sectionBlocks, rowHeights]);
 
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
@@ -2927,7 +2942,7 @@ function DashboardContent() {
           />
 
           {/* Formula Bar - Relocated for a cleaner grid view */}
-          <div className={GRID_THEME.formulaBar}>
+          <div className={`${GRID_THEME.formulaBar} min-h-[38px]`}>
             <div 
               id="address-indicator"
               className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
@@ -2960,20 +2975,24 @@ function DashboardContent() {
               setShowBackToTop(e.currentTarget.scrollTop > 300);
               setScrollTop(e.currentTarget.scrollTop);
             }}
-            className="flex-1 overflow-auto relative"
+            className="flex-1 overflow-x-auto overflow-y-scroll relative custom-scrollbar-zoomed"
+            style={{ 
+              scrollbarGutter: 'stable',
+              overflowAnchor: 'none', // Prevents browser from trying to "correct" scroll position
+              '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
+            } as any}
           >
             {/* Virtual Scroll Spacer to force correct scrollbar height */}
             <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
             
             <table 
-              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left relative"
+              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
               style={{ 
                 zoom: zoom, 
-                transform: `translateY(${translateY}px)`,
               } as any}
             >
-              <thead className={`${isFreezePanes ? 'sticky top-0 z-30' : ''} ${GRID_THEME.tableHeader}`}>
-                <tr className={GRID_THEME.tableHeaderRow}>
+              <thead className={GRID_THEME.tableHeader}>
+                <tr className={`${GRID_THEME.tableHeaderRow} sticky top-0 z-40 bg-card shadow-sm`}>
                   {/* The Corner Cell - Standardized border and background */}
                   <th 
                     onClick={() => {
@@ -2987,7 +3006,7 @@ function DashboardContent() {
                         setActiveCell({ row: 0, col: visibleHeaders[0] });
                       }
                     }}
-                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} ${isFreezePanes ? 'sticky left-0 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}
+                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}
                   >
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
                   </th>
@@ -3035,7 +3054,7 @@ function DashboardContent() {
                           width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
-                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors ${
+                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors bg-card ${
                           isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
                           isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
@@ -3050,10 +3069,10 @@ function DashboardContent() {
                       </th>
                     );
                   })}
-                  <th className="border-r border-b border-border bg-muted/5"></th>
+                  <th className="border-r border-b border-border bg-card"></th>
                 </tr>
-                <tr>
-                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-muted/10 ${isFreezePanes ? 'sticky left-0 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]' : ''}`}></th>
+                <tr className="">
+                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-muted/10 sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${masterColumnOrder.indexOf(header)}:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
@@ -3139,6 +3158,9 @@ function DashboardContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
+                {/* Virtualization Spacer: Pushes content down to correct scroll position 
+                    while allowing the headers above to remain sticky at the top. */}
+                <tr style={{ height: `${translateY}px` }} className="border-none"><td colSpan={visibleHeaders.length + 2} className="p-0 border-none" /></tr>
                 {visibleItems.map((item, i) => {
                   if (item.type === 'section') {
                   return (
@@ -3225,6 +3247,11 @@ function DashboardContent() {
                     />
                   );
                 })}
+                {/* Bottom Stability Spacer: Ensures the browser doesn't think the 
+                    content height is changing exactly when we hit the bottom pixel. */}
+                <tr style={{ height: '20px' }} className="border-none">
+                  <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
+                </tr>
               </tbody>
             </table>
 
