@@ -2467,6 +2467,15 @@ function DashboardContent() {
 
   const renderTableEditor = () => {
     try {
+      if (isLoadingFile) {
+        return (
+          <div className="flex-1 flex flex-col items-center justify-center p-12">
+            <Loader2 className="animate-spin text-accent mb-4" size={32} />
+            <p className="text-sm text-muted font-medium animate-pulse uppercase tracking-widest">Loading project data...</p>
+          </div>
+        );
+      }
+
       if (rowCount === 0) {
         return (
           <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
@@ -3365,7 +3374,13 @@ function DashboardContent() {
                 filteredTree.map(node => (
                   <FileNodeItem 
                     key={node.id} node={node} onDelete={handleDelete} onRename={handleRename} onAdd={addItem}
-                    onSelect={(node) => setSelectedId(node.id)} selectedId={selectedId ?? undefined}
+                    onSelect={(node) => {
+                      if (selectedId !== node.id) {
+                        setIsLoadingFile(true);
+                        setSelectedId(node.id);
+                      }
+                    }} 
+                    selectedId={selectedId ?? undefined}
                     searchTerm={explorerSearch} comparisonIds={comparisonIds} onToggleCompare={toggleComparisonId}
                   />
                 ))
