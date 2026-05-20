@@ -224,7 +224,7 @@ interface GridRowProps {
   setActiveCell: (cell: { row: number, col: string } | null) => void;
   setSelection: (selection: any) => void;
   setIsSelecting: (selecting: boolean) => void;
-  onOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row', col: string, row?: number) => void;
+  onOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string, row?: number, sectionName?: string) => void;
   toggleCellAlignment: (rowIndex: number, header: string) => void;
   handleDragFillStart: (e: React.MouseEvent, row: number, col: string) => void;
   removeTableRow: (index: number) => void;
@@ -576,11 +576,11 @@ function DashboardContent() {
    * Nudges the menu coordinates just enough to keep it inside the viewport.
    * This prevents the menu from "jumping" too far away from the cursor.
    */
-  const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row', col: string = "", row?: number) => {
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string = "", row?: number, sectionName?: string) => {
     e.preventDefault();
     const menuWidth = 192; 
     // Refined height estimates based on current item counts
-    const menuHeight = type === 'row' ? 280 : (type === 'header' ? 380 : 440); 
+    const menuHeight = type === 'row' ? 280 : (type === 'header' ? 380 : (type === 'section' ? 200 : 440)); 
     
     const winW = window.innerWidth;
     const winH = window.innerHeight;
@@ -596,7 +596,7 @@ function DashboardContent() {
     x = Math.max(10, x);
     y = Math.max(10, y);
     
-    setContextMenu({ x, y, row, col, type });
+    setContextMenu({ x, y, row, col, type, sectionName });
   }, []);
 
   const handleOpenDropdown = useCallback((e: React.MouseEvent, row: number, col: string, options: string[]) => {
@@ -880,7 +880,7 @@ function DashboardContent() {
   const sectionBlocks = useMemo(() => {
     const blocks: { name: string, indices: number[] }[] = [];
     filteredRowIndices.forEach(idx => {
-      const sectionName = gridData.get(`${idx}:section`) || "Uncategorized";
+      const sectionName = gridData.get(`${idx}:section`) || "";
       const lastBlock = blocks[blocks.length - 1];
       if (lastBlock && lastBlock.name === sectionName) lastBlock.indices.push(idx);
       else blocks.push({ name: sectionName, indices: [idx] });
@@ -895,9 +895,11 @@ function DashboardContent() {
     let currentOffset = 0;
 
     sectionBlocks.forEach((block, blockIdx) => {
-      offsets.push(currentOffset);
-      items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
-      currentOffset += 32; // Header is h-8 (32px)
+      if (block.name !== "") {
+        offsets.push(currentOffset);
+        items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
+        currentOffset += 32; // Header is h-8 (32px)
+      }
 
       block.indices.forEach(idx => {
         offsets.push(currentOffset);
@@ -940,7 +942,7 @@ function DashboardContent() {
     }
   }, [activeCell, gridData]);
 
-  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header' | 'row', showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean, showFonts?: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header' | 'row' | 'section', sectionName?: string, showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean, showFonts?: boolean } | null>(null);
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
     try {
@@ -1248,28 +1250,8 @@ function DashboardContent() {
     if (targetRow === -1) targetRow = rowCount;
     const insertionIndex = position === 'before' ? targetRow : targetRow + 1;
 
-    // Determine if we are splitting an existing block or creating a new empty slot
-    const splitSourceSection = gridData.get(`${targetRow}:section`) || "Uncategorized";
-    const isActuallySplitting = specificIndex !== undefined && 
-                                insertionIndex < rowCount && 
-                                (gridData.get(`${insertionIndex}:section`) || "Uncategorized") === splitSourceSection;
-
-    const sectionName = window.prompt(`Enter new section name to ${isActuallySplitting ? 'split section at' : 'insert at'} row ${insertionIndex + 1}:`);
+    const sectionName = window.prompt(`Enter new section name to insert at row ${insertionIndex + 1}:`);
     if (!sectionName) return;
-
-    if (isActuallySplitting) {
-      // SPLIT MODE: Simply rename the remaining contiguous block of rows. No physical row insertion.
-      setGridData(prev => {
-        const next = new Map(prev);
-        let r = insertionIndex;
-        while (r < rowCount && (next.get(`${r}:section`) || "Uncategorized") === splitSourceSection) {
-          next.set(`${r}:section`, sectionName);
-          r++;
-        }
-        return next;
-      });
-      return; 
-    }
 
     const shiftMetadata = (prev: Record<string, any>) => {
       const next: Record<string, any> = {};
@@ -1327,13 +1309,7 @@ function DashboardContent() {
           // Rows being pushed down
           const newIdx = r + 1;
           
-          // If we are pushing down rows that were part of the split section block,
-          // they move into the NEW section.
-          if (isSectionKey && val === splitSourceSection && r >= targetRow) {
-            next.set(`${newIdx}:section`, sectionName);
-          } else {
-              next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), val);
-          }
+          next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), val);
         }
       });
       
@@ -1345,67 +1321,19 @@ function DashboardContent() {
   }, [rowCount, gridData, masterColumnOrder, allHeaders, saveStateToHistory]);
 
   const handleDeleteSection = useCallback((sectionName: string) => {
-    if (!window.confirm(`Are you sure you want to delete the entire section "${sectionName}" and all its rows?`)) return;
+    if (!window.confirm(`Are you sure you want to remove the section header "${sectionName}"? The rows belonging to this section will be kept in the grid.`)) return;
     saveStateToHistory();
     
-    // 1. Identify rows to keep and calculate new indices
-    const rowsToKeep: number[] = [];
-    for (let r = 0; r < rowCount; r++) {
-      if (gridData.get(`${r}:section`) !== sectionName) {
-        rowsToKeep.push(r);
-      }
-    }
-
-    const newRowCount = rowsToKeep.length;
-
-    // 2. Rebuild the Sparse Map and Metadata with compacted indices
     setGridData(prev => {
-      const next = new Map();
-      rowsToKeep.forEach((oldR, newR) => {
-        // Performance Fix: Iterate over all internal keys in the master order 
-        // instead of just visible/default headers to prevent accidental data loss.
-        masterColumnOrder.forEach((_, colIdx) => {
-          const key = toA1Key(oldR, colIdx);
-          const val = prev.get(key);
-          if (val !== undefined) next.set(toA1Key(newR, colIdx), val);
-        });
-        next.set(`${newR}:section`, prev.get(`${oldR}:section`));
-      });
+      const next = new Map(prev);
+      const currentCount = stateRef.current.rowCount;
+      for (let r = 0; r < currentCount; r++) {
+        if (next.get(`${r}:section`) === sectionName) next.delete(`${r}:section`);
+      }
       return next;
     });
-
-    const shiftMeta = (prev: Record<string, any>) => {
-      const next: Record<string, any> = {};
-      const rowMap = new Map(rowsToKeep.map((oldR, newR) => [oldR, newR]));
-      
-      Object.keys(prev).forEach(key => {
-        if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-        if (key.includes(':section')) return;
-        
-        const coords = fromA1Key(key);
-        if (coords && rowMap.has(coords.row)) {
-          const newR = rowMap.get(coords.row)!;
-          next[toA1Key(newR, coords.colIndex)] = prev[key];
-        }
-      });
-      return next;
-    };
-
-    const shiftHeights = (prev: Record<string, number>) => {
-      const next: Record<string, number> = {};
-      rowsToKeep.forEach((oldR, newR) => {
-        if (prev[String(oldR)]) next[String(newR)] = prev[String(oldR)];
-      });
-      return next;
-    };
-
-    setCellMetadata(shiftMeta);
-    setCellAlignments(shiftMeta);
-    setRowHeights(shiftHeights);
-    setRowCount(newRowCount);
-    if (newRowCount === 0) setSelectedId(null);
     setContextMenu(null);
-  }, [rowCount, gridData, allHeaders, masterColumnOrder, saveStateToHistory]);
+  }, [saveStateToHistory]);
 
   const handleShare = () => {
     if (!selectedId) return;
@@ -1744,7 +1672,7 @@ function DashboardContent() {
 
   const handleInsertRow = useCallback((index: number, position: 'above' | 'after') => {
       saveStateToHistory();
-      const section = gridData.get(`${index}:section`) || "Uncategorized";
+      const section = gridData.get(`${index}:section`) || "";
       const insertIndex = position === 'above' ? index : index + 1;
 
       const shiftMetadata = (prev: Record<string, any>) => {
@@ -2800,7 +2728,7 @@ function DashboardContent() {
                   <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Section Actions</div>
                   <button 
                     onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      const section = gridData.get(`${contextMenu.row}:section`) || "";
                       handleInsertSection(section, 'before', contextMenu.row);
                       setContextMenu(null);
                     }} 
@@ -2810,7 +2738,7 @@ function DashboardContent() {
                   </button>
                   <button 
                     onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      const section = gridData.get(`${contextMenu.row}:section`) || "";
                       handleInsertSection(section, 'after', contextMenu.row);
                       setContextMenu(null);
                     }} 
@@ -2820,7 +2748,7 @@ function DashboardContent() {
                   </button>
                   <button 
                     onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "Uncategorized";
+                      const section = gridData.get(`${contextMenu.row}:section`) || "";
                       addRowToSection(section);
                       setContextMenu(null);
                     }} 
@@ -2834,6 +2762,29 @@ function DashboardContent() {
                     className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
                   >
                     <Trash2 size={14} /> Delete Row
+                  </button>
+                </>
+              ) : contextMenu.type === 'section' ? (
+                <>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Section Options</div>
+                  <button 
+                    onClick={() => { handleInsertSection(contextMenu.sectionName!, 'before'); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                  >
+                    <FolderPlus size={14} className="text-accent" /> Insert Section Above
+                  </button>
+                  <button 
+                    onClick={() => { handleInsertSection(contextMenu.sectionName!, 'after'); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                  >
+                    <FolderPlus size={14} className="text-accent" /> Insert Section Below
+                  </button>
+                  <div className="h-px bg-border my-1"></div>
+                  <button 
+                    onClick={() => { handleDeleteSection(contextMenu.sectionName!); setContextMenu(null); }} 
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
+                  >
+                    <Trash2 size={14} /> Delete Section
                   </button>
                 </>
               ) : (
@@ -3182,7 +3133,11 @@ function DashboardContent() {
                 {visibleItems.map((item, i) => {
                   if (item.type === 'section') {
                   return (
-                      <tr key={`section-${item.name}-${item.blockIdx}`} className="bg-muted/30 group/section transition-colors h-8">
+                      <tr 
+                        key={`section-${item.name}-${item.blockIdx}`} 
+                        className="bg-muted/30 group/section transition-colors h-8"
+                        onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
+                      >
                         <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
                           <div className="flex items-center justify-between">
                             <input
