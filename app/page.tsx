@@ -544,6 +544,23 @@ function DashboardContent() {
   const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
   const DEFAULT_ROW_HEIGHT = 32; // Standard height for our rows
 
+  // Virtualization Performance: Use requestAnimationFrame for scroll updates.
+  const scrollRafRef = useRef<number | null>(null);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      setScrollTop(top);
+      setShowBackToTop(top > 300);
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => { if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); };
+  }, []);
+
   // Resize Observer to track viewport height for virtualization
   useEffect(() => {
     if (!tableContainerRef.current || viewMode !== 'table') return;
@@ -2533,8 +2550,14 @@ function DashboardContent() {
         }
       }
 
-      const startIndex = Math.max(0, startIdx - 5);
-      const endIndex = Math.min(flatItems.length, startIndex + Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom)) + 15);
+      // Buffer (Overscan): Fixed buffers prevent "jumping" caused by dynamic index shifts.
+      // We use a generous overscan to handle fast scrolling without layout thrashing.
+      const overscanTop = 20;
+      const overscanBottom = 40; 
+      
+      const startIndex = Math.max(0, startIdx - overscanTop);
+      const visibleRowEstimate = Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom));
+      const endIndex = Math.min(flatItems.length, startIdx + visibleRowEstimate + overscanBottom);
       
       const visibleItems = flatItems.slice(startIndex, endIndex);
       const translateY = itemOffsets[startIndex] || 0;
@@ -2971,10 +2994,7 @@ function DashboardContent() {
 
           <div
             ref={tableContainerRef}
-            onScroll={(e) => {
-              setShowBackToTop(e.currentTarget.scrollTop > 300);
-              setScrollTop(e.currentTarget.scrollTop);
-            }}
+            onScroll={handleScroll}
             className="flex-1 overflow-x-auto overflow-y-scroll relative custom-scrollbar-zoomed"
             style={{ 
               scrollbarGutter: 'stable',
