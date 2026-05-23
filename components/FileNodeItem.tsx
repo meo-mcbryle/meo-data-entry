@@ -31,13 +31,13 @@ export default function FileNodeItem({
   return (
     <div className="select-none">
       <div 
-        className={`flex items-center group py-1.5 px-2 rounded-md cursor-pointer transition-colors duration-75 ${
+        className={`flex items-center group py-1.5 px-2 rounded-md cursor-pointer ${
           selectedId === node.id ? 'bg-accent/10 text-accent shadow-sm' : 'hover:bg-muted/10 text-muted hover:text-foreground'
         }`}
       >
         <div className="flex items-center flex-1 min-w-0" onClick={handleClick}>
           {isFolder ? (
-            <span className="mr-1.5 text-muted/60 group-hover:text-foreground transition-colors">
+            <span className="mr-1.5 text-muted/60 group-hover:text-foreground">
               {isOpen ? <ChevronDown size={14} strokeWidth={2.5}/> : <ChevronRight size={14} strokeWidth={2.5}/>}
             </span>
           ) : <span className="w-5" />}
@@ -54,7 +54,7 @@ export default function FileNodeItem({
           {isFolder && (
             <button 
               onClick={(e) => { e.stopPropagation(); onAdd('file', node.id); }} 
-              className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent transition-all"
+              className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent"
               title="New File"
             >
               <Plus size={14} />
@@ -62,14 +62,14 @@ export default function FileNodeItem({
           )}
           <button 
             onClick={(e) => { e.stopPropagation(); onRename(node.id); }} 
-            className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent transition-all"
+            className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent"
             title="Rename"
           >
             <Edit2 size={14} />
           </button>
           <button 
             onClick={(e) => { e.stopPropagation(); onDelete(node.id); }} 
-            className="p-1 text-muted hover:text-red-500 hover:bg-card hover:shadow-sm rounded transition-all"
+            className="p-1 text-muted hover:text-red-500 hover:bg-card hover:shadow-sm rounded"
             title="Delete"
           >
             <Trash2 size={14} />

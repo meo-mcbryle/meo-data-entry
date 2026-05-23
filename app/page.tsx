@@ -15,7 +15,7 @@ const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
   rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
+  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding,opacity,transform,margin] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
   
   // Grid Editor Components
@@ -26,14 +26,14 @@ const GRID_THEME = {
   navContainer: "flex bg-muted/10 p-0.5 rounded-md border border-border",
   
   // Table Specific Styles
-  tableHeader: "bg-muted/10 shadow-[0_1px_0_rgba(0,0,0,0.1)]",
+  tableHeader: "bg-muted/10 shadow-[0_1px_0_var(--color-border)]",
   tableHeaderRow: "bg-muted/20 select-none h-5",
   tableIndexCell: "border-r border-b border-border",
   tableCell: "p-0 border-r border-b border-border bg-card group/cell relative align-middle",
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive
-  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none transition-all dark:bg-card whitespace-pre-wrap break-words",
+  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none dark:bg-card whitespace-pre-wrap break-words",
 };
 
 const FONT_FAMILIES = [
@@ -394,7 +394,7 @@ const GridRow = React.memo(({
                 {attachmentLink}
               </div>
             ) : header === 'Location' || header === 'Allocation' ? (
-              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 transition-colors ${alignClass}`}>
+              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 ${alignClass}`}>
                 <button 
                   onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
                   className={`flex flex-wrap items-center gap-x-2 outline-none w-full h-full text-inherit ${alignClass}`}
@@ -403,7 +403,7 @@ const GridRow = React.memo(({
                     {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
                   </span>
                 </button>
-                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 transition-colors pointer-events-none" />
+                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 pointer-events-none" />
               </div>
             ) : meta.type === 'date' ? (
               <div className="relative w-full flex items-center group/date min-h-7">
@@ -558,7 +558,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-size-[32px_32px]">
+    <div className="min-h-screen flex items-center justify-center bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px]">
       <div className="w-full max-w-md p-8 bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
         <div className="flex flex-col items-center mb-8">
           <div className="p-4 bg-accent/10 text-accent rounded-2xl mb-4 shadow-inner">
@@ -594,7 +594,7 @@ const LoginPage = () => {
   );
 };
 
-function DashboardContent({ user }: { user: any }) {
+function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'light' | 'dark', toggleTheme: () => void }) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -762,13 +762,11 @@ function DashboardContent({ user }: { user: any }) {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFreezePanes, setIsFreezePanes] = useState(false);
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [zoom, setZoom] = useState(1);
   const [undoStack, setUndoStack] = useState<any[]>([]);
   const [redoStack, setRedoStack] = useState<any[]>([]);
   const editStartValueRef = useRef<any>(null);
   const editingCellRef = useRef<{row: number, col: string} | null>(null);
-
   /**
    * History Management: Undo/Redo Engine
    * Leverages Sparse Map referential stability for efficient snapshots.
@@ -884,31 +882,9 @@ function DashboardContent({ user }: { user: any }) {
       try { setRecentNodes(JSON.parse(saved)); } catch (e) { console.error("Failed to parse recent files"); }
     }
     
-    const savedTheme = localStorage.getItem('meo-theme') as 'light' | 'dark';
-    if (savedTheme) setTheme(savedTheme);
-    else if (window.matchMedia('(prefers-color-scheme: dark)').matches) setTheme('dark');
+    
   }, []);
 
-  // Advanced theme toggle with View Transitions API support
-  const toggleTheme = useCallback(() => {
-    const next = theme === 'light' ? 'dark' : 'light';
-    
-    // @ts-ignore - View Transitions API
-    if (!document.startViewTransition) {
-      setTheme(next);
-      return;
-    }
-
-    // @ts-ignore
-    document.startViewTransition(() => setTheme(next));
-  }, [theme]);
-
-  // Sync theme class to document
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.style.colorScheme = theme;
-    localStorage.setItem('meo-theme', theme);
-  }, [theme]);
 
   // Track active file history
   useEffect(() => {
@@ -2133,43 +2109,43 @@ function DashboardContent({ user }: { user: any }) {
 
     if (nodesToCompare.length < 2) {
       return (
-        <div className="p-8 bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col">
+        <div className="p-8 bg-card border border-border rounded-lg shadow-sm h-full flex flex-col">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
               <Share2 className="text-blue-500" size={20} />
               Project Comparison Setup
             </h3>
-            <p className="text-sm text-slate-500">Select at least two files from the list below to compare their project data side-by-side.</p>
+            <p className="text-sm text-muted">Select at least two files from the list below to compare their project data side-by-side.</p>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2">
             {allFiles.map(file => (
               <label 
                 key={file.id} 
-                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:border-blue-300 ${
-                  comparisonIds.includes(file.id) ? 'bg-blue-50 border-blue-400 ring-1 ring-blue-400' : 'bg-white border-slate-200'
+                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:border-accent/50 ${
+                  comparisonIds.includes(file.id) ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/50' : 'bg-card border-border'
                 }`}
               >
                 <input 
                   type="checkbox" 
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500"
                   checked={comparisonIds.includes(file.id)}
                   onChange={() => toggleComparisonId(file.id)}
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-slate-800 truncate">{file.name}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-tighter">
+                  <p className="text-sm font-bold text-foreground truncate">{file.name}</p>
+                  <p className="text-[10px] text-muted uppercase tracking-tighter">
                     {file.display_settings?.selectedYear || 'No Year Set'}
                   </p>
                 </div>
-                <FileText size={16} className={comparisonIds.includes(file.id) ? 'text-blue-500' : 'text-slate-300'} />
+                <FileText size={16} className={comparisonIds.includes(file.id) ? 'text-blue-500' : 'text-muted/30'} />
               </label>
             ))}
           </div>
           
           {comparisonIds.length === 1 && (
-            <div className="mt-6 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700 text-xs">
-              <div className="p-1 bg-amber-200 rounded-full"><Plus size={12} /></div>
+            <div className="mt-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-amber-600 text-xs font-medium">
+              <div className="p-1 bg-amber-500/20 rounded-full"><Plus size={12} /></div>
               Select one more file to enable the side-by-side comparison.
             </div>
           )}
@@ -2194,33 +2170,33 @@ function DashboardContent({ user }: { user: any }) {
     const sortedSections = Array.from(sectionMap.keys()).sort();
 
     return (
-      <div className="flex flex-col h-full border border-slate-200 rounded-lg bg-white overflow-hidden shadow-sm">
-        <div className="p-3 bg-slate-50 border-b flex justify-between items-center">
-          <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Side-by-Side Comparison</h3>
+      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
+        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
+          <h3 className="text-xs font-black uppercase tracking-widest text-muted">Side-by-Side Comparison</h3>
           <div className="flex gap-2">
             <button 
               onClick={() => setComparisonIds([])}
-              className="px-2 py-1 bg-white border border-slate-300 text-slate-600 text-[10px] font-bold rounded hover:bg-red-50 hover:text-red-600 transition-colors mr-2"
+              className="px-2 py-1 bg-card border border-border text-muted text-[10px] font-bold rounded hover:bg-red-500/10 hover:text-red-500 transition-colors mr-2"
             >
               Clear Selection
             </button>
             {nodesToCompare.map(n => (
-              <span key={n!.id} className="px-2 py-1 bg-blue-100 text-blue-700 text-[10px] font-bold rounded capitalize">{n!.name}</span>
+              <span key={n!.id} className="px-2 py-1 bg-blue-500/10 text-blue-500 border border-blue-500/20 text-[10px] font-bold rounded capitalize">{n!.name}</span>
             ))}
           </div>
         </div>
         <div className="flex-1 overflow-auto">
           <table className="min-w-full border-separate border-spacing-0 text-left">
-            <thead className="sticky top-0 bg-slate-100 z-10 shadow-sm">
+            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
               <tr>
-                <th className="p-3 text-[11px] font-bold border-r border-b text-slate-600 w-72 sticky left-0 bg-slate-100 z-20 shadow-[1px_0_0_0_#e2e8f0]">Title / Item</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground w-72 sticky left-0 bg-muted/10 z-20 shadow-[1px_0_0_0_var(--color-border)]">Title / Item</th>
                 {nodesToCompare.map(n => (
                   <Fragment key={n!.id}>
-                    <th className="p-3 text-[11px] font-bold border-r border-b text-blue-600 text-right">Amount ({n!.name})</th>
-                    <th className="p-3 text-[11px] font-bold border-r border-b text-slate-400">Status/Loc</th>
+                    <th className="p-3 text-[11px] font-bold border-r border-b border-border text-blue-500 text-right">Amount ({n!.name})</th>
+                    <th className="p-3 text-[11px] font-bold border-r border-b border-border text-muted">Status/Loc</th>
                   </Fragment>
                 ))}
-                <th className="p-3 text-[11px] font-bold border-b bg-green-50 text-green-700 text-right">Variance</th>
+                <th className="p-3 text-[11px] font-bold border-b border-border bg-green-500/5 text-green-600 text-right">Variance</th>
               </tr>
             </thead>
             <tbody>
@@ -2229,8 +2205,8 @@ function DashboardContent({ user }: { user: any }) {
                 
                 return (
                   <Fragment key={sectionName}>
-                    <tr className="bg-slate-100/80">
-                      <td colSpan={2 + nodesToCompare.length * 2} className="px-3 py-1 border-b border-slate-200 font-black text-slate-800 tracking-widest text-[11px] uppercase sticky left-0 z-10 bg-slate-100 shadow-[1px_0_0_0_#e2e8f0]">
+                    <tr className="bg-muted/20">
+                      <td colSpan={2 + nodesToCompare.length * 2} className="px-3 py-1 border-b border-border font-black text-foreground tracking-widest text-[11px] uppercase sticky left-0 z-10 bg-muted/20 shadow-[1px_0_0_0_var(--color-border)]">
                         Section: {sectionName}
                       </td>
                     </tr>
@@ -2245,19 +2221,19 @@ function DashboardContent({ user }: { user: any }) {
                       const variance = amount2 - amount1;
 
                       return (
-                        <tr key={`${sectionName}-${title}`} className="hover:bg-slate-50 border-b border-slate-100 transition-colors">
-                          <td className="p-3 text-sm font-medium text-slate-800 border-r bg-white sticky left-0 z-10 shadow-[1px_0_0_0_#e2e8f0]">{title}</td>
+                        <tr key={`${sectionName}-${title}`} className="hover:bg-muted/5 border-b border-border transition-colors">
+                          <td className="p-3 text-sm font-medium text-foreground border-r border-border bg-card sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]">{title}</td>
                           {values.map((v, idx) => (
                             <Fragment key={idx}>
-                              <td className="p-3 text-sm font-mono text-right border-r">
-                          {v ? Number(v.Amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-slate-300">-</span>}
+                              <td className="p-3 text-sm font-mono text-right border-r border-border text-foreground">
+                          {v ? Number(v.Amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-muted/30">-</span>}
                               </td>
-                              <td className="p-3 text-[10px] text-slate-500 italic border-r truncate max-w-30">
+                              <td className="p-3 text-[10px] text-muted italic border-r border-border truncate max-w-30">
                                 {v?.Location || v?.Allocation || ""}
                               </td>
                             </Fragment>
                           ))}
-                          <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                          <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-muted/40'}`}>
                       {variance === 0 ? "0.00" : (variance > 0 ? "+" : "") + variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
@@ -2821,15 +2797,15 @@ function DashboardContent({ user }: { user: any }) {
                   <ZoomIn size={14} />
                 </button>
               </div>
-              <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
+            <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
                 <Plus size={14} className="text-green-600" /> Add Section
               </button>
-              <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground" title="Reset all columns to auto-width">
+            <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground" title="Reset all columns to auto-width">
                 <RefreshCcw size={14} /> Reset Widths
               </button>
             </div>
             <div className="flex items-center gap-2 shrink-0 ml-4">
-              <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 transition-colors shadow-sm text-foreground">
+            <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
                 <HardDrive size={14} /> Export CSV
               </button>
             </div>
@@ -3204,7 +3180,7 @@ function DashboardContent({ user }: { user: any }) {
                         setActiveCell({ row: 0, col: visibleHeaders[0] });
                       }
                     }}
-                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_rgba(0,0,0,0.05)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}
+                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}
                   >
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
                   </th>
@@ -3252,7 +3228,7 @@ function DashboardContent({ user }: { user: any }) {
                           width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
-                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer transition-colors bg-card ${
+                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${
                           isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
                           isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
@@ -3320,7 +3296,7 @@ function DashboardContent({ user }: { user: any }) {
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                     }}
-                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased transition-colors ${
+                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${
                       isColumnActive ? 'text-accent bg-accent/5' : 'text-muted bg-muted/10'
                     } ${
                       isFreezePanes && header === "Title / Item" ? "sticky left-10 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
@@ -3330,7 +3306,7 @@ function DashboardContent({ user }: { user: any }) {
                         <input
                           defaultValue={header}
                           onBlur={(e) => handleRenameColumn(header, e.target.value)}
-                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 transition-colors ${alignClass}`}
+                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
                         />
                       </div>
                       </th>
@@ -3350,7 +3326,7 @@ function DashboardContent({ user }: { user: any }) {
                         placeholder="Add Column..."
                         className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
                       />
-                      <Plus size={14} className="text-accent/60" />
+                      <Plus size={14} className="text-accent/60 shrink-0" />
                     </div>
                   </th>
                 </tr>
@@ -3457,7 +3433,7 @@ function DashboardContent({ user }: { user: any }) {
             {showBackToTop && (
               <button 
                 onClick={scrollToTop}
-                className="fixed bottom-10 right-10 p-3 bg-blue-600 text-white rounded-full shadow-2xl hover:bg-blue-700 transition-all z-50 animate-in fade-in zoom-in duration-300 group"
+                className="fixed bottom-10 right-10 p-3 bg-accent text-accent-foreground rounded-full shadow-2xl hover:opacity-90 transition-all z-50 animate-in fade-in zoom-in duration-300 group"
                 title="Back to Top"
               >
                 <ArrowUp size={20} className="group-hover:-translate-y-1 transition-transform" />
@@ -3480,7 +3456,7 @@ function DashboardContent({ user }: { user: any }) {
           </p>
           <button 
             onClick={() => setViewMode('code')}
-            className="px-6 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors shadow-sm"
+            className="px-6 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:opacity-90 transition-all shadow-sm"
           >
             Switch to JSON Code to Fix
           </button>
@@ -3508,10 +3484,10 @@ function DashboardContent({ user }: { user: any }) {
             isExplorerVisible 
               ? 'fixed md:relative left-0 top-0 h-full md:h-auto translate-x-0 opacity-100 flex' 
               : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
-          } transition-all duration-300`}>
+          } transition-[transform,opacity] duration-300`}>
             <button
               onClick={() => setIsExplorerVisible(!isExplorerVisible)}
-              className={`p-2 rounded-lg transition-all group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+              className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               {isExplorerVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
               <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -3520,7 +3496,7 @@ function DashboardContent({ user }: { user: any }) {
             </button>
             <div className="h-px w-6 bg-border" />
             <button 
-              className={`p-2 rounded-lg transition-all group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
+              className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
               onClick={() => !isExplorerVisible && setIsExplorerVisible(true)}
             >
               <Folder size={20} />
@@ -3528,7 +3504,7 @@ function DashboardContent({ user }: { user: any }) {
                 Project Explorer
               </div>
             </button>
-            <button className="p-2 text-muted hover:text-foreground transition-all group relative">
+            <button className="p-2 text-muted hover:text-foreground group relative">
               <Search size={20} />
               <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
                 Search System
@@ -3542,7 +3518,7 @@ function DashboardContent({ user }: { user: any }) {
                     <button
                       key={`recent-${node.id}`}
                       onClick={() => setSelectedId(node.id)}
-                      className={`p-1.5 rounded transition-all group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+                      className={`p-1.5 rounded group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
                     >
                       <FileText size={16} />
                       <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -3555,7 +3531,7 @@ function DashboardContent({ user }: { user: any }) {
               <div className="h-px w-6 bg-border self-center" />
               <button 
                 onClick={() => setShowProfileModal(true)}
-                className="p-2 text-muted hover:text-accent transition-all group relative"
+                className="p-2 text-muted hover:text-accent group relative"
               >
                 {profileAvatar ? (
                   <div className="w-6 h-6 rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors shadow-inner">
@@ -3570,7 +3546,7 @@ function DashboardContent({ user }: { user: any }) {
               </button>
               <button 
                 onClick={toggleTheme}
-                className="p-2 text-muted hover:text-accent transition-all group relative"
+                className="p-2 text-muted hover:text-accent group relative"
               >
                 {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
                 <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -3582,7 +3558,7 @@ function DashboardContent({ user }: { user: any }) {
               
               <button 
                 onClick={handleLogout}
-                className="p-2 text-muted hover:text-red-500 transition-all group relative"
+                className="p-2 text-muted hover:text-red-500 group relative"
               >
                 <LogOut size={20}/>
                 <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -3595,7 +3571,7 @@ function DashboardContent({ user }: { user: any }) {
           {/* Explorer Drawer Panel */}
           {isExplorerVisible && (
             <div 
-              className="md:hidden fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] z-40"
+              className="md:hidden fixed inset-0 bg-background/80 backdrop-blur-[2px] z-40"
               onClick={() => setIsExplorerVisible(false)}
             />
           )}
@@ -3618,13 +3594,13 @@ function DashboardContent({ user }: { user: any }) {
               </div>
             </div>
             <div className="mb-4 relative group min-w-55">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" />
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent" />
               <input 
                 type="text" 
                 placeholder="Filter nodes..." 
                 value={explorerSearch}
                 onChange={(e) => setExplorerSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground transition-all"
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
               />
             </div>
             <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55">
@@ -3679,7 +3655,7 @@ function DashboardContent({ user }: { user: any }) {
                   <nav className={GRID_THEME.navContainer}>
                     <button 
                       onClick={() => setViewMode('table')}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
                         viewMode === 'table' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
                       }`}
                     >
@@ -3687,7 +3663,7 @@ function DashboardContent({ user }: { user: any }) {
                     </button>
                     <button 
                       onClick={() => setViewMode('code')}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
                         viewMode === 'code' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
                       }`}
                     >
@@ -3695,7 +3671,7 @@ function DashboardContent({ user }: { user: any }) {
                     </button>
                     <button 
                       onClick={() => setViewMode('compare')}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded transition-all ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
                         viewMode === 'compare' ? 'bg-card text-green-600 shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
                       }`}
                     >
@@ -3711,7 +3687,7 @@ function DashboardContent({ user }: { user: any }) {
                   <button 
                     onClick={handleSave}
                     disabled={isSaving}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 transition-all disabled:opacity-50 shadow-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 disabled:opacity-50 shadow-sm"
                   >
                     {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
                     {isSaving ? 'Saving...' : 'Save'}
@@ -3817,7 +3793,7 @@ function DashboardContent({ user }: { user: any }) {
                         handleUpdateCell(dropdownMenu.row, dropdownMenu.col, opt);
                         setDropdownMenu(null);
                       }}
-                      className={`w-full text-left px-4 py-2 transition-colors flex items-center justify-between group ${
+                      className={`w-full text-left px-4 py-2 flex items-center justify-between group ${
                         isSelected 
                         ? 'bg-accent/10 text-accent font-bold' 
                         : 'hover:bg-muted/10 text-foreground hover:text-accent'
@@ -3834,7 +3810,7 @@ function DashboardContent({ user }: { user: any }) {
                     handleUpdateCell(dropdownMenu.row, dropdownMenu.col, "");
                     setDropdownMenu(null);
                   }}
-                  className="w-full text-left px-4 py-2 text-muted hover:text-red-500 hover:bg-red-500/5 transition-colors italic"
+                  className="w-full text-left px-4 py-2 text-muted hover:text-red-500 hover:bg-red-500/5 italic"
                 >
                   Clear Selection
                 </button>
@@ -3845,7 +3821,7 @@ function DashboardContent({ user }: { user: any }) {
         {/* Media Preview Modal */}
         {viewingMedia && (
           <div 
-            className="fixed inset-0 z-200 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" 
+            className="fixed inset-0 z-200 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200" 
             onClick={() => setViewingMedia(null)}
           >
             <div 
@@ -4048,6 +4024,32 @@ function DashboardContent({ user }: { user: any }) {
 export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [status, setStatus] = useState<'loading' | 'unauthorized' | 'ready'>('loading');
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+
+  // Theme Management Logic
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('meo-theme') as 'light' | 'dark';
+    if (savedTheme) setTheme(savedTheme);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('meo-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    const next = theme === 'light' ? 'dark' : 'light';
+    
+    // @ts-ignore - View Transitions API support
+    if (!document.startViewTransition) {
+      setTheme(next);
+      return;
+    }
+
+    // @ts-ignore
+    document.startViewTransition(() => setTheme(next));
+  }, [theme]);
 
   useEffect(() => {
     const checkAuth = async (currentSession: any) => {
@@ -4090,8 +4092,8 @@ export default function Dashboard() {
   if (!session || status === 'unauthorized') return <LoginPage />;
 
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center text-slate-400 font-sans">Loading Dashboard...</div>}>
-      <DashboardContent user={session.user} />
+    <Suspense fallback={<div className="flex h-screen items-center justify-center text-muted font-sans animate-pulse uppercase tracking-widest text-xs font-black">Loading Dashboard...</div>}>
+      <DashboardContent user={session.user} theme={theme} toggleTheme={toggleTheme} />
     </Suspense>
   );
 }
