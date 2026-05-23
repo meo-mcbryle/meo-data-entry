@@ -236,6 +236,7 @@ interface GridRowProps {
   handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
   onMeasuredHeight: (index: number, height: number) => void;
   masterColumnOrder: string[];
+  zoom: number;
 }
 
 const GridRow = React.memo(({ 
@@ -245,7 +246,7 @@ const GridRow = React.memo(({
   setActiveCell, setSelection, setIsSelecting, onOpenContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder
+  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder, zoom
 }: GridRowProps) => {
   const rowRef = useRef<HTMLTableRowElement>(null);
   const isRowActive = activeCell?.row === globalIndex;
@@ -260,8 +261,11 @@ const GridRow = React.memo(({
     if (!el) return;
 
     const observer = new ResizeObserver(() => {
-      // Use getBoundingClientRect for sub-pixel accuracy
-      const actualHeight = el.getBoundingClientRect().height;
+      /**
+       * Fix: Normalize height by zoom factor to prevent infinite enlargement loop.
+       * getBoundingClientRect returns physical pixels, we need logical CSS pixels.
+       */
+      const actualHeight = el.getBoundingClientRect().height / zoom;
       const currentHeight = rowHeights[String(globalIndex)] || 40;
       
       // Only update if the difference is significant to avoid rounding loops
@@ -272,7 +276,7 @@ const GridRow = React.memo(({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [globalIndex, onMeasuredHeight, rowHeights]);
+  }, [globalIndex, onMeasuredHeight, rowHeights, zoom]);
 
   return (
     <tr 
@@ -529,7 +533,8 @@ const GridRow = React.memo(({
     prev.isFreezePanes === next.isFreezePanes &&
     prev.visibleHeaders === next.visibleHeaders &&
     prev.dragFillRange === next.dragFillRange &&
-    prev.masterColumnOrder === next.masterColumnOrder
+    prev.masterColumnOrder === next.masterColumnOrder &&
+    prev.zoom === next.zoom
   );
 });
 
@@ -3419,6 +3424,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                       handleOpenDropdown={handleOpenDropdown}
                       onMeasuredHeight={onMeasuredHeight}
                       masterColumnOrder={masterColumnOrder}
+                      zoom={zoom}
                     />
                   );
                 })}
