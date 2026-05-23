@@ -234,6 +234,7 @@ interface GridRowProps {
   rowHeights: Record<string, number>;
   startRowResizing: (row: number, e: React.MouseEvent) => void;
   handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
+  onMeasuredHeight: (index: number, height: number) => void;
   masterColumnOrder: string[];
 }
 
@@ -244,16 +245,41 @@ const GridRow = React.memo(({
   setActiveCell, setSelection, setIsSelecting, onOpenContextMenu,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing, handleOpenDropdown, masterColumnOrder
+  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder
 }: GridRowProps) => {
+  const rowRef = useRef<HTMLTableRowElement>(null);
   const isRowActive = activeCell?.row === globalIndex;
   const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
   const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
   const selMinColIdx = selection ? Math.min(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
   const selMaxColIdx = selection ? Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
 
+  // Dynamic Height Measurement: Use ResizeObserver to detect the actual rendered height
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => {
+      // Use getBoundingClientRect for sub-pixel accuracy
+      const actualHeight = el.getBoundingClientRect().height;
+      const currentHeight = rowHeights[String(globalIndex)] || 40;
+      
+      // Only update if the difference is significant to avoid rounding loops
+      if (actualHeight > 0 && Math.abs(currentHeight - actualHeight) > 0.5) {
+        onMeasuredHeight(globalIndex, actualHeight);
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [globalIndex, onMeasuredHeight, rowHeights]);
+
   return (
-    <tr className={GRID_THEME.tableBodyRow} style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}>
+    <tr 
+      ref={rowRef}
+      className={GRID_THEME.tableBodyRow} 
+      style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}
+    >
       <td
         className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'} ${
           isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
@@ -543,6 +569,14 @@ function DashboardContent() {
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
   const DEFAULT_ROW_HEIGHT = 40; // Matches min-h-7 (28px) + py-1.5 (12px) = 40px
+
+  const onMeasuredHeight = useCallback((index: number, height: number) => {
+    setRowHeights(prev => {
+      const current = prev[String(index)];
+      if (current !== undefined && Math.abs(current - height) < 0.5) return prev;
+      return { ...prev, [String(index)]: height };
+    });
+  }, []);
 
   // Virtualization Performance: Use requestAnimationFrame for scroll updates.
   const scrollRafRef = useRef<number | null>(null);
@@ -3260,6 +3294,7 @@ function DashboardContent() {
                       rowHeights={rowHeights}
                       startRowResizing={startRowResizing}
                       handleOpenDropdown={handleOpenDropdown}
+                      onMeasuredHeight={onMeasuredHeight}
                       masterColumnOrder={masterColumnOrder}
                     />
                   );
