@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById, CellMetadata, GridRowData } from '@/lib/tree-utils';
 import { toA1Key, fromA1Key, getExcelColumnLabel, hydrateMapToArray, dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord } from '@/lib/excel-utils';
 import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical } from 'lucide-react';
+import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical, Lock, Mail, LogIn, LogOut } from 'lucide-react';
 
 /**
  * Theme Registry: Centralized class management for Dark/Light mode consistency.
@@ -14,7 +14,7 @@ import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, T
 const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
-  rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-20 border-r border-border",
+  rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
   drawer: "bg-card flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
   
@@ -533,7 +533,68 @@ const GridRow = React.memo(({
   );
 });
 
-function DashboardContent() {
+/**
+ * LoginPage: Secure entry point for the MEO Data Entry system.
+ */
+const LoginPage = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-size-[32px_32px]">
+      <div className="w-full max-w-md p-8 bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
+        <div className="flex flex-col items-center mb-8">
+          <div className="p-4 bg-accent/10 text-accent rounded-2xl mb-4 shadow-inner">
+            <TableIcon size={32} />
+          </div>
+          <h1 className="text-2xl font-black text-foreground tracking-tight">MEO Data Entry</h1>
+          <p className="text-sm text-muted font-medium mt-1 uppercase tracking-[0.2em]">LGU Labason System</p>
+        </div>
+
+        <form onSubmit={handleAuth} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Email Address</label>
+            <div className="relative group">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={18} />
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@labason.gov.ph" className="w-full pl-10 pr-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Password</label>
+            <div className="relative group">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={18} />
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full pl-10 pr-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm" />
+            </div>
+          </div>
+          {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs font-medium">{error}</div>}
+          <button type="submit" disabled={loading} className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold text-sm shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2">
+            {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
+            Sign In to System
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+function DashboardContent({ user }: { user: any }) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -564,6 +625,25 @@ function DashboardContent() {
   const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
   const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[] } | null>(null);
+  
+  // Profile State
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileName, setProfileName] = useState(user?.user_metadata?.full_name || '');
+  const [profileAvatar, setProfileAvatar] = useState(user?.user_metadata?.avatar_url || '');
+  const [profileEmail, setProfileEmail] = useState(user?.email || '');
+  const [profilePassword, setProfilePassword] = useState('');
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  // Sync profile state when opening modal
+  useEffect(() => {
+    if (showProfileModal) {
+      setProfileName(user?.user_metadata?.full_name || '');
+      setProfileAvatar(user?.user_metadata?.avatar_url || '');
+      setProfileEmail(user?.email || '');
+      setProfilePassword('');
+    }
+  }, [showProfileModal, user]);
 
   // Virtualization State
   const [scrollTop, setScrollTop] = useState(0);
@@ -2527,6 +2607,73 @@ function DashboardContent() {
     setRowCount(4);
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsUpdatingProfile(true);
+    try {
+      // 1. Capture the current avatar URL to check if it needs deletion from storage
+      const oldAvatarUrl = profileAvatar;
+      const isSupabaseUrl = oldAvatarUrl?.includes('/storage/v1/object/public/attachments/avatars/');
+
+      // Use a distinct path for avatars within the 'attachments' bucket
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(filePath);
+
+      setProfileAvatar(publicUrl);
+
+      // 2. If the new upload was successful, delete the old image from storage
+      if (isSupabaseUrl) {
+        const oldPath = oldAvatarUrl.split('/attachments/')[1];
+        if (oldPath) await supabase.storage.from('attachments').remove([oldPath]);
+      }
+    } catch (err: any) {
+      alert('Error uploading avatar: ' + err.message);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
+  const handleUpdateProfile = async () => {
+    setIsUpdatingProfile(true);
+    try {
+      const updateData: any = {
+        data: { full_name: profileName, avatar_url: profileAvatar }
+      };
+      
+      if (profileEmail !== user?.email) updateData.email = profileEmail;
+      if (profilePassword && profilePassword.length >= 6) updateData.password = profilePassword;
+
+      const { error } = await supabase.auth.updateUser(updateData);
+      if (error) throw error;
+
+      if (profileEmail !== user?.email) {
+        alert("Profile updated. A confirmation link has been sent to your new email address.");
+      }
+      setShowProfileModal(false);
+      setProfilePassword('');
+    } catch (err: any) {
+      alert(err.message);
+    }
+    setIsUpdatingProfile(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
   const renderTableEditor = () => {
     try {
       if (isLoadingFile) {
@@ -3353,31 +3500,39 @@ function DashboardContent() {
   useEffect(() => { fetchFiles(); }, []);
 
   return (
-    <main className={`${GRID_THEME.main} relative`}>
+      <main className={`${GRID_THEME.main} relative antialiased`}>
       {!isFullScreen && (
         <div className="flex h-full shrink-0 relative">
           {/* Vertical Icon Rail (Light Theme) */}
           <div className={`${GRID_THEME.rail} ${
             isExplorerVisible 
-              ? 'fixed md:relative left-0 top-0 h-full md:h-auto z-50 translate-x-0 opacity-100 flex' 
+              ? 'fixed md:relative left-0 top-0 h-full md:h-auto translate-x-0 opacity-100 flex' 
               : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
           } transition-all duration-300`}>
             <button
               onClick={() => setIsExplorerVisible(!isExplorerVisible)}
-              className={`p-2 rounded-lg transition-all ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
-              title={isExplorerVisible ? "Collapse Sidebar" : "Expand Sidebar"}
+              className={`p-2 rounded-lg transition-all group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               {isExplorerVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                {isExplorerVisible ? "Collapse Sidebar" : "Expand Sidebar"}
+              </div>
             </button>
             <div className="h-px w-6 bg-border" />
             <button 
-              className={`p-2 rounded-lg transition-all ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
+              className={`p-2 rounded-lg transition-all group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
               onClick={() => !isExplorerVisible && setIsExplorerVisible(true)}
             >
               <Folder size={20} />
+              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                Project Explorer
+              </div>
             </button>
-            <button className="p-2 text-muted hover:text-foreground transition-all" title="Search (Coming Soon)">
+            <button className="p-2 text-muted hover:text-foreground transition-all group relative">
               <Search size={20} />
+              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                Search System
+              </div>
             </button>
             <div className="mt-auto flex flex-col gap-4">
               {recentNodes.length > 0 && (
@@ -3399,13 +3554,41 @@ function DashboardContent() {
               )}
               <div className="h-px w-6 bg-border self-center" />
               <button 
+                onClick={() => setShowProfileModal(true)}
+                className="p-2 text-muted hover:text-accent transition-all group relative"
+              >
+                {profileAvatar ? (
+                  <div className="w-6 h-6 rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors shadow-inner">
+                    <img src={profileAvatar} alt="Profile" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <User size={20} />
+                )}
+                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                  Profile Settings
+                </div>
+              </button>
+              <button 
                 onClick={toggleTheme}
-                className="p-2 text-muted hover:text-accent transition-all"
-                title={theme === 'light' ? "Switch to Dark Mode" : "Switch to Light Mode"}
+                className="p-2 text-muted hover:text-accent transition-all group relative"
               >
                 {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                  {theme === 'light' ? "Dark Mode" : "Light Mode"}
+                </div>
               </button>
-              <button className="p-2 text-muted hover:text-foreground transition-all"><User size={20}/></button>
+              
+              <div className="h-px w-6 bg-border self-center" />
+              
+              <button 
+                onClick={handleLogout}
+                className="p-2 text-muted hover:text-red-500 transition-all group relative"
+              >
+                <LogOut size={20}/>
+                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                  Sign Out
+                </div>
+              </button>
             </div>
           </div>
 
@@ -3771,15 +3954,144 @@ function DashboardContent() {
             </div>
           </div>
         )}
+
+        {/* Profile Settings Modal */}
+        {showProfileModal && (
+          <div className="fixed inset-0 z-300 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-border bg-muted/5 flex justify-between items-center">
+                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-foreground">User Profile</h3>
+                <button onClick={() => setShowProfileModal(false)} className="p-1 text-muted hover:text-foreground"><X size={20} /></button>
+              </div>
+              <div className="p-8 space-y-6">
+                <div className="flex flex-col items-center">
+                  <div 
+                    className="w-24 h-24 rounded-2xl bg-accent/10 border-2 border-accent/20 flex items-center justify-center text-accent overflow-hidden mb-4 shadow-inner cursor-pointer group relative"
+                    onClick={() => avatarFileInputRef.current?.click()}
+                    title="Click to upload new photo"
+                  >
+                    {profileAvatar ? (
+                      <img src={profileAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <User size={48} />
+                    )}
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <ImageIcon size={24} className="text-white" />
+                    </div>
+                  </div>
+                  <input type="file" ref={avatarFileInputRef} onChange={handleAvatarUpload} className="hidden" accept="image/*" />
+                  <h4 className="font-bold text-lg text-foreground">{profileName || 'MEO Administrator'}</h4>
+                  <p className="text-xs text-muted font-mono">{user?.email}</p>
+                  <span className="mt-2 px-2 py-0.5 bg-accent/20 text-accent text-[9px] font-black uppercase rounded tracking-widest">
+                    {user?.app_metadata?.role || 'User'}
+                  </span>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Full Name</label>
+                    <input 
+                      type="text" 
+                      value={profileName} 
+                      onChange={(e) => setProfileName(e.target.value)} 
+                      placeholder="e.g. Juan Dela Cruz"
+                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Email Address</label>
+                    <input 
+                      type="email" 
+                      value={profileEmail} 
+                      onChange={(e) => setProfileEmail(e.target.value)} 
+                      placeholder="admin@labason.gov.ph"
+                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">New Password</label>
+                    <input 
+                      type="password" 
+                      value={profilePassword} 
+                      onChange={(e) => setProfilePassword(e.target.value)} 
+                      placeholder="Leave blank to keep current"
+                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    onClick={() => setShowProfileModal(false)}
+                    className="flex-1 py-3 border border-border text-foreground rounded-xl font-bold text-xs hover:bg-muted/10 transition-all uppercase tracking-widest"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    onClick={handleUpdateProfile}
+                    disabled={isUpdatingProfile}
+                    className="flex-1 py-3 bg-accent text-accent-foreground rounded-xl font-bold text-xs shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 uppercase tracking-widest"
+                  >
+                    {isUpdatingProfile ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                    Update Profile
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );
 }
 
 export default function Dashboard() {
+  const [session, setSession] = useState<any>(null);
+  const [status, setStatus] = useState<'loading' | 'unauthorized' | 'ready'>('loading');
+
+  useEffect(() => {
+    const checkAuth = async (currentSession: any) => {
+      if (!currentSession) {
+        setSession(null);
+        setStatus('unauthorized');
+        return;
+      }
+
+      // Security Check: Verify Admin Role in app_metadata
+      // Note: You must set the user's role to 'admin' in the Supabase Auth dashboard
+      const isAuthorized = currentSession.user?.app_metadata?.role === 'admin';
+      
+      if (!isAuthorized) {
+        await supabase.auth.signOut();
+        alert("Access Denied: This account does not have administrator privileges for the MEO Data Entry system.");
+        setSession(null);
+        setStatus('unauthorized');
+      } else {
+        setSession(currentSession);
+        setStatus('ready');
+      }
+    };
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => checkAuth(session));
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => checkAuth(session));
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (status === 'loading') {
+    return <div className="flex h-screen items-center justify-center bg-background text-muted text-xs font-black uppercase tracking-[0.3em] animate-pulse">
+      Verifying Encrypted Session...
+    </div>;
+  }
+
+  if (!session || status === 'unauthorized') return <LoginPage />;
+
   return (
     <Suspense fallback={<div className="flex h-screen items-center justify-center text-slate-400 font-sans">Loading Dashboard...</div>}>
-      <DashboardContent />
+      <DashboardContent user={session.user} />
     </Suspense>
   );
 }
