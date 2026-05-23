@@ -542,19 +542,15 @@ function DashboardContent() {
   // Virtualization State
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
-  const DEFAULT_ROW_HEIGHT = 32; // Standard height for our rows
+  const DEFAULT_ROW_HEIGHT = 40; // Matches min-h-7 (28px) + py-1.5 (12px) = 40px
 
   // Virtualization Performance: Use requestAnimationFrame for scroll updates.
   const scrollRafRef = useRef<number | null>(null);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-
-    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
-    scrollRafRef.current = requestAnimationFrame(() => {
-      setScrollTop(top);
-      setShowBackToTop(top > 300);
-    });
+    setScrollTop(top);
+    setShowBackToTop(top > 300);
   }, []);
 
   useEffect(() => {
@@ -926,13 +922,13 @@ function DashboardContent() {
       if (block.name !== "") {
         offsets.push(currentOffset);
         items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
-        currentOffset += 32; // Header is h-8 (32px)
+        currentOffset += 40; // Synced with row height to prevent scroll drift
       }
 
       block.indices.forEach(idx => {
         offsets.push(currentOffset);
         items.push({ type: 'row', index: idx });
-        currentOffset += (rowHeights[String(idx)] || 32);
+        currentOffset += (rowHeights[String(idx)] || 40);
       });
     });
 
@@ -2552,7 +2548,7 @@ function DashboardContent() {
 
       // Buffer (Overscan): Fixed buffers prevent "jumping" caused by dynamic index shifts.
       // We use a generous overscan to handle fast scrolling without layout thrashing.
-      const overscanTop = 20;
+      const overscanTop = 30;
       const overscanBottom = 40; 
       
       const startIndex = Math.max(0, startIdx - overscanTop);
@@ -2965,7 +2961,7 @@ function DashboardContent() {
           />
 
           {/* Formula Bar - Relocated for a cleaner grid view */}
-          <div className={`${GRID_THEME.formulaBar} min-h-[38px]`}>
+          <div className={`${GRID_THEME.formulaBar} min-h-9.5`}>
             <div 
               id="address-indicator"
               className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
@@ -2999,6 +2995,7 @@ function DashboardContent() {
             style={{ 
               scrollbarGutter: 'stable',
               overflowAnchor: 'none', // Prevents browser from trying to "correct" scroll position
+              willChange: 'scroll-position',
               '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
             } as any}
           >
@@ -3186,7 +3183,7 @@ function DashboardContent() {
                   return (
                       <tr 
                         key={`section-${item.name}-${item.blockIdx}`} 
-                        className="bg-muted/30 group/section transition-colors h-8"
+                        className="bg-muted/30 group/section transition-colors h-10"
                         onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
                       >
                         <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
