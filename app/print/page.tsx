@@ -3,13 +3,14 @@ import React, { useEffect, useState, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { FileNode } from '@/lib/tree-utils';
-import { FileText, Printer, Check, Table } from 'lucide-react';
+import { FileText, Printer, Check, Table, Settings2, Columns, LayoutList, ChevronDown, ChevronUp } from 'lucide-react';
 import { toA1Key } from '@/lib/excel-utils';
 
 function PrintContent() {
   const searchParams = useSearchParams();
   const [node, setNode] = useState<FileNode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [visibleSections, setVisibleSections] = useState<string[]>([]);
   const [printHiddenColumns, setPrintHiddenColumns] = useState<string[]>([]);
 
@@ -179,6 +180,11 @@ function PrintContent() {
     return value;
   };
 
+  const formatCurrency = (val: any) => {
+    const num = Number(val);
+    return isNaN(num) ? "0.00" : num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   const year = node.display_settings?.selectedYear || '2020';
   
   // Logic to handle dynamic headers just like the Excel view
@@ -194,113 +200,125 @@ function PrintContent() {
   );
 
   return (
-    <div className="p-10 min-h-screen bg-white font-serif text-slate-900">
+    <div className="p-8 md:p-12 min-h-screen bg-white font-serif text-slate-900 leading-tight">
       {/* Landscape Print Styling */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           @page { size: landscape; margin: 0.4in; }
           thead { display: table-header-group; }
           tr { page-break-inside: avoid; }
-          body { -webkit-print-color-adjust: exact; }
+          body { -webkit-print-color-adjust: exact; background-color: white !important; }
           .no-print { display: none; }
+          .print-compact { font-size: 8pt !important; }
         }
       `}} />
 
       {/* Print Configuration Panel (Visible only on screen) */}
-      <div className="no-print mb-8 p-6 bg-slate-50 border border-slate-200 rounded-xl shadow-sm font-sans">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Table className="text-blue-600" size={20} />
-            <h3 className="font-bold text-slate-800 text-lg tracking-tight">Report Configuration</h3>
+      <div className="no-print mb-10 font-sans sticky top-4 z-50">
+        <div className="bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300">
+          <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-slate-900 text-white rounded-lg">
+                  <FileText size={14} />
+                </div>
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-widest">Document Preview</h3>
+              </div>
+              <button 
+                onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 rounded-lg text-slate-500 text-[10px] font-bold uppercase transition-colors"
+              >
+                <Settings2 size={14} />
+                {isSettingsOpen ? 'Hide Controls' : 'Customize Report'}
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={() => window.close()} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase">Cancel</button>
+              <button 
+                onClick={() => window.print()}
+                className="flex items-center gap-2 px-5 py-2 bg-slate-900 text-white rounded-xl font-bold text-[10px] hover:bg-slate-800 transition-all shadow-lg active:scale-95 uppercase tracking-wider"
+              >
+                <Printer size={14} /> Print Report
+              </button>
+            </div>
           </div>
-          <button 
-            onClick={() => window.print()}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-all shadow-md active:scale-95"
-          >
-            <Printer size={18} />
-            Generate PDF / Print
-          </button>
-        </div>
-        
-        <p className="text-sm text-slate-500 mb-4">Toggle the project sections you wish to include in the printed report:</p>
-        
-        <div className="flex flex-wrap gap-3">
-          {allAvailableSections.map(section => (
-            <button
-              key={section}
-              onClick={() => {
-                setVisibleSections(prev => 
-                  prev.includes(section) ? prev.filter(s => s !== section) : [...prev, section]
-                );
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-                visibleSections.includes(section)
-                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-100'
-                  : 'bg-white border-slate-200 text-slate-400 hover:border-blue-300'
-              }`}
-            >
-              {visibleSections.includes(section) && <Check size={12} />}
-              {section}
-            </button>
-          ))}
-        </div>
-
-        <div className="h-px bg-slate-200 my-6" />
-
-        <p className="text-sm text-slate-500 mb-4">Toggle the columns you wish to include in the printed report:</p>
-        <div className="flex flex-wrap gap-3">
-          {allHeaders.filter(h => h !== 'section').map(header => (
-            <button
-              key={header}
-              onClick={() => {
-                setPrintHiddenColumns(prev => 
-                  prev.includes(header) ? prev.filter(h => h !== header) : [...prev, header]
-                );
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all border ${
-                !printHiddenColumns.includes(header)
-                  ? 'bg-blue-600 border-blue-600 text-white shadow-sm ring-2 ring-blue-100'
-                  : 'bg-white border-slate-200 text-slate-400 hover:border-blue-300'
-              }`}
-            >
-              {!printHiddenColumns.includes(header) && <Check size={12} />}
-              {header}
-            </button>
-          ))}
+          
+          <div className={`px-6 py-6 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 gap-8 transition-all ${isSettingsOpen ? 'block animate-in slide-in-from-top-2' : 'hidden'}`}>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                <LayoutList size={12} /> Included Sections
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {allAvailableSections.map(section => (
+                  <button
+                    key={section}
+                    onClick={() => setVisibleSections(prev => prev.includes(section) ? prev.filter(s => s !== section) : [...prev, section])}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                      visibleSections.includes(section) ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-400'
+                    }`}
+                  >
+                    {section}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                <Columns size={12} /> Column Visibility
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {allHeaders.filter(h => h !== 'section').map(header => (
+                  <button
+                    key={header}
+                    onClick={() => setPrintHiddenColumns(prev => prev.includes(header) ? prev.filter(h => h !== header) : [...prev, header])}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                      !printHiddenColumns.includes(header) ? 'bg-slate-900 border-slate-900 text-white shadow-md' : 'bg-white border-slate-200 text-slate-400 hover:border-slate-400'
+                    }`}
+                  >
+                    {header}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Professional Header */}
-      <div className="border-b-4 border-double border-slate-900 pb-3 mb-6 flex justify-between items-end">
-        <div>
-          <p className="text-[10px] font-sans font-bold text-blue-700 mb-0.5 tracking-[0.25em]">REPUBLIC OF THE PHILIPPINES</p>
-          <h1 className="text-3xl font-black tracking-tight">{node.name}</h1>
-          <p className="text-xs font-sans text-slate-500 mt-0.5 italic">Consolidated Summary • Fiscal Year {year}</p>
+      <div className="flex justify-between items-start mb-10 border-b-2 border-slate-900 pb-6">
+        <div className="flex items-center gap-6">
+          {/* Placeholder for LGU Seal */}
+          <div className="w-20 h-20 rounded-full border-2 border-slate-200 flex items-center justify-center bg-slate-50 relative">
+            <span className="text-[8px] font-black text-slate-300 absolute uppercase">LGU SEAL</span>
+            <Table className="text-slate-100" size={32} />
+          </div>
+          <div>
+            <p className="text-[10px] font-sans font-black text-blue-800 mb-0.5 tracking-[0.4em] uppercase">Republic of the Philippines</p>
+            <p className="text-xs font-sans font-bold text-slate-700 tracking-tight">Province of Zamboanga del Norte</p>
+            <h1 className="text-lg font-black tracking-tighter uppercase text-slate-900 leading-none mt-1">Municipality of Labason</h1>
+            <p className="text-[10px] font-sans text-slate-500 mt-2 font-bold tracking-widest uppercase">Office of the Municipal Engineer</p>
+          </div>
         </div>
-        <div className="text-right font-sans space-y-0.5">
-          <p className="text-sm font-black text-slate-900 leading-tight tracking-tighter">LGU LABASON</p>
-          <p className="text-[9px] font-bold text-slate-700">Zamboanga del Norte</p>
-          <p className="text-[9px] text-slate-400 tracking-widest pt-1">Printed: {new Date().toLocaleDateString()}</p>
+        <div>
+          <h2 className="text-2xl font-black text-right tracking-tighter text-slate-900">{node.name}</h2>
+          <p className="text-[10px] font-sans font-black text-right text-slate-400 uppercase tracking-widest mt-1">
+            Report for Fiscal Year {year} • <span className="text-slate-900">{new Date().toLocaleDateString()}</span>
+          </p>
         </div>
       </div>
 
       {/* Sectioned Table */}
-      <table className="w-full border-collapse mb-8 border-2 border-slate-400">
+      <table className="w-full border-collapse mb-8">
         <thead>
-          <tr className="bg-slate-100 text-[9px] tracking-widest text-slate-900 font-black border-b-2 border-slate-400">
+          <tr className="bg-slate-900 text-white text-[8px] tracking-[0.2em] font-black uppercase">
+            <th className="py-2 px-2 border border-slate-900 text-center w-8">#</th>
             {visibleHeaders.map(header => {
               const master = (node.display_settings as any)?.masterColumnOrder || node.display_settings?.columnOrder || allHeaders;
               const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${master.indexOf(header)}:${header}`] || {};
               if (headerMeta.mergedIn) return null;
 
-              const columnAlignments = node.display_settings?.columnAlignments || {};
-              const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
-              const align = columnAlignments[header] || defaultAlign;
-              const alignClass = align === 'center' ? 'text-center' : 
-                               align === 'right' ? 'text-right' : 'text-left';
-              
               return (
-                <th key={header} colSpan={headerMeta.colSpan} className={`py-2 px-3 border-r border-slate-400 last:border-0 whitespace-nowrap ${alignClass}`} style={{ fontFamily: headerMeta.fontFamily || 'inherit' }}>
+                <th key={header} colSpan={headerMeta.colSpan} className="py-2 px-3 border border-slate-900 text-left" style={{ fontFamily: headerMeta.fontFamily || 'inherit' }}>
                   {header}
                 </th>
               );
@@ -314,14 +332,17 @@ function PrintContent() {
             const sectionTotal = sectionRows.reduce((sum: number, r: any) => sum + (Number(r.Amount) || 0), 0);
 
             return (
-              <React.Fragment key={`${sectionName}-${blockIdx}`}>
-                <tr className="bg-slate-50">
-                  <td colSpan={visibleHeaders.length} className="py-2 px-3 font-black text-[10px] tracking-widest border-y border-slate-300 text-slate-800">
-                    Section: {sectionName}
+              <React.Fragment key={`${sectionName}-${blockIdx}`}> 
+                <tr className="bg-slate-100">
+                  <td colSpan={visibleHeaders.length + 1} className="py-2 px-3 font-black text-[9px] tracking-[0.15em] border border-slate-300 text-blue-900 uppercase">
+                    <span className="opacity-40 mr-2">Category:</span> {sectionName}
                   </td>
                 </tr>
                 {sectionRows.map((row: any, idx: number) => (
-                  <tr key={idx} className="border-b border-slate-200 text-[10px] leading-normal">
+                  <tr key={idx} className="text-[9px] leading-tight hover:bg-slate-50/50">
+                    <td className="py-1 px-2 border border-slate-200 text-center text-slate-300 font-mono font-bold">
+                      {idx + 1}
+                    </td>
                     {visibleHeaders.map(header => {
                       const rowIndex = data.indexOf(row);
                       const master = (node.display_settings as any)?.masterColumnOrder || node.display_settings?.columnOrder || allHeaders;
@@ -354,7 +375,7 @@ function PrintContent() {
                       }
 
                       return (
-                        <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border-r border-slate-200 last:border-0 ${alignClass} ${
+                        <td key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan} className={`py-1.5 px-3 border border-slate-200 ${alignClass} ${
                           isAmount || isTitle ? "font-mono bg-slate-50/20" : "text-slate-700 normal-case font-sans"
                         }`}>
                           {(meta.attachments?.length ?? 0) > 0 ? (
@@ -368,14 +389,15 @@ function PrintContent() {
                   </tr>
                 ))}
                 <tr className="font-bold text-sm">
+                  <td className="border border-slate-300 bg-slate-50/30"></td>
                   {visibleHeaders.map(header => {
                     if (header === "Amount") {
-                      return <td key="subtotal-val" className="py-2 px-3 text-right border-t-2 border-slate-400 text-blue-700 font-mono text-[10px]">{sectionTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>;
+                      return <td key="subtotal-val" className="py-2 px-3 text-right border border-slate-300 text-blue-700 font-mono text-[9px] bg-blue-50/20">{formatCurrency(sectionTotal)}</td>;
                     }
                     if (header === "Title / Item") {
-                      return <td key="subtotal-label" className="py-2 px-3 text-right text-[9px] text-slate-400 tracking-tighter font-black">SubTotal</td>;
+                      return <td key="subtotal-label" className="py-2 px-3 text-right text-[8px] text-slate-400 tracking-widest font-black uppercase bg-slate-50/30">SubTotal ({sectionName})</td>;
                     }
-                    return <td key={`subtotal-empty-${header}`} className="py-2 px-3 border-t-2 border-slate-400 opacity-0"></td>;
+                    return <td key={`subtotal-empty-${header}`} className="py-2 px-3 border border-slate-300 bg-slate-50/30"></td>;
                   })}
                 </tr>
               </React.Fragment>
@@ -385,23 +407,27 @@ function PrintContent() {
       </table>
 
       {/* Summary and Signatures */}
-      <div className="flex flex-col items-end pt-6 border-t-4 border-double border-slate-900 mt-12">
+      <div className="flex flex-col items-end pt-6 border-t-2 border-slate-900 mt-12">
         <div className="text-right">
-          <p className="text-[10px] font-black text-slate-400 tracking-[0.3em] mb-1">Combined Project Valuation</p>
-          <p className="text-4xl font-black italic tracking-tighter text-slate-900">
-            <span className="text-xl font-normal not-italic mr-2">PHP</span>
-            {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          <p className="text-[10px] font-black text-slate-400 tracking-[0.4em] mb-1 uppercase">Grand Total Valuation</p>
+          <p className="text-4xl font-black tracking-tighter text-slate-900">
+            <span className="text-sm font-normal mr-2">PHP</span>
+            {formatCurrency(grandTotal)}
           </p>
         </div>
       </div>
 
       <div className="mt-24 grid grid-cols-2 gap-20 text-center px-12">
-        <div className="border-t border-slate-900 pt-4">
-          <p className="text-[10px] font-bold text-slate-800">Verified & Validated By</p>
-        </div>
-        <div className="border-t border-slate-900 pt-4">
-          <p className="text-[10px] font-bold text-slate-800">Approved for Transmittal</p>
-        </div>
+        <section>
+          <div className="h-px bg-slate-900 w-full mb-1" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-900 mb-0.5">Municipal Engineer</p>
+          <p className="text-[8px] font-bold text-slate-400 uppercase italic">Head of Office</p>
+        </section>
+        <section>
+          <div className="h-px bg-slate-900 w-full mb-1" />
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-900 mb-0.5">Municipal Mayor</p>
+          <p className="text-[8px] font-bold text-slate-400 uppercase italic">Approving Authority</p>
+        </section>
       </div>
     </div>
   );
