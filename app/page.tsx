@@ -15,7 +15,7 @@ const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
   rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border transform-gpu will-change-[width,transform]",
+  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding,opacity,transform] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border transform-gpu will-change-[width,padding,opacity,transform]",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
   
   // Grid Editor Components
@@ -623,6 +623,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
   const [explorerSearch, setExplorerSearch] = useState('');
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isFreezeHeaders, setIsFreezeHeaders] = useState(true);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
   const formulaBarRef = useRef<HTMLTextAreaElement>(null);
@@ -2823,6 +2824,22 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                   <ZoomIn size={14} />
                 </button>
               </div>
+              <div className="flex items-center gap-1 px-1 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
+                <button 
+                  onClick={() => setIsFreezeHeaders(!isFreezeHeaders)} 
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${isFreezeHeaders ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
+                  title="Toggle Freeze Headers (Vertical)"
+                >
+                  <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} /> Headers
+                </button>
+                <button 
+                  onClick={() => setIsFreezePanes(!isFreezePanes)} 
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${isFreezePanes ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
+                  title="Toggle Freeze Panes (Horizontal)"
+                >
+                  <ChevronRightIcon size={14} /> Panes
+                </button>
+              </div>
             <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
                 <Plus size={14} className="text-green-600" /> Add Section
               </button>
@@ -2847,13 +2864,22 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
               {contextMenu.type === 'header' ? (
                 <>
                   <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Column Options</div>
-                  <button 
-                    onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    {isFreezePanes ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
-                    {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
-                  </button>
+                  <div className="flex flex-col gap-0.5">
+                    <button 
+                      onClick={() => { setIsFreezeHeaders(!isFreezeHeaders); setContextMenu(null); }} 
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                    >
+                      {isFreezeHeaders ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
+                      {isFreezeHeaders ? 'Unfreeze Headers' : 'Freeze Headers'}
+                    </button>
+                    <button 
+                      onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
+                    >
+                      {isFreezePanes ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
+                      {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
+                    </button>
+                  </div>
                   <div className="h-px bg-border my-1"></div>
                   <div className="relative group/sub">
                     <button 
@@ -3192,7 +3218,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
               } as any}
             >
               <thead className={GRID_THEME.tableHeader}>
-                <tr className={`${GRID_THEME.tableHeaderRow} sticky top-0 z-40 bg-card shadow-sm`}>
+                <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card shadow-sm`}>
                   {/* The Corner Cell - Standardized border and background */}
                   <th 
                     onClick={() => {
@@ -3206,7 +3232,9 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                         setActiveCell({ row: 0, col: visibleHeaders[0] });
                       }
                     }}
-                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}
+                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
+                      isFreezeHeaders ? 'top-0' : ''
+                    }`}
                   >
                     <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
                   </th>
@@ -3254,10 +3282,10 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                           width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                           minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                         }}
-                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${
+                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${
                           isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                         } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
-                          isFreezePanes && header === "Title / Item" ? `sticky left-10 top-0 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
+                          isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
                         }`}
                       >
                         {getExcelColumnLabel(idx)}
@@ -3272,7 +3300,9 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                   <th className="border-r border-b border-border bg-card"></th>
                 </tr>
                 <tr className="">
-                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-muted/10 sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]`}></th>
+                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
+                    isFreezeHeaders ? 'top-[20px]' : ''
+                  }`}></th>
                   {visibleHeaders.map((header, colIdx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${masterColumnOrder.indexOf(header)}:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
@@ -3322,11 +3352,11 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                         width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                         minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
                     }}
-                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${
-                      isColumnActive ? 'text-accent bg-accent/5' : 'text-muted bg-muted/10'
+                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${
+                      isColumnActive ? 'text-accent bg-accent/10' : 'text-muted bg-card'
                     } ${
-                      isFreezePanes && header === "Title / Item" ? "sticky left-10 top-0 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
-                    } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : ''}`}
+                      isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
+                    } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
                     >
                       <div className="flex items-center gap-1">
                         <input
@@ -3338,7 +3368,9 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                       </th>
                     );
                   })}
-                  <th className="p-2 min-w-35 border-r border-b border-border bg-muted/5">
+                  <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${
+                    isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
+                  }`}>
                     <div className="flex items-center gap-1 px-1">
                       <input
                         value={newColName}
@@ -3605,8 +3637,8 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
           <aside
             className={`${GRID_THEME.drawer} ${
               isExplorerVisible 
-                ? 'w-64 p-4 opacity-100 translate-x-12 md:translate-x-0' 
-                : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 border-none pointer-events-none'
+                ? 'w-64 p-4 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto' 
+                : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 pointer-events-none'
             } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
           >
             <div className="flex justify-between items-center mb-4 px-1 min-w-55 transition-colors">
@@ -3630,7 +3662,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
               />
             </div>
-            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55">
+            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55 [contain:content]">
               {isLoading ? (
                 <div className="flex justify-center p-4">
                   <Loader2 className="animate-spin text-accent" size={20} />
