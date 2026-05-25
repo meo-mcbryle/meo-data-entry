@@ -15,7 +15,7 @@ const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
   rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding,opacity,transform,margin] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border",
+  drawer: "bg-card flex flex-col shadow-sm transition-all duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border transform-gpu will-change-[width,transform]",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
   
   // Grid Editor Components
@@ -655,11 +655,29 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
   const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
   const DEFAULT_ROW_HEIGHT = 40; // Matches min-h-7 (28px) + py-1.5 (12px) = 40px
 
+  // Throttled Height Updates: Prevents layout thrashing during sidebar resize
+  const heightUpdateQueue = useRef<Record<string, number>>({});
+  const heightRafId = useRef<number | null>(null);
+
   const onMeasuredHeight = useCallback((index: number, height: number) => {
-    setRowHeights(prev => {
-      const current = prev[String(index)];
-      if (current !== undefined && Math.abs(current - height) < 0.5) return prev;
-      return { ...prev, [String(index)]: height };
+    heightUpdateQueue.current[String(index)] = height;
+    
+    if (heightRafId.current !== null) return;
+    
+    heightRafId.current = requestAnimationFrame(() => {
+      setRowHeights(prev => {
+        const next = { ...prev };
+        let changed = false;
+        for (const [idx, h] of Object.entries(heightUpdateQueue.current)) {
+          if (prev[idx] === undefined || Math.abs(prev[idx] - h) > 0.5) {
+            next[idx] = h;
+            changed = true;
+          }
+        }
+        heightUpdateQueue.current = {};
+        heightRafId.current = null;
+        return changed ? next : prev;
+      });
     });
   }, []);
 
@@ -673,7 +691,10 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
   }, []);
 
   useEffect(() => {
-    return () => { if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); };
+    return () => { 
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); 
+      if (heightRafId.current !== null) cancelAnimationFrame(heightRafId.current);
+    };
   }, []);
 
   // Resize Observer to track viewport height for virtualization
@@ -3345,7 +3366,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                   return (
                       <tr 
                         key={`section-${item.name}-${item.blockIdx}`} 
-                        className="bg-muted/30 group/section transition-colors h-10"
+                        className="bg-muted/30 group/section h-10"
                         onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
                       >
                         <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
@@ -4052,11 +4073,17 @@ export default function Dashboard() {
       setTheme(next);
       return;
     }
-
+    
+    // Apply theme change inside the transition callback
     // @ts-ignore
-    document.startViewTransition(() => setTheme(next));
+    document.startViewTransition(() => {
+      setTheme(next);
+      // Update DOM root synchronously for accurate transition snapshot
+      document.documentElement.classList.toggle('dark', next === 'dark');
+      document.documentElement.style.colorScheme = next;
+    });
   }, [theme]);
-
+  
   useEffect(() => {
     const checkAuth = async (currentSession: any) => {
       if (!currentSession) {
