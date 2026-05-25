@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { buildTree, FileNode, findNodeById, CellMetadata, GridRowData } from '@/lib/tree-utils';
@@ -4084,6 +4085,7 @@ export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [status, setStatus] = useState<'loading' | 'unauthorized' | 'ready'>('loading');
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const isTransitioning = useRef(false);
 
   // Theme Management Logic
   useEffect(() => {
@@ -4098,6 +4100,8 @@ export default function Dashboard() {
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
+    if (isTransitioning.current) return;
+
     const next = theme === 'light' ? 'dark' : 'light';
     
     // @ts-ignore - View Transitions API support
@@ -4106,13 +4110,17 @@ export default function Dashboard() {
       return;
     }
     
+    isTransitioning.current = true;
     // Apply theme change inside the transition callback
     // @ts-ignore
-    document.startViewTransition(() => {
-      setTheme(next);
-      // Update DOM root synchronously for accurate transition snapshot
-      document.documentElement.classList.toggle('dark', next === 'dark');
-      document.documentElement.style.colorScheme = next;
+    const transition = document.startViewTransition(() => {
+      flushSync(() => {
+        setTheme(next);
+      });
+    });
+
+    transition.finished.finally(() => {
+      isTransitioning.current = false;
     });
   }, [theme]);
   
