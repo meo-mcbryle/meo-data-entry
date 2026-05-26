@@ -575,17 +575,30 @@ const LoginPage = React.memo(() => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
+    if (lockoutUntil && Date.now() < lockoutUntil) {
+      setError(`Too many attempts. Please try again in ${Math.ceil((lockoutUntil - Date.now()) / 1000)} seconds.`);
+      setLoading(false);
+      return;
+    }
+
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) {
+        // If Supabase returns a 429 (Too Many Requests), trigger a local lockout
+        if (error.status === 429) {
+          setLockoutUntil(Date.now() + 60000); // Lock for 60 seconds
+        }
+        throw error;
+      }
     } catch (err: any) {
-      setError(err.message);
+      setError(err.status === 429 ? "Too many login attempts. Please wait a minute." : err.message);
     } finally {
       setLoading(false);
     }
@@ -622,7 +635,10 @@ const LoginPage = React.memo(() => {
             </div>
           </div>
           {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs font-medium">{error}</div>}
-          <button type="submit" disabled={loading} className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold text-sm shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2">
+          <button 
+            type="submit" 
+            disabled={loading || (lockoutUntil !== null && Date.now() < lockoutUntil)} 
+            className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold text-sm shadow-lg hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2">
             {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
             Sign In to System
           </button>
@@ -4161,10 +4177,16 @@ export default function Dashboard() {
       const isAuthorized = currentSession.user?.app_metadata?.role === 'admin';
       
       if (!isAuthorized) {
-        await supabase.auth.signOut();
-        alert("Access Denied: This account does not have administrator privileges for the MEO Data Entry system.");
-        setSession(null);
-        setStatus('unauthorized');
+        try {
+          // Force sign out even if network is flaky
+          await supabase.auth.signOut();
+          alert("Access Denied: This account does not have administrator privileges for the MEO Data Entry system.");
+        } catch (e) {
+          console.error("Sign out during unauthorized access check failed", e);
+        } finally {
+          setSession(null);
+          setStatus('unauthorized');
+        }
       } else {
         setSession(currentSession);
         setStatus('ready');
