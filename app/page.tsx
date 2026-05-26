@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, useRef, createContext, useContext } from 'react';
 import { flushSync } from 'react-dom';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
@@ -7,6 +7,34 @@ import { buildTree, FileNode, findNodeById, CellMetadata, GridRowData } from '@/
 import { toA1Key, fromA1Key, getExcelColumnLabel, hydrateMapToArray, dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord } from '@/lib/excel-utils';
 import FileNodeItem from '@/components/FileNodeItem';
 import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical, Lock, Mail, LogIn, LogOut } from 'lucide-react';
+
+/**
+ * Theme Context to isolate theme state and prevent full dashboard re-renders.
+ */
+const ThemeContext = createContext<{
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
+}>({ theme: 'dark', toggleTheme: () => {} });
+
+const useTheme = () => useContext(ThemeContext);
+
+/**
+ * Isolated Toggle Component: Only this small component re-renders when the theme changes.
+ */
+const ThemeToggle = () => {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button 
+      onClick={toggleTheme}
+      className="p-2 text-muted hover:text-accent group relative"
+    >
+      {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+        {theme === 'light' ? "Dark Mode" : "Light Mode"}
+      </div>
+    </button>
+  );
+};
 
 /**
  * Theme Registry: Centralized class management for Dark/Light mode consistency.
@@ -542,7 +570,7 @@ const GridRow = React.memo(({
 /**
  * LoginPage: Secure entry point for the MEO Data Entry system.
  */
-const LoginPage = () => {
+const LoginPage = React.memo(() => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -567,8 +595,12 @@ const LoginPage = () => {
     <div className="min-h-screen flex items-center justify-center bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px]">
       <div className="w-full max-w-md p-8 bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
         <div className="flex flex-col items-center mb-8">
-          <div className="p-4 bg-accent/10 text-accent rounded-2xl mb-4 shadow-inner">
-            <TableIcon size={32} />
+          <div className="p-2 bg-white rounded-2xl mb-4 shadow-inner border border-border">
+            <img 
+              src="https://www.labason.gov.ph/images/headers/200_pixels_LGU_LOGO.png" 
+              alt="LGU Labason Logo" 
+              className="w-16 h-16 object-contain"
+            />
           </div>
           <h1 className="text-2xl font-black text-foreground tracking-tight">MEO Data Entry</h1>
           <p className="text-sm text-muted font-medium mt-1 uppercase tracking-[0.2em]">LGU Labason System</p>
@@ -598,9 +630,9 @@ const LoginPage = () => {
       </div>
     </div>
   );
-};
+});
 
-function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'light' | 'dark', toggleTheme: () => void }) {
+const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -3604,15 +3636,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
                   Profile Settings
                 </div>
               </button>
-              <button 
-                onClick={toggleTheme}
-                className="p-2 text-muted hover:text-accent group relative"
-              >
-                {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                  {theme === 'light' ? "Dark Mode" : "Light Mode"}
-                </div>
-              </button>
+              <ThemeToggle />
               
               <div className="h-px w-6 bg-border self-center" />
               
@@ -4079,7 +4103,7 @@ function DashboardContent({ user, theme, toggleTheme }: { user: any, theme: 'lig
       </div>
     </main>
   );
-}
+});
 
 export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
@@ -4165,8 +4189,10 @@ export default function Dashboard() {
   if (!session || status === 'unauthorized') return <LoginPage />;
 
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center text-muted font-sans animate-pulse uppercase tracking-widest text-xs font-black">Loading Dashboard...</div>}>
-      <DashboardContent user={session.user} theme={theme} toggleTheme={toggleTheme} />
-    </Suspense>
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <Suspense fallback={<div className="flex h-screen items-center justify-center text-muted font-sans animate-pulse uppercase tracking-widest text-xs font-black">Loading Dashboard...</div>}>
+        <DashboardContent user={session.user} />
+      </Suspense>
+    </ThemeContext.Provider>
   );
 }
