@@ -26,7 +26,8 @@ const ThemeToggle = () => {
   return (
     <button 
       onClick={toggleTheme}
-      className="p-2 text-muted hover:text-accent group relative"
+      className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg"
+      aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
     >
       {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
       <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -279,10 +280,12 @@ const GridRow = React.memo(({
 }: GridRowProps) => {
   const rowRef = useRef<HTMLTableRowElement>(null);
   const isRowActive = activeCell?.row === globalIndex;
-  const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
-  const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
-  const selMinColIdx = selection ? Math.min(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
-  const selMaxColIdx = selection ? Math.max(visibleHeaders.indexOf(selection.startCol), visibleHeaders.indexOf(selection.endCol)) : -1;
+  const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
+  const endColIdx = selection ? visibleHeaders.indexOf(selection.endCol) : -1;
+  const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -1;
+  const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -1;
+  const selMinColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.min(startColIdx, endColIdx) : -1;
+  const selMaxColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.max(startColIdx, endColIdx) : -1;
 
   // Dynamic Height Measurement: Use ResizeObserver to detect the actual rendered height
   useEffect(() => {
@@ -366,7 +369,7 @@ const GridRow = React.memo(({
           </a>
         );
 
-        const isInSelection = selection && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
+        const isInSelection = selection && selMinColIdx !== -1 && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
 
         return (
           <td 
@@ -414,7 +417,11 @@ const GridRow = React.memo(({
               <>
                 <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-0.75 -mr-0.75 shadow-sm rounded-full" />
                 {/* Mobile-friendly context menu trigger */}
-                <button onClick={(e) => onOpenContextMenu(e, 'cell', header, globalIndex)} className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30">
+                <button 
+                  onClick={(e) => onOpenContextMenu(e, 'cell', header, globalIndex)} 
+                  className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30"
+                  aria-label="Cell options"
+                >
                   <MoreVertical size={12} />
                 </button>
               </>
@@ -429,6 +436,8 @@ const GridRow = React.memo(({
             ) : header === 'Location' || header === 'Allocation' ? (
               <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 ${alignClass}`}>
                 <button 
+                  data-row={globalIndex}
+                  data-col={header}
                   onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
                   className={`flex flex-wrap items-center gap-x-2 outline-none w-full h-full text-inherit ${alignClass}`}
                 >
@@ -657,17 +666,125 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
   const [rowCount, setRowCount] = useState(0);
   const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
-  const [isSaving, setIsSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [cellMetadata, setCellMetadata] = useState<Record<string, any>>({});
+  const [selectedYear, setSelectedYear] = useState<string>('2020');
+
+  // History Management States and Refs
+  const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [redoStack, setRedoStack] = useState<any[]>([]);
+  const editStartValueRef = useRef<any>(null);
+  const editingCellRef = useRef<{row: number, col: string} | null>(null);
+
+  /**
+   * History Management: Undo/Redo Engine
+   * Leverages Sparse Map referential stability for efficient snapshots.
+   */
+  // Optimization: Use a ref to track current state for history snapshots.
+  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
+  useEffect(() => {
+    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
+  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+
+  const saveStateToHistory = useCallback(() => {
+    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
+    const snapshot = {
+      gridData: new Map(gridData),
+      rowCount: rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
+    };
+    setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
+    setRedoStack([]);
+  }, []); // Stable identity: never changes
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const prevState = undoStack[undoStack.length - 1];
+    const currentState = {
+      gridData: new Map(gridData),
+      rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
+    };
+    setRedoStack(prev => [...prev, currentState]);
+    setUndoStack(prev => prev.slice(0, -1));
+    setGridData(prevState.gridData);
+    setRowCount(prevState.rowCount);
+    setCellMetadata(prevState.cellMetadata);
+    setCellAlignments(prevState.cellAlignments);
+    setRowHeights(prevState.rowHeights);
+    setMasterColumnOrder(prevState.masterColumnOrder);
+    setColumnOrder(prevState.columnOrder);
+  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const nextState = redoStack[redoStack.length - 1];
+    const currentState = {
+      gridData: new Map(gridData),
+      rowCount,
+      cellMetadata: { ...cellMetadata },
+      cellAlignments: { ...cellAlignments },
+      rowHeights: { ...rowHeights },
+      masterColumnOrder: [...masterColumnOrder],
+      columnOrder: [...columnOrder]
+    };
+    setUndoStack(prev => [...prev, currentState]);
+    setRedoStack(prev => prev.slice(0, -1));
+    setGridData(nextState.gridData);
+    setRowCount(nextState.rowCount);
+    setCellMetadata(nextState.cellMetadata);
+    setCellAlignments(nextState.cellAlignments);
+    setRowHeights(nextState.rowHeights);
+    setMasterColumnOrder(nextState.masterColumnOrder);
+    setColumnOrder(nextState.columnOrder);
+  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+
+  // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
+  useEffect(() => {
+    const handleShortcuts = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo(); else undo();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault(); redo();
+      }
+    };
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [undo, redo]);
+
+  const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
+    const colIndex = masterColumnOrder.indexOf(key);
+    if (colIndex === -1) return;
+    const coord = toA1Key(index, colIndex);
+    if (stateRef.current.gridData.get(coord) === value) return;
+    if (editStartValueRef.current === stateRef.current.gridData.get(coord)) {
+      saveStateToHistory();
+    }
+    setGridData(prev => {
+      const next = new Map(prev);
+      next.set(coord, value);
+      return next;
+    });
+  }, [saveStateToHistory, masterColumnOrder]);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
   const [rowFilter, setRowFilter] = useState<string>('');
   const [newColName, setNewColName] = useState<string>('');
-  const [selectedYear, setSelectedYear] = useState<string>('2020');
   const searchParams = useSearchParams();
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
   const [explorerSearch, setExplorerSearch] = useState('');
@@ -679,7 +796,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingMedia, setPendingMedia] = useState<{ row: number, col: string, type: 'image' | 'file' } | null>(null);
   const [viewingMedia, setViewingMedia] = useState<any | null>(null);
-  const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[] } | null>(null);
+  const [dropdownMenu, setDropdownMenu] = useState<{ x: number, y: number, width: number, row: number, col: string, options: string[], highlightIndex: number } | null>(null);
   
   // Profile State
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -826,110 +943,55 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       width: rect.width,
       row,
       col,
-      options
+      options,
+      highlightIndex: 0
     });
   }, []);
 
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [dragFillRange, setDragFillRange] = useState<{ startRow: number; endRow: number; col: string } | null>(null);
+
+  // Keyboard navigation for dropdowns
+  useEffect(() => {
+    if (!dropdownMenu) return;
+
+    const handleDropdownKeys = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setDropdownMenu(prev => prev ? { 
+          ...prev, 
+          highlightIndex: (prev.highlightIndex + 1) % prev.options.length 
+        } : null);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setDropdownMenu(prev => prev ? { 
+          ...prev, 
+          highlightIndex: (prev.highlightIndex - 1 + prev.options.length) % prev.options.length 
+        } : null);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selectedOption = dropdownMenu.options[dropdownMenu.highlightIndex];
+        handleUpdateCell(dropdownMenu.row, dropdownMenu.col, selectedOption);
+        setDropdownMenu(null);
+        // Maintain focus on the trigger button
+        const btn = document.querySelector(`[data-row="${dropdownMenu.row}"][data-col="${dropdownMenu.col}"]`) as HTMLElement;
+        btn?.focus();
+      } else if (e.key === 'Escape') {
+        setDropdownMenu(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleDropdownKeys);
+    return () => window.removeEventListener('keydown', handleDropdownKeys);
+  }, [dropdownMenu, handleUpdateCell]);
+
   const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFreezePanes, setIsFreezePanes] = useState(false);
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
   const [zoom, setZoom] = useState(1);
-  const [undoStack, setUndoStack] = useState<any[]>([]);
-  const [redoStack, setRedoStack] = useState<any[]>([]);
-  const editStartValueRef = useRef<any>(null);
-  const editingCellRef = useRef<{row: number, col: string} | null>(null);
-  /**
-   * History Management: Undo/Redo Engine
-   * Leverages Sparse Map referential stability for efficient snapshots.
-   */
-  // Optimization: Use a ref to track current state for history snapshots.
-  // This prevents 'saveStateToHistory' (and thus 'handleUpdateCell') from changing identity 
-  // on every keystroke, which is the primary cause of typing lag.
-  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
-  useEffect(() => {
-    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
-  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
-
-  const saveStateToHistory = useCallback(() => {
-    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
-    const snapshot = {
-      gridData: new Map(gridData),
-      rowCount: rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
-    setRedoStack([]);
-  }, []); // Stable identity: never changes
-
-  const undo = useCallback(() => {
-    if (undoStack.length === 0) return;
-    const prevState = undoStack[undoStack.length - 1];
-    const currentState = {
-      gridData: new Map(gridData),
-      rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setRedoStack(prev => [...prev, currentState]);
-    setUndoStack(prev => prev.slice(0, -1));
-    setGridData(prevState.gridData);
-    setRowCount(prevState.rowCount);
-    setCellMetadata(prevState.cellMetadata);
-    setCellAlignments(prevState.cellAlignments);
-    setRowHeights(prevState.rowHeights);
-    setMasterColumnOrder(prevState.masterColumnOrder);
-    setColumnOrder(prevState.columnOrder);
-  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
-
-  const redo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const nextState = redoStack[redoStack.length - 1];
-    const currentState = {
-      gridData: new Map(gridData),
-      rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setUndoStack(prev => [...prev, currentState]);
-    setRedoStack(prev => prev.slice(0, -1));
-    setGridData(nextState.gridData);
-    setRowCount(nextState.rowCount);
-    setCellMetadata(nextState.cellMetadata);
-    setCellAlignments(nextState.cellAlignments);
-    setRowHeights(nextState.rowHeights);
-    setMasterColumnOrder(nextState.masterColumnOrder);
-    setColumnOrder(nextState.columnOrder);
-  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
-
-  // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
-  useEffect(() => {
-    const handleShortcuts = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault(); redo();
-      }
-    };
-    window.addEventListener('keydown', handleShortcuts);
-    return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [undo, redo]);
 
   // Track cell value before editing starts for atomic undo
   useEffect(() => {
@@ -1368,25 +1430,6 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     fetchFiles();
   };
 
-  const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
-    const colIndex = masterColumnOrder.indexOf(key);
-    if (colIndex === -1) return;
-    const coord = toA1Key(index, colIndex);
-    
-    // Get current value from the latest ref to avoid stale closure issues
-    if (stateRef.current.gridData.get(coord) === value) return;
-
-    // Atomic Undo: Only save history if this is the start of an edit
-    if (editStartValueRef.current === stateRef.current.gridData.get(coord)) {
-      saveStateToHistory();
-    }
-
-    setGridData(prev => {
-      const next = new Map(prev);
-      next.set(coord, value);
-      return next;
-    });
-  }, [saveStateToHistory, masterColumnOrder]); // Added masterColumnOrder to prevent stale closures
 
   /**
    * Renames only a specific contiguous block of rows.
@@ -1563,7 +1606,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   };
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => {
-    if (e.key === 'Enter' || e.key === 'Tab') {
+    const navKeys = ['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    if (navKeys.includes(e.key)) {
+      // If we are in a textarea, only navigate with arrows if at bounds or using Ctrl
+      const isTextArea = (e.target as HTMLElement).tagName === 'TEXTAREA';
       e.preventDefault();
       
       let nextRow = rowIndex;
@@ -1591,7 +1637,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             nextColIdx = 0;
           }
         }
-      }
+      } else if (e.key === 'ArrowUp') nextRow = Math.max(0, rowIndex - 1);
+      else if (e.key === 'ArrowDown') nextRow = Math.min(rowCount - 1, rowIndex + 1);
+      else if (e.key === 'ArrowLeft') nextColIdx = Math.max(0, colIndex - 1);
+      else if (e.key === 'ArrowRight') nextColIdx = Math.min(headers.length - 1, colIndex + 1);
 
       if (nextRow >= 0 && nextRow < rowCount) {
         const nextHeader = headers[nextColIdx];
@@ -1607,7 +1656,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         }, 10);
       }
     }
-  }, [rowCount]);
+  }, [rowCount, setActiveCell]);
 
   const setCellFontFamily = useCallback((row: number, col: string, fontFamily: string) => {
     setCellMetadata(prev => {
@@ -1699,35 +1748,49 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setHiddenColumns(prev => 
       prev.includes(key) ? prev.filter(col => col !== key) : [...prev, key]
     );
+    setSelection(null);
   };
 
   const handleRenameColumn = useCallback((oldKey: string, newKey: string) => {
     const trimmedNewKey = newKey?.trim();
-    if (!trimmedNewKey || oldKey === trimmedNewKey) return;
+
+    // Fix: If the column is already an "Untitled" column and we are blurring with an empty value, 
+    // do not trigger a rename. This prevents selection breakage for blank headers.
+    if (oldKey === trimmedNewKey || (oldKey.startsWith('_UNTITLED_') && !trimmedNewKey)) return;
+
+    let finalNewKey = trimmedNewKey;
+    // If the name was cleared, assign a unique internal name to maintain "blank" appearance
+    if (!finalNewKey) {
+      let i = 1;
+      // Use current allHeaders to check availability, but don't count the one we are renaming
+      const otherHeaders = allHeaders.filter(h => h !== oldKey);
+      while (otherHeaders.includes(`_UNTITLED_${i}`)) i++;
+      finalNewKey = `_UNTITLED_${i}`;
+    }
 
     saveStateToHistory();
-    if (trimmedNewKey.toLowerCase() === 'section') {
+    if (finalNewKey.toLowerCase() === 'section') {
       alert("'section' is a reserved column name used for categorization.");
       return;
     }
 
-    if (allHeaders.includes(trimmedNewKey)) {
-      alert(`A column named "${trimmedNewKey}" already exists.`);
+    if (allHeaders.includes(finalNewKey)) {
+      alert(`A column named "${finalNewKey}" already exists.`);
       return;
     }
 
       // A1 keys are index-based and stable. Renaming doesn't move data in the Map.
       setColumnOrder(prev => {
         const currentOrder = prev.length > 0 ? prev : allHeaders;
-        return currentOrder.map(col => col === oldKey ? trimmedNewKey : col);
+        return currentOrder.map(col => col === oldKey ? finalNewKey : col);
       });
-      setMasterColumnOrder(prev => prev.map(col => col === oldKey ? trimmedNewKey : col));
+      setMasterColumnOrder(prev => prev.map(col => col === oldKey ? finalNewKey : col));
 
       // Migrate alignments and header metadata to the new column name
       setColumnAlignments(prev => {
         const next = { ...prev };
         if (next[oldKey]) {
-          next[trimmedNewKey] = next[oldKey];
+          next[finalNewKey] = next[oldKey];
           delete next[oldKey];
         }
         return next;
@@ -1735,7 +1798,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       setColumnWidths(prev => {
         const next = { ...prev };
         if (next[oldKey]) {
-          next[trimmedNewKey] = next[oldKey];
+          next[finalNewKey] = next[oldKey];
           delete next[oldKey];
         }
         return next;
@@ -1744,7 +1807,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         const next: Record<string, any> = {};
         Object.keys(prev).forEach(key => {
           if (key === `header:${oldKey}`) {
-            next[`header:${trimmedNewKey}`] = prev[key];
+            next[`header:${finalNewKey}`] = prev[key];
           } else {
             // A1 keys and row-based keys (like :section) are stable; they don't depend on column names
             next[key] = prev[key];
@@ -1754,20 +1817,27 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       };
       setCellMetadata(migrateKeys);
       setCellAlignments(migrateKeys);
+
+      // Sync selection and active cell state with the new column name to prevent UI "ghosting" or merge failure
+      setSelection(prev => {
+        if (!prev) return null;
+        const next = { ...prev };
+        if (next.startCol === oldKey) next.startCol = finalNewKey;
+        if (next.endCol === oldKey) next.endCol = finalNewKey;
+        return next;
+      });
+      setActiveCell(prev => prev && prev.col === oldKey ? { ...prev, col: finalNewKey } : prev);
   }, [allHeaders, saveStateToHistory]);
 
   const handleAddColumn = useCallback((name?: string) => {
     saveStateToHistory();
-    const rawInput = typeof name === 'string' ? name : window.prompt("Enter new column name (leave blank for auto-name):");
-    if (rawInput === null) return;
-    
-    let colName = rawInput.trim();
+    let colName = typeof name === 'string' ? name.trim() : '';
 
-      if (!colName) {
-        let i = 1;
-        while (allHeaders.includes(`Column ${i}`)) i++;
-        colName = `Column ${i}`;
-      }
+    if (!colName) {
+      let i = 1;
+      while (allHeaders.includes(`_UNTITLED_${i}`)) i++;
+      colName = `_UNTITLED_${i}`;
+    }
 
       if (colName.toLowerCase() === 'section') {
         alert("'section' is a reserved column name used for categorization.");
@@ -1805,6 +1875,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 
     setMasterColumnOrder(newOrder);
     setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
+    setSelection(null);
     
       // Cleanup metadata and alignments for the deleted column
       setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
@@ -1813,24 +1884,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 
   const handleInsertColumn = useCallback((relativeCol: string, position: 'before' | 'after') => {
     saveStateToHistory();
-    const rawInput = window.prompt(`Enter new column name (leave blank for auto-name):`);
-    if (rawInput === null) return;
-    
-    let colName = rawInput.trim();
 
-    if (!colName) {
-        let i = 1;
-        while (allHeaders.includes(`Column ${i}`)) i++;
-        colName = `Column ${i}`;
-      }
+    let i = 1;
+    while (allHeaders.includes(`_UNTITLED_${i}`)) i++;
+    const colName = `_UNTITLED_${i}`;
 
       if (colName.toLowerCase() === 'section') {
         alert("'section' is a reserved column name used for categorization.");
-        return;
-      }
-
-      if (allHeaders.includes(colName)) {
-        alert("A column with this name already exists.");
         return;
       }
 
@@ -2327,6 +2387,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 
   const handleMergeCells = useCallback((visibleHeaders: string[], isHeaderMerge: boolean = false) => {
     if (!selection) return;
+    saveStateToHistory();
     const { startRow, endRow, startCol, endCol } = selection;
     
     const isHeaderSelection = startRow === -1 || isHeaderMerge;
@@ -2757,10 +2818,23 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       // Pre-calculate selection bounds for efficient highlighting
       const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
       const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
-      const selMinColIdx = Math.min(selStartColIdx, selEndColIdx);
-      const selMaxColIdx = Math.max(selStartColIdx, selEndColIdx);
+      const selMinColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.min(selStartColIdx, selEndColIdx) : -1;
+      const selMaxColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.max(selStartColIdx, selEndColIdx) : -1;
       const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
       const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
+      const selColSpan = (selMinColIdx !== -1 && selMaxColIdx !== -1) ? (selMaxColIdx - selMinColIdx + 1) : 0;
+
+      // Helper to check if a header column is part of the current column-wise selection
+      const isHeaderInSelection = (idx: number) => {
+        if (!selection || selMinColIdx === -1) return false;
+        // Selection is valid for headers if it covers the header row (-1) or essentially all rows
+        const isRowSelectionMatching = (selMinRow <= -1 && selMaxRow >= -1) || (selMinRow === 0 && selMaxRow >= rowCount - 1);
+        return isRowSelectionMatching && idx >= selMinColIdx && idx <= selMaxColIdx;
+      };
+
+      const isSectionInSelection = (startIndex: number) => {
+        return selection && startIndex >= selMinRow && startIndex <= selMaxRow;
+      };
 
       // Binary search for the first visible item based on accumulated offsets
       // This handles variable row heights (resized rows) correctly.
@@ -2957,13 +3031,17 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   <button onClick={() => setColumnAlignment(contextMenu.col, 'right')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
                     <AlignRight size={14} className={columnAlignments[contextMenu.col] === 'right' ? "text-accent" : "text-muted"} /> Right Alignment
                   </button>
-                  <div className="h-px bg-border my-1"></div>
-                  <button 
-                    onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <TableIcon size={14} className="text-accent" /> Merge Selected Headers
-                  </button>
+                  {selColSpan > 1 && (
+                    <>
+                      <div className="h-px bg-border my-1"></div>
+                      <button 
+                        onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground font-bold"
+                      >
+                        <TableIcon size={14} className="text-accent" /> Merge Selected Headers
+                      </button>
+                    </>
+                  )}
                   {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
                     <button 
                       onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
@@ -3235,7 +3313,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             <textarea
               ref={formulaBarRef}
               rows={1}
-              placeholder="Enter formula (e.g., =SUM(A,B)) or value..."
+              placeholder="Enter value or formula (e.g., =SUM(A1, B1) or =ADD_DAYS(A1, 5))..."
               value={activeCell ? (gridData.get(toA1Key(activeCell.row, masterColumnOrder.indexOf(activeCell.col))) || '') : ''}
               onChange={(e) => {
                 if (activeCell) {
@@ -3290,14 +3368,14 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   {visibleHeaders.map((header, idx) => {
                     const headerMeta = cellMetadata[`header:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
-                    const isInHeaderLabelSelection = selection && 
-                      (selection.startRow === 0 || selection.startRow === -1) && 
-                      selection.endRow === rowCount - 1 &&
-                      idx >= selMinColIdx && idx <= selMaxColIdx;
+                    const isInHeaderLabelSelection = isHeaderInSelection(idx);
+
+                    if (headerMeta.mergedIn) return null;
 
                     return (
                       <th 
                         key={`col-label-${idx}`} 
+                        colSpan={headerMeta.colSpan}
                         onMouseDown={(e) => {
                           if (e.button === 0 && rowCount > 0) {
                             setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
@@ -3312,10 +3390,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                         }}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          // Excel behavior: Right-click selects the whole column ONLY if not already in selection
-                          const isFullColumnSelected = selection && selection.startRow === 0 && selection.endRow === rowCount - 1 && idx >= selMinColIdx && idx <= selMaxColIdx;
+                          // Excel behavior: Preserve selection if right-clicking inside existing header selection
+                          const isAlreadySelected = isHeaderInSelection(idx);
                           
-                          if (!isFullColumnSelected && rowCount > 0) {
+                          if (!isAlreadySelected && rowCount > 0) {
                             setSelection({
                               startRow: 0,
                               endRow: rowCount - 1,
@@ -3353,8 +3431,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     isFreezeHeaders ? 'top-[20px]' : ''
                   }`}></th>
                   {visibleHeaders.map((header, colIdx) => {
-                    const headerMeta = cellMetadata[`header:${header}`] || cellMetadata[`${masterColumnOrder.indexOf(header)}:${header}`] || {};
+                    const headerMeta = cellMetadata[`header:${header}`] || {};
                     const isColumnActive = activeCell?.col === header;
+                    
                     if (headerMeta.mergedIn) return null;
 
                     const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
@@ -3362,7 +3441,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     const alignClass = align === 'center' ? 'text-center' : 
                                      align === 'right' ? 'text-right' : 'text-left';
 
-                    const isInHeaderSelection = selection && selMinRow <= -1 && selMaxRow >= -1 && colIdx >= selMinColIdx && colIdx <= selMaxColIdx;
+                    const isInHeaderSelection = isHeaderInSelection(colIdx);
 
                     return (
                       <th 
@@ -3370,7 +3449,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                       colSpan={headerMeta.colSpan}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      // Excel behavior: Preserve selection if right-clicking inside existing header selection
+                      // Unified Excel behavior: Right-click selects whole column if not part of multi-selection
                       if (!isInHeaderSelection && rowCount > 0) {
                         setSelection({
                           startRow: 0,
@@ -3409,7 +3488,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     >
                       <div className="flex items-center gap-1">
                         <input
-                          defaultValue={header}
+                          defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
                           onBlur={(e) => handleRenameColumn(header, e.target.value)}
                           className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
                         />
@@ -3447,7 +3526,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   return (
                       <tr 
                         key={`section-${item.name}-${item.blockIdx}`} 
-                        className="bg-muted/30 group/section h-10"
+                        className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
                         onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
                       >
                         <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
@@ -3881,10 +3960,11 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                 }}
                 onClick={e => e.stopPropagation()}
               >
-                {dropdownMenu.options.map((opt) => {
+              {dropdownMenu.options.map((opt, idx) => {
                   const mIdx = masterColumnOrder.indexOf(dropdownMenu.col);
                   const coord = mIdx !== -1 ? toA1Key(dropdownMenu.row, mIdx) : '';
                   const isSelected = coord ? gridData.get(coord) === opt : false;
+                const isHighlighted = dropdownMenu.highlightIndex === idx;
 
                   return (
                     <button
@@ -3894,9 +3974,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                         setDropdownMenu(null);
                       }}
                       className={`w-full text-left px-4 py-2 flex items-center justify-between group ${
-                        isSelected 
-                        ? 'bg-accent/10 text-accent font-bold' 
-                        : 'hover:bg-muted/10 text-foreground hover:text-accent'
+                      (isSelected || isHighlighted)
+                      ? 'bg-accent/10 text-accent font-bold'
+                      : 'hover:bg-muted/10 text-foreground'
                       }`}
                     >
                       <span className="truncate mr-2">{opt}</span>
