@@ -153,6 +153,19 @@ const formatDateDisplay = (value: any, formatId: string = 'long') => {
 };
 
 /**
+ * Helper to shift A1-style cell references in formulas during drag-fill operations.
+ * Handles anchored references like $A$1.
+ */
+const shiftFormula = (formula: any, rowOffset: number) => {
+  if (typeof formula !== 'string' || !formula.startsWith('=')) return formula;
+  return formula.replace(/(\$?[A-Z]+)(\$?)(\d+)/gi, (match, col, anchor, row) => {
+    if (anchor === '$') return match; // Row is anchored, do not shift
+    const newRow = parseInt(row, 10) + rowOffset;
+    return `${col}${anchor}${newRow}`;
+  });
+};
+
+/**
  * CellEditor: Optimized uncontrolled-like component for instant typing.
  * Uses local state for characters and debounces the global "push" to gridData.
  */
@@ -255,6 +268,7 @@ interface GridRowProps {
   setSelection: (selection: any) => void;
   setIsSelecting: (selecting: boolean) => void;
   onOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string, row?: number, sectionName?: string) => void;
+  setDragFillRange: React.Dispatch<React.SetStateAction<{ startRow: number; endRow: number; col: string } | null>>;
   toggleCellAlignment: (rowIndex: number, header: string) => void;
   handleDragFillStart: (e: React.MouseEvent, row: number, col: string) => void;
   removeTableRow: (index: number) => void;
@@ -273,7 +287,7 @@ const GridRow = React.memo(({
   row, globalIndex, visibleHeaders, activeCell, selection, 
   cellMetadata, cellAlignments, columnAlignments, isFreezePanes,
   dragFillRange, isSelecting, handleUpdateCell, handleKeyDown,
-  setActiveCell, setSelection, setIsSelecting, onOpenContextMenu,
+  setActiveCell, setSelection, setIsSelecting, onOpenContextMenu, setDragFillRange,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
   rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder, zoom
@@ -370,6 +384,9 @@ const GridRow = React.memo(({
         );
 
         const isInSelection = selection && selMinColIdx !== -1 && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
+        const isInDragFill = dragFillRange && header === dragFillRange.col && 
+          globalIndex >= Math.min(dragFillRange.startRow, dragFillRange.endRow) && 
+          globalIndex <= Math.max(dragFillRange.startRow, dragFillRange.endRow);
 
         return (
           <td 
@@ -398,12 +415,15 @@ const GridRow = React.memo(({
                 setIsSelecting(true); 
               } 
             }}
-            onMouseEnter={() => { if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); }}
+            onMouseEnter={() => { 
+              if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); 
+              if (dragFillRange) setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
+            }}
             onClick={() => {
               const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
               if (input) input.focus();
             }}
-            className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''}`}
+           className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-accent/5 ring-1 ring-inset ring-accent/50 z-10' : ''}`}
             style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
           >
             {/* Metadata Clear Button - Visible on hover for cells with formatting or files */}
@@ -686,9 +706,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
    */
   // Optimization: Use a ref to track current state for history snapshots.
   const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
-  useEffect(() => {
-    stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
-  }, [gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+  stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
 
   const saveStateToHistory = useCallback(() => {
     const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
@@ -1202,41 +1220,88 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
     if (typeof value !== 'string' || !value.startsWith('=')) return value;
     try {
-       const getArgValue = (arg: string) => {
+      const { masterColumnOrder, columnOrder, gridData } = stateRef.current;
+      const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+
+      const resolveSingleValue = (arg: string) => {
         // 1. Handle A1 Cell References using shared utility
         const coords = fromA1Key(arg.toUpperCase());
         if (coords) {
-          const { masterColumnOrder, columnOrder, gridData } = stateRef.current;
-          const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
           const colName = headers[coords.colIndex];
           const mIdx = masterColumnOrder.indexOf(colName);
-          
           if (mIdx !== -1) return gridData.get(toA1Key(coords.row, mIdx));
           return null;
         }
-
         // 2. Fallback: Handle Named Columns in Current Row or Literals
         const actualKey = Object.keys(rowData).find(key => key.toLowerCase() === arg.toLowerCase());
         return actualKey ? rowData[actualKey] : (isNaN(Number(arg)) ? arg : Number(arg));
       };
+
       if (value.toUpperCase().startsWith('=SUM(')) {
         const match = value.match(/=SUM\((.*)\)/i);
         if (!match) return '#ERROR!';
         const args = match[1].split(',').map(s => s.trim());
-        return args.reduce((acc, arg) => acc + (Number(getArgValue(arg)) || 0), 0);
+        
+        let total = 0;
+        args.forEach(arg => {
+          if (arg.includes(':')) {
+            const [start, end] = arg.split(':');
+            const sC = fromA1Key(start.toUpperCase());
+            const eC = fromA1Key(end.toUpperCase());
+            if (sC && eC) {
+              for (let r = Math.min(sC.row, eC.row); r <= Math.max(sC.row, eC.row); r++) {
+                for (let c = Math.min(sC.colIndex, eC.colIndex); c <= Math.max(sC.colIndex, eC.colIndex); c++) {
+                  const colName = headers[c];
+                  const mIdx = masterColumnOrder.indexOf(colName);
+                  const val = mIdx !== -1 ? gridData.get(toA1Key(r, mIdx)) : 0;
+                  total += (Number(val) || 0);
+                }
+              }
+            }
+          } else {
+            total += (Number(resolveSingleValue(arg)) || 0);
+          }
+        });
+        return total;
       }
+
       if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
-        const match = value.match(/=ADD_DAYS\((.*)\)/i);
+        const match = value.match(/=ADD_DAYS\s*\((.*)\)/i);
         if (!match) return '#ERROR!';
-        const args = match[1].split(',').map(s => s.trim());
+        // Handle literal strings in quotes and strip them
+        const args = match[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
         if (args.length !== 2) return '#ARGS!';
-        const startDateRaw = getArgValue(args[0]);
-        const daysToAdd = Number(getArgValue(args[1])) || 0;
-        if (!startDateRaw) return '';
-        let date = new Date(String(startDateRaw));
+
+        let dateVal = resolveSingleValue(args[0]);
+        let daysVal = resolveSingleValue(args[1]);
+
+        // Smart Swap: If the order is reversed (e.g., =ADD_DAYS(100, M2)), swap them.
+        if (!isNaN(Number(dateVal)) && isNaN(Number(daysVal))) {
+          [dateVal, daysVal] = [daysVal, dateVal];
+        }
+
+        if (dateVal === null || dateVal === undefined || dateVal === '') return '';
+
+        let date = new Date(dateVal);
+        // Robust parsing for YYYY-MM-DD or MM-DD-YYYY strings
+        if (isNaN(date.getTime()) && typeof dateVal === 'string' && dateVal.includes('-')) {
+          const parts = dateVal.split('-');
+          if (parts.length === 3) {
+            if (parts[0].length === 4) {
+              date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            } else if (parts[2].length === 4) {
+              date = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
+            }
+          }
+        }
+
+        const days = Number(daysVal);
         if (isNaN(date.getTime())) return '#DATE!';
-        date.setDate(date.getDate() + daysToAdd);
-        return formatDateDisplay(date.toISOString().split('T')[0], formatId);
+        if (isNaN(days)) return '#NUM!';
+
+        const resultDate = new Date(date);
+        resultDate.setDate(resultDate.getDate() + days);
+        return formatDateDisplay(resultDate, formatId);
       }
     } catch (e) { return '#ERR!'; }
     return value;
@@ -1743,6 +1808,33 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       return next;
     });
   }, [columnAlignments, selection, visibleHeaders, masterColumnOrder, setCellAlignments]);
+
+  const setSelectionAlignment = useCallback((align: 'left' | 'center' | 'right') => {
+    if (!selection) return;
+    saveStateToHistory();
+    setCellAlignments(prev => {
+      const next = { ...prev };
+      const minRow = Math.min(selection.startRow, selection.endRow);
+      const maxRow = Math.max(selection.startRow, selection.endRow);
+      const startColIdx = visibleHeaders.indexOf(selection.startCol);
+      const endColIdx = visibleHeaders.indexOf(selection.endCol);
+      const minColIdx = Math.min(startColIdx, endColIdx);
+      const maxColIdx = Math.max(startColIdx, endColIdx);
+
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minColIdx; c <= maxColIdx; c++) {
+          const header = visibleHeaders[c];
+          const mIdx = masterColumnOrder.indexOf(header);
+          if (mIdx !== -1) {
+            const key = r === -1 ? `header:${header}` : toA1Key(r, mIdx);
+            next[key] = align;
+          }
+        }
+      }
+      return next;
+    });
+    setContextMenu(null);
+  }, [selection, visibleHeaders, masterColumnOrder, saveStateToHistory]);
 
   const toggleColumnVisibility = (key: string) => {
     setHiddenColumns(prev => 
@@ -2468,7 +2560,46 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setCellMetadata(newMetadata);
   }, [cellMetadata, masterColumnOrder]);
 
-   const handleDragFillStart = useCallback((e: React.MouseEvent, row: number, col: string) => {
+
+  const applyDragFill = useCallback((range: { startRow: number; endRow: number; col: string }) => {
+    const { startRow, endRow, col } = range;
+    const { gridData, cellMetadata, masterColumnOrder } = stateRef.current;
+    
+    saveStateToHistory();
+    if (startRow === endRow) return;
+
+    const colIdx = masterColumnOrder.indexOf(col);
+    if (colIdx === -1) return;
+    
+    const sourceValue = gridData.get(toA1Key(startRow, colIdx));
+    const sourceMeta = cellMetadata[toA1Key(startRow, colIdx)];
+
+    const newMetadata = { ...cellMetadata };
+    const nextMap = new Map(gridData);
+
+      const min = Math.min(startRow, endRow);
+      const max = Math.max(startRow, endRow);
+
+      for (let i = min; i <= max; i++) {
+        if (i === startRow) continue;
+        const rowOffset = i - startRow;
+        
+        const valueToApply = shiftFormula(sourceValue, rowOffset);
+        if (valueToApply !== undefined) nextMap.set(toA1Key(i, colIdx), valueToApply);
+
+        const targetKey = toA1Key(i, colIdx);
+        if (sourceMeta) {
+          newMetadata[targetKey] = { ...sourceMeta };
+        } else {
+          delete newMetadata[targetKey];
+        }
+      }
+
+      setGridData(nextMap);
+    setCellMetadata(newMetadata);
+  }, [saveStateToHistory]);
+
+  const handleDragFillStart = useCallback((e: React.MouseEvent, row: number, col: string) => {
     e.preventDefault();
     e.stopPropagation();
     setDragFillRange({ startRow: row, endRow: row, col });
@@ -2483,40 +2614,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       });
     };
     window.addEventListener('mouseup', handleMouseUp);
-  }, []);
-
-  const applyDragFill = (range: { startRow: number; endRow: number; col: string }) => {
-    const { startRow, endRow, col } = range;
-    saveStateToHistory();
-    if (startRow === endRow) return;
-
-    const colIdx = masterColumnOrder.indexOf(col);
-    if (colIdx === -1) return;
-    
-    const sourceValue = gridData.get(toA1Key(startRow, colIdx));
-    const sourceMeta = cellMetadata[toA1Key(startRow, colIdx)];
-      
-      const newMetadata = { ...cellMetadata };
-      const nextMap = new Map(gridData);
-
-      const min = Math.min(startRow, endRow);
-      const max = Math.max(startRow, endRow);
-
-      for (let i = min; i <= max; i++) {
-        if (i === startRow) continue;
-        
-        if (sourceValue !== undefined) nextMap.set(toA1Key(i, colIdx), sourceValue);
-        const targetKey = toA1Key(i, colIdx);
-        if (sourceMeta) {
-          newMetadata[targetKey] = { ...sourceMeta };
-        } else {
-          delete newMetadata[targetKey];
-        }
-      }
-
-      setGridData(nextMap);
-      setCellMetadata(newMetadata);
-  };
+  }, [applyDragFill]);
 
   const removeTableRow = useCallback(async (index: number) => {
     if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
@@ -3198,6 +3296,18 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   })()}
 
                   <div className="h-px bg-border my-1"></div>
+                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Alignment</div>
+                  <button onClick={() => setSelectionAlignment('left')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignLeft size={14} className="text-muted" /> Align Left
+                  </button>
+                  <button onClick={() => setSelectionAlignment('center')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignCenter size={14} className="text-muted" /> Align Center
+                  </button>
+                  <button onClick={() => setSelectionAlignment('right')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
+                    <AlignRight size={14} className="text-muted" /> Align Right
+                  </button>
+
+                  <div className="h-px bg-border my-1"></div>
 
                   {(() => {
                     const colIdx = masterColumnOrder.indexOf(contextMenu.col);
@@ -3593,6 +3703,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                       setActiveCell={setActiveCell}
                       setSelection={setSelection}
                       setIsSelecting={setIsSelecting}
+                      setDragFillRange={setDragFillRange}
                       onOpenContextMenu={handleOpenContextMenu}
                       toggleCellAlignment={toggleCellAlignment}
                       handleDragFillStart={handleDragFillStart}

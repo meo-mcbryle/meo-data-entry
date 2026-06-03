@@ -151,27 +151,36 @@ function PrintContent() {
       }
 
       if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
-        const match = value.match(/\=ADD_DAYS\((.*)\)/i);
+        const match = value.match(/=ADD_DAYS\s*\((.*)\)/i);
         if (!match) return '#ERROR!';
-        const args = match[1].split(',').map(s => s.trim());
+        // Split and strip quotes from literals
+        const args = match[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
         if (args.length !== 2) return '#ARGS!';
 
-        const startDateRaw = getArgValue(args[0]);
-        const daysToAdd = Number(getArgValue(args[1])) || 0;
+        let dateVal = getArgValue(args[0]);
+        let daysVal = getArgValue(args[1]);
 
-        if (!startDateRaw) return '';
-
-        let date: Date;
-        if (typeof startDateRaw === 'string' && startDateRaw.includes('-')) {
-          const [y, m, d] = startDateRaw.split('-').map(Number);
-          date = new Date(y, m - 1, d);
-        } else {
-          date = new Date(startDateRaw);
+        // Smart swap: if first arg is a number and second is not, swap them
+        if (!isNaN(Number(dateVal)) && isNaN(Number(daysVal))) {
+          [dateVal, daysVal] = [daysVal, dateVal];
         }
 
-        if (isNaN(date.getTime())) return '#DATE!';
+        if (dateVal === null || dateVal === undefined || dateVal === '') return '';
 
-        date.setDate(date.getDate() + daysToAdd);
+        let date = new Date(dateVal);
+        if (isNaN(date.getTime()) && typeof dateVal === 'string' && dateVal.includes('-')) {
+          const parts = dateVal.split('-');
+          if (parts.length === 3) {
+            if (parts[0].length === 4) date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            else if (parts[2].length === 4) date = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
+          }
+        }
+
+        const days = Number(daysVal);
+        if (isNaN(date.getTime())) return '#DATE!';
+        if (isNaN(days)) return '#NUM!';
+
+        date.setDate(date.getDate() + days);
         return formatDateDisplay(date.toISOString().split('T')[0], formatId);
       }
     } catch (e) {
