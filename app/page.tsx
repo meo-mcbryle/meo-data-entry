@@ -694,11 +694,49 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [cellMetadata, setCellMetadata] = useState<Record<string, any>>({});
   const [selectedYear, setSelectedYear] = useState<string>('2020');
 
+  // Audit Logs State and Fetching
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  const fetchAuditLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    const { data, error } = await supabase
+      .from('audit_logs')
+      .select('*, nodes(name)')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('Error fetching logs:', error.message);
+    } else {
+      setAuditLogs(data || []);
+    }
+    setIsLoadingLogs(false);
+  }, []);
+
   // History Management States and Refs
   const [undoStack, setUndoStack] = useState<any[]>([]);
   const [redoStack, setRedoStack] = useState<any[]>([]);
   const editStartValueRef = useRef<any>(null);
   const editingCellRef = useRef<{row: number, col: string} | null>(null);
+
+  /**
+   * Helper to log actions for auditing
+   */
+  const logAction = useCallback(async (action: string, nodeId: string | null, details: any = {}) => {
+    const { error } = await supabase.from('audit_logs').insert([{
+      action,
+      node_id: nodeId,
+      user_id: user.id,
+      details: {
+        ...details,
+        user_email: user.email // Capture current email for display
+      }
+    }]);
+    if (error) {
+      console.error(`Audit Log Failed [${action}]:`, error.message);
+    }
+  }, [user.id]);
 
   /**
    * History Management: Undo/Redo Engine
@@ -800,7 +838,12 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   }, [saveStateToHistory, masterColumnOrder]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare'>('table');
+const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>('table');
+
+  useEffect(() => {
+    if (viewMode === 'logs') fetchAuditLogs();
+  }, [viewMode, fetchAuditLogs]);
+
   const [rowFilter, setRowFilter] = useState<string>('');
   const [newColName, setNewColName] = useState<string>('');
   const searchParams = useSearchParams();
@@ -1463,11 +1506,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     const name = window.prompt(`Enter ${type} name:`);
     if (!name) return;
 
-    const { error } = await supabase.from('nodes').insert([{ name, type, parent_id: parentId }]);
+    const { data, error } = await supabase.from('nodes').insert([{ name, type, parent_id: parentId }]).select().single();
     if (error) {
       alert(`Failed to create ${type}: ${error.message}`);
       return;
     }
+    
+    if (data) await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', data.id, { name });
     fetchFiles();
   };
 
@@ -1481,6 +1526,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       alert(`Failed to rename: ${error.message}`);
       return;
     }
+    await logAction('RENAMED', id, { old_name: node?.name, new_name: name });
     fetchFiles();
   };
 
@@ -1491,6 +1537,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       alert(`Failed to delete: ${error.message}`);
       return;
     }
+    await logAction('DELETED', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
   };
@@ -2477,6 +2524,83 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     );
   };
 
+  const renderAuditLogs = () => {
+    if (isLoadingLogs) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-12">
+          <Loader2 className="animate-spin text-accent mb-4" size={32} />
+          <p className="text-sm text-muted font-medium animate-pulse uppercase tracking-widest">Loading audit history...</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
+        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
+          <h3 className="text-xs font-black uppercase tracking-widest text-muted">System Audit Trail</h3>
+          <button onClick={fetchAuditLogs} className="p-1.5 text-muted hover:text-accent transition-colors" title="Refresh Logs">
+            <RefreshCcw size={14} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-left">
+            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
+              <tr>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Timestamp</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">User ID</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">User</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Action</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Target Node</th>
+                <th className="p-3 text-[11px] font-bold border-b border-border text-foreground">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-12 text-center text-muted italic text-sm">No activity logs found.</td>
+                </tr>
+              ) : (
+                auditLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-muted/5 border-b border-border transition-colors">
+                    <td className="p-3 text-xs font-mono text-muted whitespace-nowrap">
+                      {new Date(log.created_at).toLocaleString()}
+                    </td>
+                    <td className="p-3 text-[10px] font-mono text-muted truncate max-w-24" title={log.user_id}>
+                      {log.user_id}
+                    </td>
+                    <td className="p-3 text-[10px] font-mono text-muted truncate max-w-48" title={log.details?.user_email || log.user_id}>
+                      {log.details?.user_email || <span className="opacity-30 italic text-[8px]">{log.user_id}</span>}
+                    </td>
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${
+                        log.action.includes('CREATED') ? 'bg-green-500/10 text-green-500' :
+                        log.action.includes('DELETED') ? 'bg-red-500/10 text-red-500' :
+                        log.action.includes('UPDATED') ? 'bg-blue-500/10 text-blue-500' :
+                        'bg-muted/20 text-muted'
+                      }`}>
+                        {log.action}
+                      </span>
+                    </td>
+                    <td className="p-3 text-xs font-bold text-foreground">
+                      {log.nodes?.name || <span className="text-muted/30 italic font-normal">N/A</span>}
+                    </td>
+                    <td className="p-3 text-[11px] text-muted font-mono whitespace-pre-wrap">
+                      {JSON.stringify(log.details, null, 1)}
+                      {(() => {
+                        const { user_email, ...rest } = log.details || {};
+                        return Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 1) : '-';
+                      })()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const handleMergeCells = useCallback((visibleHeaders: string[], isHeaderMerge: boolean = false) => {
     if (!selection) return;
     saveStateToHistory();
@@ -2793,6 +2917,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       
       const { error } = await supabase.from('nodes').update({ content: contentArray, display_settings }).eq('id', activeNode.id);
       if (error) throw error;
+      await logAction('CONTENT_UPDATED', activeNode.id);
       await fetchFiles();
     } finally {
       setIsSaving(false);
@@ -3802,6 +3927,15 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                 Project Explorer
               </div>
             </button>
+            <button 
+              onClick={() => setViewMode('logs')}
+              className={`p-2 rounded-lg group relative ${viewMode === 'logs' ? 'text-purple-500 bg-purple-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+            >
+              <History size={20} />
+              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                System Audit Logs
+              </div>
+            </button>
             <button className="p-2 text-muted hover:text-foreground group relative">
               <Search size={20} />
               <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -3906,6 +4040,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                       if (selectedId !== node.id) {
                         setIsLoadingFile(true);
                         setSelectedId(node.id);
+                      if (viewMode === 'logs') setViewMode('table');
                       }
                     }} 
                     selectedId={selectedId ?? undefined}
@@ -3930,15 +4065,26 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
           </button>
         )}
 
-        {activeNode ? (
+        {activeNode || viewMode === 'logs' ? (
           <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card' : 'bg-card border border-border rounded-xl shadow-sm'}`}>
             {!isFullScreen && (
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10 overflow-x-auto no-scrollbar">
                 <div className="flex items-center gap-3 shrink-0">
-                  <div className="md:p-1.5 p-0.5 bg-accent/10 text-accent rounded">
-                    <FileIcon size={14} />
-                  </div>
-                  <h2 className="text-sm font-bold text-foreground truncate max-w-30 md:max-w-60">{activeNode.name}</h2>
+                  {viewMode === 'logs' ? (
+                    <>
+                      <div className="md:p-1.5 p-0.5 bg-purple-500/10 text-purple-500 rounded">
+                        <History size={14} />
+                      </div>
+                      <h2 className="text-sm font-bold text-foreground">System Audit Logs</h2>
+                    </>
+                  ) : (
+                    <>
+                      <div className="md:p-1.5 p-0.5 bg-accent/10 text-accent rounded">
+                        <FileIcon size={14} />
+                      </div>
+                      <h2 className="text-sm font-bold text-foreground truncate max-w-30 md:max-w-60">{activeNode?.name}</h2>
+                    </>
+                  )}
                   
                   <div className="h-4 w-px bg-border mx-1" />
                   
@@ -3951,6 +4097,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     >
                       <TableIcon size={12} /> Grid
                     </button>
+                    {viewMode !== 'logs' && (
                     <button 
                       onClick={() => setViewMode('code')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
@@ -3959,6 +4106,8 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     >
                       <Code size={12} /> JSON
                     </button>
+                    )}
+                    {viewMode !== 'logs' && (
                     <button 
                       onClick={() => setViewMode('compare')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
@@ -3967,26 +4116,41 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     >
                       <RefreshCcw size={12} /> Compare {comparisonIds.length > 0 && `(${comparisonIds.length})`}
                     </button>
+                    )}
                   </nav>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 ml-4">
-                  <button onClick={() => window.open(`/print?id=${selectedId}`, '_blank')} className="p-1.5 text-muted hover:text-accent transition-colors" title="Printable Report"><Printer size={16} /></button>
-                  <button onClick={handleShare} className="p-1.5 text-muted hover:text-accent transition-colors" title="Copy Link"><Share2 size={16} /></button>
+                  {activeNode && <button onClick={() => window.open(`/print?id=${selectedId}`, '_blank')} className="p-1.5 text-muted hover:text-accent transition-colors" title="Printable Report"><Printer size={16} /></button>}
+                  {activeNode && <button onClick={handleShare} className="p-1.5 text-muted hover:text-accent transition-colors" title="Copy Link"><Share2 size={16} /></button>}
                   <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Toggle Focus Mode">{isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                   <div className="h-4 w-px bg-border mx-1" />
-                  <button 
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 disabled:opacity-50 shadow-sm"
-                  >
-                    {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-                    {isSaving ? 'Saving...' : 'Save'}
-                  </button>
+                  {activeNode && (
+                    <button 
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 disabled:opacity-50 shadow-sm"
+                    >
+                      {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                      {isSaving ? 'Saving...' : 'Save'}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
             
-            {activeNode.type === 'file' && (
+            {viewMode === 'logs' ? (
+              <div className="flex flex-col flex-1 min-h-0">
+                {renderAuditLogs()}
+                <footer className={GRID_THEME.statusBar}>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                  </div>
+                </footer>
+              </div>
+            ) : (activeNode?.type === 'file' && (
               <div className="flex flex-col flex-1 min-h-0">
                 {isFullScreen && (
                   <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card overflow-x-auto no-scrollbar">
@@ -4023,17 +4187,23 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                 {/* High-density Status Bar */}
                 <footer className={GRID_THEME.statusBar}>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><Clock size={12} className="text-muted/40"/> Created {new Date(activeNode.created_at).toLocaleDateString()}</div>
-                    <div className="h-3 w-px bg-border" />
+                    {activeNode && (
+                      <>
+                        <div className="flex items-center gap-1.5"><Clock size={12} className="text-muted/40"/> Created {new Date(activeNode.created_at).toLocaleDateString()}</div>
+                        <div className="h-3 w-px bg-border" />
+                      </>
+                    )}
                     <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40"/> {formatSize(activeNode.size_bytes)}</div>
+                    {activeNode && (
+                      <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40"/> {formatSize(activeNode.size_bytes)}</div>
+                    )}
                     <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
                   </div>
                 </footer>
               </div>
-            )}
+            ))}
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-muted">
