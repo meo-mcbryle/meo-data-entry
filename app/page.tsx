@@ -9,6 +9,11 @@ import FileNodeItem from '@/components/FileNodeItem';
 import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical, Lock, Mail, LogIn, LogOut } from 'lucide-react';
 
 /**
+ * Enhanced FileNode type to include soft-delete metadata
+ */
+type TrashNode = FileNode & { is_deleted?: boolean; deleted_at?: string | null; deleted_by?: string | null };
+
+/**
  * Theme Context to isolate theme state and prevent full dashboard re-renders.
  */
 const ThemeContext = createContext<{
@@ -681,6 +686,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletedNodes, setDeletedNodes] = useState<TrashNode[]>([]);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [masterColumnOrder, setMasterColumnOrder] = useState<string[]>([]);
   const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
@@ -838,10 +844,11 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   }, [saveStateToHistory, masterColumnOrder]);
 
   const [isSaving, setIsSaving] = useState(false);
-const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>('table');
+  const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs' | 'trash'>('table');
 
   useEffect(() => {
     if (viewMode === 'logs') fetchAuditLogs();
+    if (viewMode === 'trash') fetchFiles();
   }, [viewMode, fetchAuditLogs]);
 
   const [rowFilter, setRowFilter] = useState<string>('');
@@ -1491,13 +1498,15 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
 
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
-    // Optimization: Exclude heavy 'content' and 'display_settings' blobs from the tree fetch
-    const { data, error } = await supabase.from('nodes').select('id, name, type, parent_id, created_at, size_bytes').order('name');
+    // Optimization: Include is_deleted and deleted_at to support Trash Bin
+      const { data, error } = await supabase.from('nodes').select('id, name, type, parent_id, created_at, size_bytes, is_deleted, deleted_at, deleted_by').order('name');
     
     if (error) {
       console.error('Error fetching files:', error.message);
     } else if (data) {
-      setTree(buildTree(data as FileNode[]));
+      setTree(buildTree(data.filter((n: any) => !n.is_deleted) as FileNode[]));
+        // Sort deleted nodes by date descending so the most recently deleted items appear first
+        setDeletedNodes(data.filter((n: any) => n.is_deleted).sort((a: any, b: any) => new Date(b.deleted_at || 0).getTime() - new Date(a.deleted_at || 0).getTime()) as TrashNode[]);
     }
     setIsLoading(false);
   }, []);
@@ -1531,15 +1540,31 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this item?')) return;
-    const { error } = await supabase.from('nodes').delete().eq('id', id);
+    if (!window.confirm('Move this item to Trash?')) return;
+    const { error } = await supabase.from('nodes').update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: user.email }).eq('id', id);
     if (error) {
       alert(`Failed to delete: ${error.message}`);
       return;
     }
-    await logAction('DELETED', id, { name: findNodeById(tree, id)?.name });
+    await logAction('MOVED_TO_TRASH', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
+  };
+
+  const handleRestore = async (id: string) => {
+    const { error } = await supabase.from('nodes').update({ is_deleted: false, deleted_at: null, deleted_by: null }).eq('id', id);
+    if (error) {
+      alert(`Failed to restore: ${error.message}`);
+      return;
+    }
+    await logAction('RESTORED', id);
+    fetchFiles();
+  };
+
+  const handlePermanentDelete = async (id: string) => {
+    if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
+    const { error } = await supabase.from('nodes').delete().eq('id', id);
+    if (!error) fetchFiles();
   };
 
 
@@ -2497,6 +2522,71 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
                   </Fragment>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTrashBin = () => {
+    return (
+      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
+        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
+          <h3 className="text-xs font-black uppercase tracking-widest text-muted">Trash Bin</h3>
+          <p className="text-[10px] text-muted font-bold">{deletedNodes.length} items in trash</p>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="min-w-full border-separate border-spacing-0 text-left">
+            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
+              <tr>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Name</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Type</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Deleted Date</th>
+                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Deleted By</th>
+                <th className="p-3 text-[11px] font-bold border-b border-border text-foreground text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deletedNodes.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-12 text-center text-muted italic text-sm">Trash is empty.</td>
+                </tr>
+              ) : (
+                deletedNodes.map((node) => (
+                  <tr key={node.id} className="hover:bg-muted/5 border-b border-border transition-colors">
+                    <td className="p-3 text-xs font-bold text-foreground flex items-center gap-2">
+                      {node.type === 'folder' ? <Folder size={14} className="text-amber-500" /> : <FileText size={14} className="text-blue-500" />}
+                      {node.name}
+                    </td>
+                    <td className="p-3 text-[10px] uppercase font-black text-muted tracking-tighter">
+                      {node.type}
+                    </td>
+                    <td className="p-3 text-[10px] font-mono text-muted">
+                      {node.deleted_at ? new Date(node.deleted_at).toLocaleString() : '-'}
+                    </td>
+                    <td className="p-3 text-[10px] font-bold text-muted truncate max-w-40" title={node.deleted_by || 'Unknown'}>
+                      {node.deleted_by || <span className="opacity-30 italic font-normal">Unknown</span>}
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button 
+                          onClick={() => handleRestore(node.id)}
+                          className="px-2 py-1 bg-green-500/10 text-green-600 text-[10px] font-bold rounded hover:bg-green-500/20 transition-colors"
+                        >
+                          Restore
+                        </button>
+                        <button 
+                          onClick={() => handlePermanentDelete(node.id)}
+                          className="px-2 py-1 bg-red-500/10 text-red-500 text-[10px] font-bold rounded hover:bg-red-500/20 transition-colors"
+                        >
+                          Delete Permanently
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -3898,6 +3988,15 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
                 System Audit Logs
               </div>
             </button>
+            <button 
+              onClick={() => setViewMode('trash')}
+              className={`p-2 rounded-lg group relative ${viewMode === 'trash' ? 'text-orange-500 bg-orange-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
+            >
+              <Trash2 size={20} />
+              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+                Trash Bin
+              </div>
+            </button>
             <button className="p-2 text-muted hover:text-foreground group relative">
               <Search size={20} />
               <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -4019,7 +4118,7 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
 
         {/* Floating Mobile Toggle Button - Restored for better access while keeping the spreadsheet view maximized */}
         {!isFullScreen && !isExplorerVisible && (
-          <button 
+          <button
             onClick={() => setIsExplorerVisible(true)}
             className="md:hidden fixed bottom-6 left-6 z-60 p-4 bg-accent text-accent-foreground rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-4 duration-300"
           >
@@ -4027,7 +4126,7 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
           </button>
         )}
 
-        {activeNode || viewMode === 'logs' ? (
+        {activeNode || viewMode === 'logs' || viewMode === 'trash' ? (
           <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card' : 'bg-card border border-border rounded-xl shadow-sm'}`}>
             {!isFullScreen && (
               <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10 overflow-x-auto no-scrollbar">
@@ -4038,6 +4137,13 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
                         <History size={14} />
                       </div>
                       <h2 className="text-sm font-bold text-foreground">System Audit Logs</h2>
+                    </>
+                  ) : viewMode === 'trash' ? (
+                    <>
+                      <div className="md:p-1.5 p-0.5 bg-orange-500/10 text-orange-500 rounded">
+                        <Trash2 size={14} />
+                      </div>
+                      <h2 className="text-sm font-bold text-foreground">Trash Bin</h2>
                     </>
                   ) : (
                     <>
@@ -4059,7 +4165,7 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
                     >
                       <TableIcon size={12} /> Grid
                     </button>
-                    {viewMode !== 'logs' && (
+                    {viewMode !== 'logs' && viewMode !== 'trash' && (
                     <button 
                       onClick={() => setViewMode('code')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
@@ -4069,7 +4175,7 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
                       <Code size={12} /> JSON
                     </button>
                     )}
-                    {viewMode !== 'logs' && (
+                    {viewMode !== 'logs' && viewMode !== 'trash' && (
                     <button 
                       onClick={() => setViewMode('compare')}
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
@@ -4104,6 +4210,18 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
               <div className="flex flex-col flex-1 min-h-0">
                 {renderAuditLogs()}
                 <footer className={GRID_THEME.statusBar}>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                      </div>
+                    </footer>
+                  </div>
+                ) : viewMode === 'trash' ? (
+                  <div className="flex flex-col flex-1 min-h-0">
+                    {renderTrashBin()}
+                    <footer className={GRID_THEME.statusBar}>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
                   </div>
