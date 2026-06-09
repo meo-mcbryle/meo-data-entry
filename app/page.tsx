@@ -2302,18 +2302,9 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
     }
   };
 
-  const removeCellMetadata = useCallback(async (row: number, col: string) => {
+  const removeCellMetadata = useCallback((row: number, col: string) => {
      if (!window.confirm("Are you sure you want to remove all attachments and formatting from this cell?")) return;
     const key = toA1Key(row, masterColumnOrder.indexOf(col));
-    const meta = cellMetadata[key];
-
-    // Cleanup all files in this cell from storage
-    if (meta?.attachments) {
-      const paths = meta.attachments.map((a: any) => a.path).filter(Boolean);
-      if (paths.length > 0) {
-        await supabase.storage.from('attachments').remove(paths);
-      }
-    }
 
     setCellMetadata(prev => {
       const next = { ...prev };
@@ -2323,42 +2314,31 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
     setContextMenu(null);
   }, [cellMetadata, masterColumnOrder]);
 
-  const deleteAttachment = useCallback(async (row: number, col: string, index: number) => {
-    if (!window.confirm("Are you sure you want to permanently delete this attachment?")) return;
+  const deleteAttachment = useCallback((row: number, col: string, index: number) => {
+    if (!window.confirm("Are you sure you want to remove this attachment?")) return;
     const key = toA1Key(row, masterColumnOrder.indexOf(col));
 
     const existing = cellMetadata[key];
     if (!existing || !existing.attachments) return;
 
-    const attachmentToDelete = existing.attachments[index];
+    setCellMetadata(prev => {
+      const innerExisting = prev[key];
+      const newAttachments = innerExisting.attachments.filter((_: any, i: number) => i !== index);
 
-    try {
-      // Remove from Supabase storage if path exists
-      if (attachmentToDelete.path) {
-        await supabase.storage.from('attachments').remove([attachmentToDelete.path]);
+      if (newAttachments.length === 0) {
+        const next = { ...prev };
+        delete next[key];
+        setViewingMedia(null); // Close modal if last item deleted
+        return next;
       }
 
-      setCellMetadata(prev => {
-        const innerExisting = prev[key];
-        const newAttachments = innerExisting.attachments.filter((_: any, i: number) => i !== index);
-
-        if (newAttachments.length === 0) {
-          const next = { ...prev };
-          delete next[key];
-          setViewingMedia(null); // Close modal if last item deleted
-          return next;
-        }
-
-        const updated = {
-          ...prev,
-          [key]: { ...innerExisting, attachments: newAttachments }
-        };
-        setViewingMedia({ attachments: newAttachments, row, col });
-        return updated;
-      });
-    } catch (err: any) {
-      alert('Failed to delete file from storage: ' + err.message);
-    }
+      const updated = {
+        ...prev,
+        [key]: { ...innerExisting, attachments: newAttachments }
+      };
+      setViewingMedia({ attachments: newAttachments, row, col });
+      return updated;
+    });
   }, [cellMetadata, masterColumnOrder]);
 
   const toggleComparisonId = (id: string) => {
@@ -2740,27 +2720,9 @@ const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs'>(
     window.addEventListener('mouseup', handleMouseUp);
   }, [applyDragFill]);
 
-  const removeTableRow = useCallback(async (index: number) => {
-    if (!window.confirm("Are you sure you want to delete this row? Any associated attachments will be permanently removed.")) return;
+  const removeTableRow = useCallback((index: number) => {
+    if (!window.confirm("Are you sure you want to delete this row?")) return;
     saveStateToHistory();
-
-    // Identify all attachments in this row to cleanup storage
-    const pathsToDelete: string[] = [];
-    Object.keys(cellMetadata).forEach(key => {
-      const coords = fromA1Key(key);
-      if (coords && coords.row === index) {
-        const meta = cellMetadata[key];
-        if (meta?.attachments) {
-          meta.attachments.forEach((a: any) => { if (a.path) pathsToDelete.push(a.path); });
-        }
-      }
-    });
-
-    if (pathsToDelete.length > 0) {
-      try {
-        await supabase.storage.from('attachments').remove(pathsToDelete);
-      } catch (err) { console.error("Storage cleanup failed:", err); }
-    }
 
     try {
       setGridData(prev => {
