@@ -703,19 +703,22 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   // Audit Logs State and Fetching
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [hasMoreLogs, setHasMoreLogs] = useState(true);
+  const LOGS_PAGE_SIZE = 50;
 
-  const fetchAuditLogs = useCallback(async () => {
+  const fetchAuditLogs = useCallback(async (offset = 0) => {
     setIsLoadingLogs(true);
     const { data, error } = await supabase
       .from('audit_logs')
       .select('*, nodes(name)')
       .order('created_at', { ascending: false })
-      .limit(100);
+      .range(offset, offset + LOGS_PAGE_SIZE - 1);
 
     if (error) {
       console.error('Error fetching logs:', error.message);
     } else {
-      setAuditLogs(data || []);
+      setAuditLogs(prev => offset === 0 ? (data || []) : [...prev, ...(data || [])]);
+      setHasMoreLogs((data || []).length === LOGS_PAGE_SIZE);
     }
     setIsLoadingLogs(false);
   }, []);
@@ -779,11 +782,14 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setIsSearchingGlobal(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
+        // OPTIMIZATION: Limit columns and rows fetched. 
+        // Ideally, move this logic to a Postgres Function (RPC) to search JSONB on the server.
         const { data, error } = await supabase
           .from('nodes')
-          .select('id, name, content')
+          .select('id, name, content') 
           .eq('type', 'file')
-          .eq('is_deleted', false);
+          .eq('is_deleted', false)
+          .limit(50); // Safety limit for global scan
 
         if (error) throw error;
 
@@ -1292,19 +1298,28 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
    * Instead of generating a full array of row objects (O(N*M)), we work with 
    * a flat array of indices. This keeps the JS main thread clear for typing.
    */
-  const filteredRowIndices = useMemo(() => {
-    const indices = Array.from({ length: rowCount }, (_, i) => i);
-    if (!rowFilter) return indices;
-    
-    const lowerCaseFilter = rowFilter.toLowerCase();
-    return indices.filter((i) => {
-      return allHeaders.some(h => {
-        const colIdx = masterColumnOrder.indexOf(h);
-        const coord = colIdx !== -1 ? toA1Key(i, colIdx) : '';
-        const val = coord ? gridData.get(coord) : undefined;
-        return val !== undefined && String(val).toLowerCase().includes(lowerCaseFilter);
+  const [filteredRowIndices, setFilteredRowIndices] = useState<number[]>([]);
+  const filterWorkerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    // Initialize the worker
+    filterWorkerRef.current = new Worker(new URL('./filter.worker.ts', import.meta.url));
+    filterWorkerRef.current.onmessage = (e: MessageEvent<number[]>) => {
+      setFilteredRowIndices(e.data);
+    };
+    return () => filterWorkerRef.current?.terminate();
+  }, []);
+
+  useEffect(() => {
+    if (filterWorkerRef.current) {
+      filterWorkerRef.current.postMessage({
+        rowCount,
+        rowFilter,
+        allHeaders,
+        masterColumnOrder,
+        gridData
       });
-    });
+    }
   }, [gridData, rowCount, allHeaders, rowFilter, masterColumnOrder]);
 
   const sectionBlocks = useMemo(() => {
@@ -2705,7 +2720,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   };
 
   const renderAuditLogs = () => {
-    if (isLoadingLogs) {
+    if (isLoadingLogs && auditLogs.length === 0) {
       return (
         <div className="flex-1 flex flex-col items-center justify-center p-12">
           <Loader2 className="animate-spin text-accent mb-4" size={32} />
@@ -2718,7 +2733,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
         <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
           <h3 className="text-xs font-black uppercase tracking-widest text-muted">System Audit Trail</h3>
-          <button onClick={fetchAuditLogs} className="p-1.5 text-muted hover:text-accent transition-colors" title="Refresh Logs">
+          <button onClick={() => fetchAuditLogs(0)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Refresh Logs">
             <RefreshCcw size={14} />
           </button>
         </div>
@@ -2735,12 +2750,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </tr>
             </thead>
             <tbody>
-              {auditLogs.length === 0 ? (
+              {auditLogs.length === 0 && !isLoadingLogs ? (
                 <tr>
-                  <td colSpan={5} className="p-12 text-center text-muted italic text-sm">No activity logs found.</td>
+                  <td colSpan={6} className="p-12 text-center text-muted italic text-sm">No activity logs found.</td>
                 </tr>
               ) : (
-                auditLogs.map((log) => (
+                <>
+                  {auditLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-muted/5 border-b border-border transition-colors">
                     <td className="p-3 text-xs font-mono text-muted whitespace-nowrap">
                       {new Date(log.created_at).toLocaleString()}
@@ -2772,7 +2788,22 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                       })()}
                     </td>
                   </tr>
-                ))
+                ))}
+                {hasMoreLogs && (
+                  <tr>
+                    <td colSpan={6} className="p-4 text-center border-t border-border">
+                      <button 
+                        onClick={() => fetchAuditLogs(auditLogs.length)}
+                        disabled={isLoadingLogs}
+                        className="px-4 py-2 bg-muted/20 hover:bg-muted/30 text-muted rounded text-xs font-bold transition-all disabled:opacity-50 inline-flex items-center gap-2"
+                      >
+                        {isLoadingLogs && <Loader2 className="animate-spin" size={14} />}
+                        {isLoadingLogs ? 'Loading More...' : 'Load More History'}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </>
               )}
             </tbody>
           </table>
