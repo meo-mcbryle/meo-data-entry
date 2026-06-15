@@ -4121,7 +4121,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </div>
             </button>
             <button 
-              onClick={() => setViewMode('logs')}
+              onClick={() => { setViewMode('logs'); setIsExplorerVisible(false); }}
               className={`p-2 rounded-lg group relative ${viewMode === 'logs' ? 'text-purple-500 bg-purple-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               <History size={20} />
@@ -4130,7 +4130,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </div>
             </button>
             <button 
-              onClick={() => setViewMode('trash')}
+              onClick={() => { setViewMode('trash'); setIsExplorerVisible(false); }}
               className={`p-2 rounded-lg group relative ${viewMode === 'trash' ? 'text-orange-500 bg-orange-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               <Trash2 size={20} />
@@ -4154,7 +4154,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   {recentNodes.map(node => (
                     <button
                       key={`recent-${node.id}`}
-                      onClick={() => setSelectedId(node.id)}
+                      onClick={() => {
+                        setSelectedId(node.id);
+                        if (['logs', 'trash', 'compare'].includes(viewMode)) setViewMode('table');
+                      }}
                       className={`p-1.5 rounded group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
                     >
                       <FileText size={16} />
@@ -4245,7 +4248,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                       if (selectedId !== node.id) {
                         setIsLoadingFile(true);
                         setSelectedId(node.id);
-                      if (viewMode === 'logs') setViewMode('table');
+                      }
+                      // Always switch back to grid view if coming from a global system view
+                      if (['logs', 'trash', 'compare'].includes(viewMode)) {
+                        setViewMode('table');
                       }
                     }} 
                     selectedId={selectedId ?? undefined}
