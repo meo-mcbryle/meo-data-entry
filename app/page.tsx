@@ -327,7 +327,7 @@ const GridRow = React.memo(({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [globalIndex, onMeasuredHeight, rowHeights, zoom]);
+  }, [globalIndex, onMeasuredHeight, zoom]); // REMOVED rowHeights to prevent O(N^2) observer cycles
 
   return (
     <tr 
@@ -973,6 +973,20 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
   const [explorerSearch, setExplorerSearch] = useState('');
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isSidebarMoving, setIsSidebarMoving] = useState(false);
+
+  /**
+   * Performance Optimized Sidebar Toggle:
+   * Sets a flag to silence heavy grid measurement observers during the 300ms 
+   * CSS transition, preventing layout thrashing and "Measurement Storms".
+   */
+  const toggleSidebar = useCallback((forceState?: boolean) => {
+    const nextState = forceState !== undefined ? forceState : !isExplorerVisible;
+    setIsSidebarMoving(true);
+    setIsExplorerVisible(nextState);
+    setTimeout(() => setIsSidebarMoving(false), 350); // Matches 300ms duration + buffer
+  }, [isExplorerVisible]);
+
   const [isFreezeHeaders, setIsFreezeHeaders] = useState(true);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
@@ -1011,6 +1025,8 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const heightRafId = useRef<number | null>(null);
 
   const onMeasuredHeight = useCallback((index: number, height: number) => {
+    // Silently ignore measurements while sidebar is animating to keep FPS high
+    if (isSidebarMoving) return;
     heightUpdateQueue.current[String(index)] = height;
     
     if (heightRafId.current !== null) return;
@@ -1072,7 +1088,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     observer.observe(tableContainerRef.current);
     setContainerHeight(tableContainerRef.current.getBoundingClientRect().height || 800);
     return () => observer.disconnect();
-  }, [viewMode, selectedId, isExplorerVisible]);
+  }, [viewMode, selectedId]); // REMOVED isExplorerVisible to prevent redundant teardowns
 
   // Responsive Sidebar: Desktop: Open by default, Mobile: Hidden by default
   useEffect(() => {
@@ -4102,7 +4118,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
           } transition-[transform,opacity] duration-300`}>
             <button
-              onClick={() => setIsExplorerVisible(!isExplorerVisible)}
+              onClick={() => toggleSidebar()}
               className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               {isExplorerVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
@@ -4113,7 +4129,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             <div className="h-px w-6 bg-border" />
             <button 
               className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
-              onClick={() => !isExplorerVisible && setIsExplorerVisible(true)}
+              onClick={() => !isExplorerVisible && toggleSidebar(true)}
             >
               <Folder size={20} />
               <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
@@ -4121,7 +4137,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </div>
             </button>
             <button 
-              onClick={() => { setViewMode('logs'); setIsExplorerVisible(false); }}
+              onClick={() => { setViewMode('logs'); toggleSidebar(false); }}
               className={`p-2 rounded-lg group relative ${viewMode === 'logs' ? 'text-purple-500 bg-purple-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               <History size={20} />
@@ -4130,7 +4146,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </div>
             </button>
             <button 
-              onClick={() => { setViewMode('trash'); setIsExplorerVisible(false); }}
+              onClick={() => { setViewMode('trash'); toggleSidebar(false); }}
               className={`p-2 rounded-lg group relative ${viewMode === 'trash' ? 'text-orange-500 bg-orange-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
             >
               <Trash2 size={20} />
@@ -4269,7 +4285,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         {/* Floating Mobile Toggle Button - Restored for better access while keeping the spreadsheet view maximized */}
         {!isFullScreen && !isExplorerVisible && (
           <button
-            onClick={() => setIsExplorerVisible(true)}
+            onClick={() => toggleSidebar(true)}
             className="md:hidden fixed bottom-6 left-6 z-60 p-4 bg-accent text-accent-foreground rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-4 duration-300"
           >
             <PanelLeftOpen size={24} />
@@ -4441,7 +4457,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             <p>Select a file to start data entry.</p>
             {!isExplorerVisible && (
               <button 
-                onClick={() => setIsExplorerVisible(true)}
+                onClick={() => toggleSidebar(true)}
                 className="md:hidden mt-4 flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg font-bold text-sm shadow-sm"
               >
                 <PanelLeftOpen size={16} /> Open Sidebar
