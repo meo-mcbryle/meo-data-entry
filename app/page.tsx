@@ -1,686 +1,37 @@
 'use client';
-import React, { useEffect, useState, useMemo, useCallback, Fragment, Suspense, useRef, createContext, useContext } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, Suspense, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
-import { buildTree, FileNode, findNodeById, CellMetadata, GridRowData } from '@/lib/tree-utils';
-import { toA1Key, fromA1Key, getExcelColumnLabel, hydrateMapToArray, dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord } from '@/lib/excel-utils';
-import FileNodeItem from '@/components/FileNodeItem';
-import { Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Plus, Trash2, X, AlignLeft, AlignCenter, AlignRight, Eye, EyeOff, Search, Printer, FileText, Share2, FolderPlus, FilePlus, PanelLeftClose, PanelLeftOpen, ChevronUp, ChevronDown, ArrowUp, Loader2, RefreshCcw, Calendar, Sigma, Image as ImageIcon, Paperclip, FileIcon, ChevronRight as ChevronRightIcon, Maximize2, Minimize2, Type, History, Moon, Sun, ZoomIn, ZoomOut, Check, MoreVertical, Lock, Mail, LogIn, LogOut } from 'lucide-react';
+import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
+import { 
+  toA1Key, fromA1Key, hydrateMapToArray, 
+  dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord,
+  shiftFormula
+} from '@/lib/excel-utils';
+import { ProjectExplorer } from '@/components/ProjectExplorer';
+import { TrashNode } from '@/lib/types';
+import { ComparisonTable } from '@/components/ComparisonTable';
+import { TrashBin } from '@/components/TrashBin';
+import { AuditLogs } from '@/components/AuditLogs';
+import { TableEditor } from '@/components/TableEditor';
+import { ThemeContext } from '@/components/ThemeToggle';
+import { LoginPage } from '@/components/LoginPage';
+import { GlobalSearchModal } from '@/components/GlobalSearchModal';
+import { ProfileModal } from '@/components/ProfileModal';
+import { NavigationSidebar } from '@/components/NavigationSidebar';
+import { useGridHistory } from '@/hooks/useGridHistory';
+import { evaluateFormula as evaluateFormulaLib } from '@/lib/formula-evaluator';
+import { GRID_THEME } from '@/lib/constants';
+import { 
+  Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Trash2, 
+  Printer, Share2, PanelLeftOpen, Loader2, RefreshCcw, FileIcon, 
+  Maximize2, Minimize2, History, X, Check, Paperclip, Image as ImageIcon
+} from 'lucide-react';
 
-/**
- * Enhanced FileNode type to include soft-delete metadata
- */
-type TrashNode = FileNode & { is_deleted?: boolean; deleted_at?: string | null; deleted_by?: string | null };
 
-/**
- * Theme Context to isolate theme state and prevent full dashboard re-renders.
- */
-const ThemeContext = createContext<{
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
-}>({ theme: 'dark', toggleTheme: () => {} });
 
-const useTheme = () => useContext(ThemeContext);
 
-/**
- * Isolated Toggle Component: Only this small component re-renders when the theme changes.
- */
-const ThemeToggle = () => {
-  const { theme, toggleTheme } = useTheme();
-  return (
-    <button 
-      onClick={toggleTheme}
-      className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg"
-      aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-    >
-      {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-        {theme === 'light' ? "Dark Mode" : "Light Mode"}
-      </div>
-    </button>
-  );
-};
-
-/**
- * Theme Registry: Centralized class management for Dark/Light mode consistency.
- * By using semantic variables defined in globals.css, we ensure automatic theme switching.
- */
-const GRID_THEME = {
-  // Main Layout Containers
-  main: "flex h-screen bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px] text-foreground",
-  rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding,opacity,transform] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border transform-gpu will-change-[width,padding,opacity,transform]",
-  editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
-  
-  // Grid Editor Components
-  editor: "flex flex-col h-full overflow-hidden bg-card",
-  toolbar: "flex items-center justify-between p-2 bg-background border-b border-border gap-2 overflow-x-auto no-scrollbar whitespace-nowrap",
-  formulaBar: "flex items-start gap-2 p-1.5 bg-card border-b border-border shadow-inner z-20",
-  statusBar: "h-7 bg-background border-t border-border flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",
-  navContainer: "flex bg-muted/10 p-0.5 rounded-md border border-border",
-  
-  // Table Specific Styles
-  tableHeader: "bg-muted/10 shadow-[0_1px_0_var(--color-border)]",
-  tableHeaderRow: "bg-muted/20 select-none h-5",
-  tableIndexCell: "border-r border-b border-border",
-  tableCell: "p-0 border-r border-b border-border bg-card group/cell relative align-middle",
-  tableBodyRow: "hover:bg-muted/5 group relative",
-
-  // Inputs and Interactive
-  tableInput: "grid-input w-full px-2 py-1 text-sm text-foreground bg-transparent border-0 outline-none dark:bg-card whitespace-pre-wrap break-words",
-};
-
-const FONT_FAMILIES = [
-  { id: 'sans', label: 'Inter (Default)', value: 'var(--font-geist-sans), ui-sans-serif, system-ui' },
-  { id: 'roboto', label: 'Roboto', value: '"Roboto", sans-serif' },
-  { id: 'opensans', label: 'Open Sans', value: '"Open Sans", sans-serif' },
-  { id: 'serif', label: 'System Serif', value: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
-  { id: 'mono', label: 'System Mono', value: 'var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
-  { id: 'montserrat', label: 'Montserrat', value: '"Montserrat", sans-serif' },
-];
-
-const DATE_FORMATS = [
-  { id: 'long', label: 'Monday, May 5, 2026' },
-  { id: 'medium', label: 'May 5, 2026' },
-  { id: 'short', label: '05/05/2026' },
-  { id: 'iso', label: '2026-05-05' },
-];
-
-const NUMBER_FORMATS = [
-  { id: 'decimal', label: 'Decimal (1,234.56)' },
-  { id: 'currency', label: 'Currency (₱1,234.56)' },
-  { id: 'percent', label: 'Percent (12.34%)' },
-  { id: 'integer', label: 'Integer (1,235)' },
-];
-
-const LOCATIONS = [
-  "Antonino, Labason, Zamboanga del Norte", "Balas, Labason, Zamboanga del Norte",
-  "Bobongan, Labason, Zamboanga del Norte", "Dansalan, Labason, Zamboanga del Norte",
-  "Gabu, Labason, Zamboanga del Norte", "Gil Sanchez, Labason, Zamboanga del Norte",
-  "Imelda, Labason, Zamboanga del Norte", "Immaculada, Labason, Zamboanga del Norte",
-  "Kipit, Labason, Zamboanga del Norte", "La Union, Labason, Zamboanga del Norte",
-  "Lapatan, Labason, Zamboanga del Norte", "Lawagan, Labason, Zamboanga del Norte",
-  "Lawigan, Labason, Zamboanga del Norte", "Lopoc, Labason, Zamboanga del Norte",
-  "Malintuboan, Labason, Zamboanga del Norte", "New Salvacion, Labason, Zamboanga del Norte",
-  "Osukan, Labason, Zamboanga del Norte", "Poblacion, Labason, Zamboanga del Norte",
-  "Patawag, Labason, Zamboanga del Norte", "San Isidro, Labason, Zamboanga del Norte",
-  "Ubay, Labason, Zamboanga del Norte"
-];
-const ALLOCATIONS = ["20%", "DepEd", "DA"];
-
-const formatNumberDisplay = (value: any, formatId: string = 'decimal') => {
-  if (value === "" || value === undefined || value === null) return "0.00";
-  const num = Number(value);
-  if (isNaN(num)) return value;
-  switch (formatId) {
-    case 'currency': return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
-    case 'percent': return (num * 100).toFixed(2) + '%';
-    case 'integer': return Math.round(num).toLocaleString();
-    default: return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-};
-
-const formatDateDisplay = (value: any, formatId: string = 'long') => {
-  if (value === null || value === undefined || value === '') return '';
-
-  let date: Date;
-  if (value instanceof Date) {
-    date = value;
-  } else if (typeof value === 'number') {
-    date = new Date(value);
-  } else {
-    const strValue = String(value);
-    const parts = strValue.split('-');
-    // Only manually parse if it looks like YYYY-MM-DD (ISO)
-    // This prevents MM-DD-YYYY from being parsed as Year 01, Month 23...
-    if (parts.length === 3 && parts[0].length === 4) {
-      const [y, m, d] = parts.map(Number);
-      date = new Date(y, m - 1, d);
-    } else {
-      date = new Date(strValue);
-    }
-  }
-
-  if (isNaN(date.getTime())) return String(value);
-
-  switch (formatId) {
-    case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-    case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
-    case 'iso': {
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-    default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-  }
-};
-
-/**
- * Helper to shift A1-style cell references in formulas during drag-fill operations.
- * Handles anchored references like $A$1.
- */
-const shiftFormula = (formula: any, rowOffset: number) => {
-  if (typeof formula !== 'string' || !formula.startsWith('=')) return formula;
-  return formula.replace(/(\$?[A-Z]+)(\$?)(\d+)/gi, (match, col, anchor, row) => {
-    if (anchor === '$') return match; // Row is anchored, do not shift
-    const newRow = parseInt(row, 10) + rowOffset;
-    return `${col}${anchor}${newRow}`;
-  });
-};
-
-/**
- * CellEditor: Optimized uncontrolled-like component for instant typing.
- * Uses local state for characters and debounces the global "push" to gridData.
- */
-const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, type = "text", dataRow, dataCol }: any) => {
-  const [localValue, setLocalValue] = useState(initialValue ?? '');
-  const syncTimerRef = useRef<any>(null);
-  const inputRef = useRef<any>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Reset local state if external data changes (e.g., Undo/Redo)
-  useEffect(() => {
-    // Numeric Stability: If we are typing a decimal (e.g. "1."), don't let the parent 
-    // state update (which parses to 1) snap the value back and delete the dot.
-    if (type === 'number') {
-      const pInit = parseFloat(initialValue);
-      const pLocal = parseFloat(localValue);
-      if (pInit === pLocal || (isNaN(pInit) && isNaN(pLocal))) return;
-    }
-    if (initialValue !== localValue) setLocalValue(initialValue ?? '');
-  }, [initialValue, type]);
-
-  const handleLocalChange = (val: any) => {
-    setLocalValue(val);
-    
-    // Debounce: Wait 300ms before updating global state
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    syncTimerRef.current = setTimeout(() => {
-      // Only parse numbers when syncing to the global state to preserve typing state (like decimals)
-      onSync(type === 'number' ? (val === '' ? '' : parseFloat(val)) : val);
-    }, 300);
-
-    // Height auto-grow for textareas
-    if (isTextarea && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  };
-
-  const handleBlur = () => {
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    onSync(localValue); // Immediate sync on exit
-  };
-
-  useEffect(() => {
-    if (isTextarea && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-    }
-  }, []);
-
-  if (isTextarea) {
-    return (
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        data-row={dataRow}
-        data-col={dataCol}
-        value={localValue}
-        autoFocus
-        onBlur={handleBlur}
-        onChange={(e) => handleLocalChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        className={`${className} resize-none overflow-hidden py-1.5 w-full block`}
-      />
-    );
-  }
-
-  return (
-    <input
-      ref={inputRef}
-      type={type}
-      step={type === 'number' ? '0.01' : undefined}
-      data-row={dataRow}
-      data-col={dataCol}
-      value={localValue}
-      autoFocus
-      onBlur={handleBlur}
-        onChange={(e) => handleLocalChange(e.target.value)}
-      onKeyDown={onKeyDown}
-      className={`${className} w-full`}
-    />
-  );
-};
-
-interface GridRowProps {
-  row: GridRowData & { section?: string; _index?: number };
-  globalIndex: number;
-  visibleHeaders: string[];
-  activeCell: { row: number, col: string } | null;
-  selection: { startRow: number; endRow: number; startCol: string; endCol: string } | null;
-  cellMetadata: Record<string, CellMetadata>;
-  cellAlignments: Record<string, 'left' | 'center' | 'right'>;
-  columnAlignments: Record<string, 'left' | 'center' | 'right'>;
-  isFreezePanes: boolean;
-  dragFillRange: { startRow: number; endRow: number; col: string } | null;
-  isSelecting: boolean;
-  handleUpdateCell: (index: number, key: string, value: any) => void;
-  handleKeyDown: (e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => void;
-  setActiveCell: (cell: { row: number, col: string } | null) => void;
-  setSelection: (selection: any) => void;
-  setIsSelecting: (selecting: boolean) => void;
-  onOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string, row?: number, sectionName?: string) => void;
-  setDragFillRange: React.Dispatch<React.SetStateAction<{ startRow: number; endRow: number; col: string } | null>>;
-  toggleCellAlignment: (rowIndex: number, header: string) => void;
-  handleDragFillStart: (e: React.MouseEvent, row: number, col: string) => void;
-  removeTableRow: (index: number) => void;
-  setViewingMedia: (media: any) => void;
-  removeCellMetadata: (row: number, col: string) => void;
-  evaluateFormula: (value: any, row: any, format?: string) => any;
-  rowHeights: Record<string, number>;
-  startRowResizing: (row: number, e: React.MouseEvent) => void;
-  handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
-  onMeasuredHeight: (index: number, height: number) => void;
-  masterColumnOrder: string[];
-  zoom: number;
-}
-
-const GridRow = React.memo(({ 
-  row, globalIndex, visibleHeaders, activeCell, selection, 
-  cellMetadata, cellAlignments, columnAlignments, isFreezePanes,
-  dragFillRange, isSelecting, handleUpdateCell, handleKeyDown,
-  setActiveCell, setSelection, setIsSelecting, onOpenContextMenu, setDragFillRange,
-  toggleCellAlignment, handleDragFillStart, removeTableRow,
-  setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder, zoom
-}: GridRowProps) => {
-  const rowRef = useRef<HTMLTableRowElement>(null);
-  const isRowActive = activeCell?.row === globalIndex;
-  const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
-  const endColIdx = selection ? visibleHeaders.indexOf(selection.endCol) : -1;
-  const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -1;
-  const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -1;
-  const selMinColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.min(startColIdx, endColIdx) : -1;
-  const selMaxColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.max(startColIdx, endColIdx) : -1;
-
-  // Dynamic Height Measurement: Use ResizeObserver to detect the actual rendered height
-  useEffect(() => {
-    const el = rowRef.current;
-    if (!el) return;
-
-    const observer = new ResizeObserver(() => {
-      /**
-       * Fix: Normalize height by zoom factor to prevent infinite enlargement loop.
-       * getBoundingClientRect returns physical pixels, we need logical CSS pixels.
-       */
-      const actualHeight = el.getBoundingClientRect().height / zoom;
-      const currentHeight = rowHeights[String(globalIndex)] || 40;
-      
-      // Only update if the difference is significant to avoid rounding loops
-      if (actualHeight > 0 && Math.abs(currentHeight - actualHeight) > 0.5) {
-        onMeasuredHeight(globalIndex, actualHeight);
-      }
-    });
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [globalIndex, onMeasuredHeight, zoom]); // REMOVED rowHeights to prevent O(N^2) observer cycles
-
-  return (
-    <tr 
-      ref={rowRef}
-      className={GRID_THEME.tableBodyRow} 
-      style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}
-    >
-      <td
-        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'} ${
-          isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
-        }`}
-        onContextMenu={(e) => { 
-          e.preventDefault(); 
-          const isInside = selection && globalIndex >= Math.min(selection.startRow, selection.endRow) && globalIndex <= Math.max(selection.startRow, selection.endRow);
-          if (!isInside) {
-            setSelection({ 
-              startRow: globalIndex, 
-              endRow: globalIndex, 
-              startCol: visibleHeaders[0], 
-              endCol: visibleHeaders[visibleHeaders.length - 1] 
-            });
-          }
-          onOpenContextMenu(e, 'row', "", globalIndex);
-        }}
-        onClick={() => {
-          setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: visibleHeaders[0], endCol: visibleHeaders[visibleHeaders.length - 1] });
-          setActiveCell({ row: globalIndex, col: visibleHeaders[0] });
-        }}
-      >
-        {globalIndex + 1}
-        <div 
-          onMouseDown={(e) => startRowResizing(globalIndex, e)}
-          className="absolute bottom-0 left-0 w-full h-1.5 cursor-row-resize hover:bg-accent z-50 transition-colors group-hover/row-index:bg-muted/40"
-          title="Drag to resize height"
-        />
-      </td>
-      {visibleHeaders.map((header: string, colIndex: number) => {
-        // Performance: Use index from stable master order for A1 keys
-        const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header));
-        const legacyKey = `${globalIndex}:${header}`;
-        const meta: CellMetadata = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
-
-        if (meta.mergedIn) return null;
-        const cellAlign = cellAlignments[cellKey] || cellAlignments[legacyKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
-        // Fix: Use both text-alignment and flex-justification classes
-        const alignClass = cellAlign === 'center' ? 'text-center justify-center' : cellAlign === 'right' ? 'text-right justify-end' : 'text-left justify-start';
-
-        const attachmentLink = (meta.attachments?.length ?? 0) > 0 && (
-          <a 
-            href="#"
-            role="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setViewingMedia({ attachments: meta.attachments, row: globalIndex, col: header }); }} 
-            className="text-sm text-blue-500 hover:underline cursor-pointer"
-            style={{ fontFamily: meta.fontFamily || 'inherit' }}
-            title={`View ${meta.attachments?.length ?? 0} attachment${(meta.attachments?.length ?? 0) > 1 ? 's' : ''}`}
-          >
-            [View Attachment]
-          </a>
-        );
-
-        const isInSelection = selection && selMinColIdx !== -1 && globalIndex >= selMinRow && globalIndex <= selMaxRow && colIndex >= selMinColIdx && colIndex <= selMaxColIdx;
-        const isInDragFill = dragFillRange && header === dragFillRange.col && 
-          globalIndex >= Math.min(dragFillRange.startRow, dragFillRange.endRow) && 
-          globalIndex <= Math.max(dragFillRange.startRow, dragFillRange.endRow);
-
-        return (
-          <td 
-            key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
-            onContextMenu={(e) => { 
-              e.preventDefault(); 
-              const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
-              const endColIdx = selection ? visibleHeaders.indexOf(selection.endCol) : -1;
-              const currentColIdx = visibleHeaders.indexOf(header);
-              const isInside = selection && 
-                globalIndex >= Math.min(selection.startRow, selection.endRow) && 
-                globalIndex <= Math.max(selection.startRow, selection.endRow) &&
-                currentColIdx >= Math.min(startColIdx, endColIdx) && 
-                currentColIdx <= Math.max(startColIdx, endColIdx);
-
-              if (!isInside) {
-                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
-                setActiveCell({ row: globalIndex, col: header });
-              }
-              onOpenContextMenu(e, 'cell', header, globalIndex);
-            }}
-            onMouseDown={(e) => { 
-              if (e.button === 0) { 
-                setActiveCell({ row: globalIndex, col: header }); 
-                setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header }); 
-                setIsSelecting(true); 
-              } 
-            }}
-            onMouseEnter={() => { 
-              if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null); 
-              if (dragFillRange) setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
-            }}
-            onClick={() => {
-              const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
-              if (input) input.focus();
-            }}
-           className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'ring-2 ring-inset ring-accent z-20' : ''} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-accent/5 ring-1 ring-inset ring-accent/50 z-10' : ''}`}
-            style={{ fontFamily: meta.fontFamily || 'inherit', height: '1px' /* Forces cell to respect content height */ }}
-          >
-            {/* Metadata Clear Button - Visible on hover for cells with formatting or files */}
-            {((meta.attachments?.length ?? 0) > 0 || meta.type || meta.fontFamily) && (
-              <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-red-500 absolute right-0.5 bottom-0.5 bg-card/80 rounded shadow-sm transition-all z-30 scale-90">
-                <X size={10} />
-              </button>
-            )}
-
-            {activeCell?.row === globalIndex && activeCell?.col === header && (
-              <>
-                <div onMouseDown={(e) => handleDragFillStart(e, globalIndex, header)} className="hidden md:block absolute bottom-0 right-0 w-2 h-2 bg-accent border border-card cursor-crosshair z-30 -mb-0.75 -mr-0.75 shadow-sm rounded-full" />
-                {/* Mobile-friendly context menu trigger */}
-                <button 
-                  onClick={(e) => onOpenContextMenu(e, 'cell', header, globalIndex)} 
-                  className="md:hidden absolute top-0 right-0 p-1 text-accent bg-card/80 rounded-bl shadow-sm z-30"
-                  aria-label="Cell options"
-                >
-                  <MoreVertical size={12} />
-                </button>
-              </>
-            )}
-            <button onClick={(e) => { e.stopPropagation(); toggleCellAlignment(globalIndex, header); }} className="absolute right-1 top-1 opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-accent bg-card/90 rounded shadow-sm z-30 transition-all">
-              {cellAlign === 'center' ? <AlignCenter size={10} /> : cellAlign === 'right' ? <AlignRight size={10} /> : <AlignLeft size={10} />}
-            </button>
-            {(meta.attachments?.length ?? 0) > 0 ? (
-              <div className={`flex items-center w-full min-h-7 px-2 py-1.5 ${alignClass}`}>
-                {attachmentLink}
-              </div>
-            ) : header === 'Location' || header === 'Allocation' ? (
-              <div className={`relative flex items-center group/drop min-h-7 w-full px-2 py-1.5 hover:bg-accent/5 ${alignClass}`}>
-                <button 
-                  data-row={globalIndex}
-                  data-col={header}
-                  onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
-                  className={`flex flex-wrap items-center gap-x-2 outline-none w-full h-full text-inherit ${alignClass}`}
-                >
-                  <span className={`wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
-                    {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
-                  </span>
-                </button>
-                <ChevronDown size={12} className="absolute right-1.5 text-muted/50 group-hover/drop:text-accent shrink-0 pointer-events-none" />
-              </div>
-            ) : meta.type === 'date' ? (
-              <div className="relative w-full flex items-center group/date min-h-7">
-                <input 
-                  type="date" data-row={globalIndex} data-col={header} 
-                  value={typeof row[header] === 'boolean' ? String(row[header]) : (row[header] ?? '')} 
-                  onChange={(e) => handleUpdateCell(globalIndex, header, e.target.value)} 
-                  onClick={(e) => {
-                    // Modern browsers support showPicker() on input elements to trigger the calendar
-                    try { (e.currentTarget as HTMLInputElement).showPicker(); } catch (err) {}
-                  }}
-                  className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full" 
-                />
-                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex flex-wrap items-center gap-x-2 flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
-                  {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
-                </div>
-              </div>
-            ) : meta.type === 'formula' ? (
-              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
-                {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
-              </div>
-            ) : (meta.type === 'number' || header === 'Amount') ? (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 px-2 py-1`}>
-                {activeCell?.row === globalIndex && activeCell?.col === header ? (
-                  <CellEditor 
-                    initialValue={row[header]} 
-                    onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
-                    onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
-                    className={`${GRID_THEME.tableInput} flex-1`}
-                    type="number"
-                  />
-                ) : (
-                  <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`text-sm text-foreground cursor-text`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
-                )}
-              </div>
-            ) : (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 px-2 py-1.5`}>
-                {activeCell?.row === globalIndex && activeCell?.col === header ? (
-                  <CellEditor 
-                    isTextarea 
-                    initialValue={row[header]} 
-                    onSync={(val: any) => handleUpdateCell(globalIndex, header, val)} 
-                    onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)} 
-                    className={`${GRID_THEME.tableInput} flex-1`}
-                    dataRow={globalIndex} dataCol={header}
-                  />
-                ) : (
-                  <div 
-                    onClick={() => setActiveCell({ row: globalIndex, col: header })} 
-                    className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word`}
-                  >
-                    {row[header] || <span className="opacity-0">.</span>}
-                  </div>
-                )}
-              </div>
-            )}
-          </td>
-        );
-      })}
-      <td className="border-r border-b border-border bg-transparent"></td>
-    </tr>
-  );
-}, (prev, next) => {
-  // 1. Check if the row data itself changed (Value-based comparison)
-  // Since 'row' is a new object on every grid update, we must check the actual cell values
-  // to determine if THIS specific row needs an update.
-  const prevRow = prev.row;
-  const nextRow = next.row;
-  for (const h of next.visibleHeaders) {
-    if (prevRow[h] !== nextRow[h]) return false;
-  }
-
-  // 2. Check if the active cell/selection affects this specific row
-  const wasActive = prev.activeCell?.row === prev.globalIndex;
-  const isActive = next.activeCell?.row === next.globalIndex;
-  if (wasActive !== isActive) return false; // Row gained or lost active status
-  
-  // If it's the active row, re-render if the active column changed
-  if (isActive && prev.activeCell?.col !== next.activeCell?.col) return false;
-
-  // 3. Precise Selection Check: Only re-render if this row's relationship to selection changed
-  const wasInSel = prev.selection && 
-    prev.globalIndex >= Math.min(prev.selection.startRow, prev.selection.endRow) && 
-    prev.globalIndex <= Math.max(prev.selection.startRow, prev.selection.endRow);
-  const isInSel = next.selection && 
-    next.globalIndex >= Math.min(next.selection.startRow, next.selection.endRow) && 
-    next.globalIndex <= Math.max(next.selection.startRow, next.selection.endRow);
-
-  if (wasInSel !== isInSel) return false;
-  
-  // If it's in the selection, re-render if selection bounds changed (to update cell highlights)
-  if (isInSel && (
-    prev.selection?.startCol !== next.selection?.startCol || 
-    prev.selection?.endCol !== next.selection?.endCol ||
-    prev.selection?.startRow !== next.selection?.startRow ||
-    prev.selection?.endRow !== next.selection?.endRow
-  )) return false;
-  
-  // 4. Performance Fix: Instead of checking the whole alignments object,
-  // check if any alignment relevant to THIS row changed.
-  const hasAlignChange = prev.visibleHeaders.some((h: string) => {
-    const colIdx = prev.masterColumnOrder.indexOf(h);
-    const key = toA1Key(prev.globalIndex, colIdx);
-    return prev.cellAlignments[key] !== next.cellAlignments[key] || 
-           prev.columnAlignments[h] !== next.columnAlignments[h];
-  });
-  if (hasAlignChange) return false;
-  
-  // 5. Performance Fix: Only re-render if metadata specifically for THIS row changed
-  const hasMetaChange = prev.visibleHeaders.some((h: string) => {
-    const colIdx = prev.masterColumnOrder.indexOf(h);
-    const key = toA1Key(prev.globalIndex, colIdx);
-    return prev.cellMetadata[key] !== next.cellMetadata[key];
-  });
-  if (hasMetaChange) return false;
-  
-  // 6. Check if height specifically for THIS row changed
-  if (prev.rowHeights[String(prev.globalIndex)] !== next.rowHeights[String(next.globalIndex)]) return false;
-
-  // 6. Standard UI state checks
-  return (
-    prev.isSelecting === next.isSelecting && 
-    prev.isFreezePanes === next.isFreezePanes &&
-    prev.visibleHeaders === next.visibleHeaders &&
-    prev.dragFillRange === next.dragFillRange &&
-    prev.masterColumnOrder === next.masterColumnOrder &&
-    prev.zoom === next.zoom
-  );
-});
-
-/**
- * LoginPage: Secure entry point for the MEO Data Entry system.
- */
-const LoginPage = React.memo(() => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
-
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    if (lockoutUntil && Date.now() < lockoutUntil) {
-      setError(`Too many attempts. Please try again in ${Math.ceil((lockoutUntil - Date.now()) / 1000)} seconds.`);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        // If Supabase returns a 429 (Too Many Requests), trigger a local lockout
-        if (error.status === 429) {
-          setLockoutUntil(Date.now() + 60000); // Lock for 60 seconds
-        }
-        throw error;
-      }
-    } catch (err: any) {
-      setError(err.status === 429 ? "Too many login attempts. Please wait a minute." : err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background bg-[linear-gradient(to_right,var(--color-grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--color-grid-line)_1px,transparent_1px)] bg-[size:24px_24px]">
-      <div className="w-full max-w-md p-8 bg-card border border-border rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-300">
-        <div className="flex flex-col items-center mb-8">
-          <div className="p-2 bg-white rounded-2xl mb-4 shadow-inner border border-border">
-            <img 
-              src="https://www.labason.gov.ph/images/headers/200_pixels_LGU_LOGO.png" 
-              alt="LGU Labason Logo" 
-              className="w-16 h-16 object-contain"
-            />
-          </div>
-          <h1 className="text-2xl font-black text-foreground tracking-tight">MEO Data Entry</h1>
-          <p className="text-sm text-muted font-medium mt-1 uppercase tracking-[0.2em]">LGU Labason System</p>
-        </div>
-
-        <form onSubmit={handleAuth} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Email Address</label>
-            <div className="relative group">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={18} />
-              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@labason.gov.ph" className="w-full pl-10 pr-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Password</label>
-            <div className="relative group">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent transition-colors" size={18} />
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full pl-10 pr-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm" />
-            </div>
-          </div>
-          {error && <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs font-medium">{error}</div>}
-          <button 
-            type="submit" 
-            disabled={loading || (lockoutUntil !== null && Date.now() < lockoutUntil)} 
-            className="w-full py-3 bg-accent text-accent-foreground rounded-xl font-bold text-sm shadow-lg hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center gap-2">
-            {loading ? <Loader2 className="animate-spin" size={18} /> : <LogIn size={18} />}
-            Sign In to System
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-});
 
 const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [tree, setTree] = useState<FileNode[]>([]);
@@ -688,17 +39,37 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [deletedNodes, setDeletedNodes] = useState<TrashNode[]>([]);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
-  const [masterColumnOrder, setMasterColumnOrder] = useState<string[]>([]);
-  const [gridData, setGridData] = useState<Map<string, any>>(new Map()); // Sparse Map State
-  const [rowCount, setRowCount] = useState(0);
-  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [selectedYear, setSelectedYear] = useState<string>('2020');
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
-  const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [cellMetadata, setCellMetadata] = useState<Record<string, any>>({});
-  const [selectedYear, setSelectedYear] = useState<string>('2020');
+
+  const {
+    gridData,
+    setGridData,
+    rowCount,
+    setRowCount,
+    cellMetadata,
+    setCellMetadata,
+    cellAlignments,
+    setCellAlignments,
+    rowHeights,
+    setRowHeights,
+    masterColumnOrder,
+    setMasterColumnOrder,
+    columnOrder,
+    setColumnOrder,
+    saveStateToHistory,
+    undo,
+    redo,
+    undoStack,
+    redoStack,
+    resetHistory
+  } = useGridHistory();
+
+  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
+  stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
 
   // Audit Logs State and Fetching
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -723,121 +94,10 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setIsLoadingLogs(false);
   }, []);
 
-  // History Management States and Refs
-  const [undoStack, setUndoStack] = useState<any[]>([]);
-  const [redoStack, setRedoStack] = useState<any[]>([]);
+
 
   // Global Entry Search State
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([]);
-  const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const [globalSearchHighlightIndex, setGlobalSearchHighlightIndex] = useState(-1);
-  const highlightedResultRef = useRef<HTMLButtonElement>(null);
-
-  // Reset highlight when results change
-  useEffect(() => {
-    setGlobalSearchHighlightIndex(globalSearchResults.length > 0 ? 0 : -1);
-  }, [globalSearchResults]);
-
-  // Keyboard navigation for global search
-  useEffect(() => {
-    if (!showGlobalSearch) return;
-
-    const handleGlobalSearchKeys = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowGlobalSearch(false);
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setGlobalSearchHighlightIndex(prev => Math.min(prev + 1, globalSearchResults.length - 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setGlobalSearchHighlightIndex(prev => Math.max(prev - 1, 0));
-      } else if (e.key === 'Enter' && globalSearchHighlightIndex >= 0) {
-        const result = globalSearchResults[globalSearchHighlightIndex];
-        if (result) {
-          setSelectedId(result.nodeId);
-          setViewMode('table');
-          setShowGlobalSearch(false);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalSearchKeys);
-    return () => window.removeEventListener('keydown', handleGlobalSearchKeys);
-  }, [showGlobalSearch, globalSearchResults, globalSearchHighlightIndex]);
-
-  const performGlobalSearch = useCallback((query: string) => {
-    setGlobalSearchQuery(query);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    
-    if (!query.trim() || query.length < 2) {
-      setGlobalSearchResults([]);
-      setIsSearchingGlobal(false);
-      return;
-    }
-
-    setIsSearchingGlobal(true);
-    searchTimeoutRef.current = setTimeout(async () => {
-      try {
-        // OPTIMIZATION: Limit columns and rows fetched. 
-        // Ideally, move this logic to a Postgres Function (RPC) to search JSONB on the server.
-        const { data, error } = await supabase
-          .from('nodes')
-          .select('id, name, content') 
-          .eq('type', 'file')
-          .eq('is_deleted', false)
-          .limit(50); // Safety limit for global scan
-
-        if (error) throw error;
-
-        const term = query.toLowerCase();
-        const matches: any[] = [];
-
-        data?.forEach(node => {
-          if (Array.isArray(node.content)) {
-            node.content.forEach((row: any, idx: number) => {
-              const hasMatch = Object.entries(row).some(([key, val]) => {
-                if (key === '_index' || key === 'section') return false;
-                return String(val || '').toLowerCase().includes(term);
-              });
-
-              if (hasMatch) {
-                matches.push({ nodeId: node.id, nodeName: node.name, rowIndex: idx, row: row });
-              }
-            });
-          }
-        });
-        setGlobalSearchResults(matches);
-      } catch (err) {
-        console.error('Global search error:', err);
-      } finally {
-        setIsSearchingGlobal(false);
-      }
-    }, 400);
-  }, []);
-
-  const highlightText = useCallback((text: string, query: string) => {
-    if (!query.trim()) return text;
-    const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return (
-      <>
-        {parts.map((part, i) => 
-          part.toLowerCase() === query.toLowerCase() 
-            ? <mark key={i} className="bg-accent/30 text-accent font-bold rounded-sm px-0.5 no-underline">{part}</mark> 
-            : part
-        )}
-      </>
-    );
-  }, []);
-
-  useEffect(() => {
-    if (showGlobalSearch && globalSearchHighlightIndex !== -1 && highlightedResultRef.current) {
-      highlightedResultRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-  }, [globalSearchHighlightIndex, showGlobalSearch]);
 
   const editStartValueRef = useRef<any>(null);
   const editingCellRef = useRef<{row: number, col: string} | null>(null);
@@ -860,89 +120,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     }
   }, [user.id]);
 
-  /**
-   * History Management: Undo/Redo Engine
-   * Leverages Sparse Map referential stability for efficient snapshots.
-   */
-  // Optimization: Use a ref to track current state for history snapshots.
-  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
-  stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
 
-  const saveStateToHistory = useCallback(() => {
-    const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
-    const snapshot = {
-      gridData: new Map(gridData),
-      rowCount: rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setUndoStack(prev => [...prev, snapshot].slice(-50)); // Limit to 50 steps
-    setRedoStack([]);
-  }, []); // Stable identity: never changes
-
-  const undo = useCallback(() => {
-    if (undoStack.length === 0) return;
-    const prevState = undoStack[undoStack.length - 1];
-    const currentState = {
-      gridData: new Map(gridData),
-      rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setRedoStack(prev => [...prev, currentState]);
-    setUndoStack(prev => prev.slice(0, -1));
-    setGridData(prevState.gridData);
-    setRowCount(prevState.rowCount);
-    setCellMetadata(prevState.cellMetadata);
-    setCellAlignments(prevState.cellAlignments);
-    setRowHeights(prevState.rowHeights);
-    setMasterColumnOrder(prevState.masterColumnOrder);
-    setColumnOrder(prevState.columnOrder);
-  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
-
-  const redo = useCallback(() => {
-    if (redoStack.length === 0) return;
-    const nextState = redoStack[redoStack.length - 1];
-    const currentState = {
-      gridData: new Map(gridData),
-      rowCount,
-      cellMetadata: { ...cellMetadata },
-      cellAlignments: { ...cellAlignments },
-      rowHeights: { ...rowHeights },
-      masterColumnOrder: [...masterColumnOrder],
-      columnOrder: [...columnOrder]
-    };
-    setUndoStack(prev => [...prev, currentState]);
-    setRedoStack(prev => prev.slice(0, -1));
-    setGridData(nextState.gridData);
-    setRowCount(nextState.rowCount);
-    setCellMetadata(nextState.cellMetadata);
-    setCellAlignments(nextState.cellAlignments);
-    setRowHeights(nextState.rowHeights);
-    setMasterColumnOrder(nextState.masterColumnOrder);
-    setColumnOrder(nextState.columnOrder);
-  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
-
-  // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
-  useEffect(() => {
-    const handleShortcuts = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo(); else undo();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault(); redo();
-      }
-    };
-    window.addEventListener('keydown', handleShortcuts);
-    return () => window.removeEventListener('keydown', handleShortcuts);
-  }, [undo, redo]);
 
   const handleUpdateCell = useCallback((index: number, key: string, value: any) => {
     const colIndex = masterColumnOrder.indexOf(key);
@@ -967,12 +145,8 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     if (viewMode === 'trash') fetchFiles();
   }, [viewMode, fetchAuditLogs]);
 
-  const [rowFilter, setRowFilter] = useState<string>('');
-  const [newColName, setNewColName] = useState<string>('');
   const searchParams = useSearchParams();
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
-  const [explorerSearch, setExplorerSearch] = useState('');
-  const [showBackToTop, setShowBackToTop] = useState(false);
   const [isSidebarMoving, setIsSidebarMoving] = useState(false);
 
   /**
@@ -988,7 +162,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   }, [isExplorerVisible]);
 
   const [isFreezeHeaders, setIsFreezeHeaders] = useState(true);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
+
   const [activeCell, setActiveCell] = useState<{ row: number, col: string } | null>(null);
   const formulaBarRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -998,25 +172,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   
   // Profile State
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [profileName, setProfileName] = useState(user?.user_metadata?.full_name || '');
   const [profileAvatar, setProfileAvatar] = useState(user?.user_metadata?.avatar_url || '');
-  const [profileEmail, setProfileEmail] = useState(user?.email || '');
-  const [profilePassword, setProfilePassword] = useState('');
-  const avatarFileInputRef = useRef<HTMLInputElement>(null);
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
-
-  // Sync profile state when opening modal
-  useEffect(() => {
-    if (showProfileModal) {
-      setProfileName(user?.user_metadata?.full_name || '');
-      setProfileAvatar(user?.user_metadata?.avatar_url || '');
-      setProfileEmail(user?.email || '');
-      setProfilePassword('');
-    }
-  }, [showProfileModal, user]);
 
   // Virtualization State
-  const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(800); // Sane initial height to prevent partial render
   const DEFAULT_ROW_HEIGHT = 40; // Matches min-h-7 (28px) + py-1.5 (12px) = 40px
 
@@ -1048,47 +206,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     });
   }, []);
 
-  // Virtualization Performance: Use requestAnimationFrame for scroll updates.
-  const scrollRafRef = useRef<number | null>(null);
-
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop;
-    setScrollTop(top);
-    setShowBackToTop(top > 300);
-  }, []);
-
   useEffect(() => {
     return () => { 
-      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current); 
       if (heightRafId.current !== null) cancelAnimationFrame(heightRafId.current);
     };
   }, []);
 
-  // Resize Observer to track viewport height for virtualization
-  useEffect(() => {
-    if (!tableContainerRef.current || viewMode !== 'table') return;
-    
-    const observer = new ResizeObserver((entries) => {
-      requestAnimationFrame(() => {
-        const entry = entries[0];
-        if (!entry) return;
-        
-        // EXCEL STABILITY FIX: Use contentRect.height instead of clientHeight.
-        // contentRect measures the box height BEFORE scrollbars are subtracted.
-        // This breaks the feedback loop where a horizontal scrollbar appearing 
-        // would otherwise shrink the 'visible height' and trigger a re-render.
-        const h = Math.floor(entry.contentRect.height);
-        if (h > 0) {
-          // STABILITY FIX: Threshold increased to 20px (larger than a scrollbar).
-          // This prevents the "Scrollbar Toggle Loop" from triggering a re-render.
-          setContainerHeight(prev => (Math.abs(prev - h) > 20) ? h : prev);
-        }
-      });
-    });
-    observer.observe(tableContainerRef.current);
-    setContainerHeight(tableContainerRef.current.getBoundingClientRect().height || 800);
-    return () => observer.disconnect();
-  }, [viewMode, selectedId]); // REMOVED isExplorerVisible to prevent redundant teardowns
+
 
   // Responsive Sidebar: Desktop: Open by default, Mobile: Hidden by default
   useEffect(() => {
@@ -1109,9 +233,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
    */
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string = "", row?: number, sectionName?: string) => {
     e.preventDefault();
-    const menuWidth = 192; 
-    // Refined height estimates based on current item counts
-    const menuHeight = type === 'row' ? 280 : (type === 'header' ? 380 : (type === 'section' ? 200 : 440)); 
+    const menuWidth = 192; // Updated for w-48
+    // Refined height estimates based on current item counts + new padding
+    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 380)); 
     
     const winW = window.innerWidth;
     const winH = window.innerHeight;
@@ -1120,12 +244,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     let y = e.clientY;
     
     // Nudge logic: If the menu would overflow, align its edge with the screen edge
-    if (x + menuWidth > winW) x = winW - menuWidth - 10;
-    if (y + menuHeight > winH) y = winH - menuHeight - 10;
+    // Add 12px padding from the edges
+    if (x + menuWidth > winW) x = winW - menuWidth - 12;
+    if (y + menuHeight > winH) y = winH - menuHeight - 12;
     
     // Ensure it doesn't go off the top/left after adjustment
-    x = Math.max(10, x);
-    y = Math.max(10, y);
+    x = Math.max(12, x);
+    y = Math.max(12, y);
     
     setContextMenu({ x, y, row, col, type, sectionName });
   }, []);
@@ -1190,7 +315,6 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isFreezePanes, setIsFreezePanes] = useState(false);
-  const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
   const [zoom, setZoom] = useState(1);
 
   // Track cell value before editing starts for atomic undo
@@ -1213,28 +337,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     selectedId ? findNodeById(tree, selectedId) : null
   , [tree, selectedId]);
 
-  // Load preferences from local storage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('meo-recent-files');
-    if (saved) {
-      try { setRecentNodes(JSON.parse(saved)); } catch (e) { console.error("Failed to parse recent files"); }
-    }
-    
-    
-  }, []);
 
-
-  // Track active file history
-  useEffect(() => {
-    if (activeNode && activeNode.type === 'file') {
-      setRecentNodes(prev => {
-        const filtered = prev.filter(n => n.id !== activeNode.id);
-        const updated = [activeNode, ...filtered].slice(0, 5);
-        localStorage.setItem('meo-recent-files', JSON.stringify(updated));
-        return updated;
-      });
-    }
-  }, [activeNode]);
 
   // End selection on global mouse up
   useEffect(() => {
@@ -1309,72 +412,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     return allHeaders.filter(header => !hiddenColumns.includes(header) && header !== 'section');
   }, [allHeaders, columnOrder, hiddenColumns]);
 
-  /**
-   * PERFORMANCE OPTIMIZATION: Index-based Virtualization
-   * Instead of generating a full array of row objects (O(N*M)), we work with 
-   * a flat array of indices. This keeps the JS main thread clear for typing.
-   */
-  const [filteredRowIndices, setFilteredRowIndices] = useState<number[]>([]);
-  const filterWorkerRef = useRef<Worker | null>(null);
 
-  useEffect(() => {
-    // Initialize the worker
-    filterWorkerRef.current = new Worker(new URL('./filter.worker.ts', import.meta.url));
-    filterWorkerRef.current.onmessage = (e: MessageEvent<number[]>) => {
-      setFilteredRowIndices(e.data);
-    };
-    return () => filterWorkerRef.current?.terminate();
-  }, []);
-
-  useEffect(() => {
-    if (filterWorkerRef.current) {
-      filterWorkerRef.current.postMessage({
-        rowCount,
-        rowFilter,
-        allHeaders,
-        masterColumnOrder,
-        gridData
-      });
-    }
-  }, [gridData, rowCount, allHeaders, rowFilter, masterColumnOrder]);
-
-  const sectionBlocks = useMemo(() => {
-    const blocks: { name: string, indices: number[] }[] = [];
-    filteredRowIndices.forEach(idx => {
-      const sectionName = gridData.get(`${idx}:section`) || "";
-      const lastBlock = blocks[blocks.length - 1];
-      if (lastBlock && lastBlock.name === sectionName) lastBlock.indices.push(idx);
-      else blocks.push({ name: sectionName, indices: [idx] });
-    });
-    return blocks;
-  }, [filteredRowIndices, gridData]);
-
-  // Virtualization: Flatten sections and rows with accurate height offsets
-  const { flatItems, itemOffsets, totalVirtualHeight } = useMemo(() => {
-    const items: any[] = [];
-    const offsets: number[] = [];
-    let currentOffset = 0;
-
-    sectionBlocks.forEach((block, blockIdx) => {
-      if (block.name !== "") {
-        offsets.push(currentOffset);
-        items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
-        currentOffset += 40; // Synced with row height to prevent scroll drift
-      }
-
-      block.indices.forEach(idx => {
-        offsets.push(currentOffset);
-        items.push({ type: 'row', index: idx });
-        currentOffset += (rowHeights[String(idx)] || 40);
-      });
-    });
-
-    return { 
-      flatItems: items, 
-      itemOffsets: offsets, 
-      totalVirtualHeight: currentOffset + 40 // Optimized buffer for stability without excessive whitespace
-    };
-  }, [sectionBlocks, rowHeights]);
 
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
@@ -1383,7 +421,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     const colIdx = masterColumnOrder.indexOf(header);
     setCellAlignments(prev => {
       const next = { ...prev };
+      // Clear header-specific override
+      delete next[`header:${header}`];
       Object.keys(next).forEach(key => {
+        // Clear legacy alignments ending in :header
+        if (key.endsWith(`:${header}`)) {
+          delete next[key];
+        }
         const coords = fromA1Key(key);
         if (coords && coords.colIndex === colIdx) delete next[key];
       });
@@ -1392,12 +436,6 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setContextMenu(null);
   }, [masterColumnOrder, setCellAlignments]);
 
-  // Kept for backward compatibility if needed elsewhere, but cycles alignments
-  const toggleAlignment = useCallback((header: string) => {
-    const current = columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
-    const nextMap: Record<string, 'left' | 'center' | 'right'> = { left: 'center', center: 'right', right: 'left' };
-    setColumnAlignment(header, nextMap[current]);
-  }, [columnAlignments, setColumnAlignment]);
 
   // Auto-expand formula bar height based on content
   useEffect(() => {
@@ -1409,94 +447,8 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, row?: number, col: string, type: 'cell' | 'header' | 'row' | 'section', sectionName?: string, showFormats?: boolean, showFormulaFormats?: boolean, showNumberFormats?: boolean, showFonts?: boolean } | null>(null);
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
-    if (typeof value !== 'string' || !value.startsWith('=')) return value;
-    try {
-      const { masterColumnOrder, columnOrder, gridData } = stateRef.current;
-      const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
-
-      const resolveSingleValue = (arg: string) => {
-        // 1. Handle A1 Cell References using shared utility
-        const coords = fromA1Key(arg.toUpperCase());
-        if (coords) {
-          const colName = headers[coords.colIndex];
-          const mIdx = masterColumnOrder.indexOf(colName);
-          if (mIdx !== -1) return gridData.get(toA1Key(coords.row, mIdx));
-          return null;
-        }
-        // 2. Fallback: Handle Named Columns in Current Row or Literals
-        const actualKey = Object.keys(rowData).find(key => key.toLowerCase() === arg.toLowerCase());
-        return actualKey ? rowData[actualKey] : (isNaN(Number(arg)) ? arg : Number(arg));
-      };
-
-      if (value.toUpperCase().startsWith('=SUM(')) {
-        const match = value.match(/=SUM\((.*)\)/i);
-        if (!match) return '#ERROR!';
-        const args = match[1].split(',').map(s => s.trim());
-        
-        let total = 0;
-        args.forEach(arg => {
-          if (arg.includes(':')) {
-            const [start, end] = arg.split(':');
-            const sC = fromA1Key(start.toUpperCase());
-            const eC = fromA1Key(end.toUpperCase());
-            if (sC && eC) {
-              for (let r = Math.min(sC.row, eC.row); r <= Math.max(sC.row, eC.row); r++) {
-                for (let c = Math.min(sC.colIndex, eC.colIndex); c <= Math.max(sC.colIndex, eC.colIndex); c++) {
-                  const colName = headers[c];
-                  const mIdx = masterColumnOrder.indexOf(colName);
-                  const val = mIdx !== -1 ? gridData.get(toA1Key(r, mIdx)) : 0;
-                  total += (Number(val) || 0);
-                }
-              }
-            }
-          } else {
-            total += (Number(resolveSingleValue(arg)) || 0);
-          }
-        });
-        return total;
-      }
-
-      if (value.toUpperCase().startsWith('=ADD_DAYS(')) {
-        const match = value.match(/=ADD_DAYS\s*\((.*)\)/i);
-        if (!match) return '#ERROR!';
-        // Handle literal strings in quotes and strip them
-        const args = match[1].split(',').map(s => s.trim().replace(/^["']|["']$/g, ''));
-        if (args.length !== 2) return '#ARGS!';
-
-        let dateVal = resolveSingleValue(args[0]);
-        let daysVal = resolveSingleValue(args[1]);
-
-        // Smart Swap: If the order is reversed (e.g., =ADD_DAYS(100, M2)), swap them.
-        if (!isNaN(Number(dateVal)) && isNaN(Number(daysVal))) {
-          [dateVal, daysVal] = [daysVal, dateVal];
-        }
-
-        if (dateVal === null || dateVal === undefined || dateVal === '') return '';
-
-        let date = new Date(dateVal);
-        // Robust parsing for YYYY-MM-DD or MM-DD-YYYY strings
-        if (isNaN(date.getTime()) && typeof dateVal === 'string' && dateVal.includes('-')) {
-          const parts = dateVal.split('-');
-          if (parts.length === 3) {
-            if (parts[0].length === 4) {
-              date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-            } else if (parts[2].length === 4) {
-              date = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]));
-            }
-          }
-        }
-
-        const days = Number(daysVal);
-        if (isNaN(date.getTime())) return '#DATE!';
-        if (isNaN(days)) return '#NUM!';
-
-        const resultDate = new Date(date);
-        resultDate.setDate(resultDate.getDate() + days);
-        return formatDateDisplay(resultDate, formatId);
-      }
-    } catch (e) { return '#ERR!'; }
-    return value;
-  }, []);
+    return evaluateFormulaLib(value, rowData, gridData, masterColumnOrder, columnOrder, formatId);
+  }, [gridData, masterColumnOrder, columnOrder]);
 
   const resizingRowRef = useRef<{ row: number; startY: number; startHeight: number } | null>(null);
 
@@ -1591,28 +543,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     document.body.style.cursor = 'col-resize';
   }, [selection, visibleHeaders, rowCount]);
 
-  const scrollToTop = () => {
-    tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
-  // Recursive filter logic for the explorer tree
-  const filteredTree = useMemo(() => {
-    if (!explorerSearch.trim()) return tree;
 
-    const filterNodes = (nodes: FileNode[]): FileNode[] => {
-      return nodes.flatMap((node) => {
-        const matchesSelf = node.name.toLowerCase().includes(explorerSearch.toLowerCase());
-        const filteredChildren = node.children ? filterNodes(node.children) : [];
 
-        if (matchesSelf || filteredChildren.length > 0) {
-          return [{ ...node, children: filteredChildren }];
-        }
-        return [];
-      });
-    };
-
-    return filterNodes(tree);
-  }, [tree, explorerSearch]);
 
   // Dismiss context menu on click elsewhere
   useEffect(() => {
@@ -1652,7 +585,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setIsLoading(false);
   }, []);
 
-  const addItem = async (type: 'file' | 'folder', parentId: string | null = null) => {
+  const addItem = useCallback(async (type: 'file' | 'folder', parentId: string | null = null) => {
     const name = window.prompt(`Enter ${type} name:`);
     if (!name) return;
 
@@ -1664,9 +597,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     
     if (data) await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', data.id, { name });
     fetchFiles();
-  };
+  }, [user, logAction, fetchFiles]);
 
-  const handleRename = async (id: string) => {
+  const handleRename = useCallback(async (id: string) => {
     const node = findNodeById(tree, id);
     const name = window.prompt('Enter new name:', node?.name);
     if (!name) return;
@@ -1678,9 +611,9 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     }
     await logAction('RENAMED', id, { old_name: node?.name, new_name: name });
     fetchFiles();
-  };
+  }, [tree, logAction, fetchFiles]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     if (!window.confirm('Move this item to Trash?')) return;
     const { error } = await supabase.from('nodes').update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: user.email }).eq('id', id);
     if (error) {
@@ -1690,7 +623,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     await logAction('MOVED_TO_TRASH', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
-  };
+  }, [user.email, tree, logAction, selectedId, setSelectedId, fetchFiles]);
 
   const handleRestore = async (id: string) => {
     const { error } = await supabase.from('nodes').update({ is_deleted: false, deleted_at: null, deleted_by: null }).eq('id', id);
@@ -2507,326 +1440,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     });
   }, [cellMetadata, masterColumnOrder]);
 
-  const toggleComparisonId = (id: string) => {
+  const toggleComparisonId = useCallback((id: string) => {
     setComparisonIds(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
-  };
+  }, []);
 
-  const renderComparisonTable = () => {
-    const nodesToCompare = comparisonIds.map(id => findNodeById(tree, id)).filter(Boolean);
-    
-    const allFiles = (() => {
-      const files: FileNode[] = [];
-      const traverse = (nodes: FileNode[]) => {
-        nodes.forEach(node => {
-          if (node.type === 'file') files.push(node);
-          if (node.children) traverse(node.children);
-        });
-      };
-      traverse(tree);
-      return files;
-    })();
 
-    if (nodesToCompare.length < 2) {
-      return (
-        <div className="p-8 bg-card border border-border rounded-lg shadow-sm h-full flex flex-col">
-          <div className="mb-6">
-            <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
-              <Share2 className="text-blue-500" size={20} />
-              Project Comparison Setup
-            </h3>
-            <p className="text-sm text-muted">Select at least two files from the list below to compare their project data side-by-side.</p>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2">
-            {allFiles.map(file => (
-              <label 
-                key={file.id} 
-                className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:border-accent/50 ${
-                  comparisonIds.includes(file.id) ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/50' : 'bg-card border-border'
-                }`}
-              >
-                <input 
-                  type="checkbox" 
-                  className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500"
-                  checked={comparisonIds.includes(file.id)}
-                  onChange={() => toggleComparisonId(file.id)}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-foreground truncate">{file.name}</p>
-                  <p className="text-[10px] text-muted uppercase tracking-tighter">
-                    {file.display_settings?.selectedYear || 'No Year Set'}
-                  </p>
-                </div>
-                <FileText size={16} className={comparisonIds.includes(file.id) ? 'text-blue-500' : 'text-muted/30'} />
-              </label>
-            ))}
-          </div>
-          
-          {comparisonIds.length === 1 && (
-            <div className="mt-6 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center gap-2 text-amber-600 text-xs font-medium">
-              <div className="p-1 bg-amber-500/20 rounded-full"><Plus size={12} /></div>
-              Select one more file to enable the side-by-side comparison.
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Map sections to their unique projects
-    const sectionMap = new Map<string, Set<string>>();
-    nodesToCompare.forEach(n => {
-      const content = Array.isArray(n?.content) ? n.content : [];
-      content.forEach((row: any) => {
-        const section = row.section || "Uncategorized";
-        const title = row["Title / Item"];
-        if (title) {
-          if (!sectionMap.has(section)) sectionMap.set(section, new Set());
-          sectionMap.get(section)!.add(title);
-        }
-      });
-    });
-
-    const sortedSections = Array.from(sectionMap.keys()).sort();
-
-    return (
-      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
-        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
-          <h3 className="text-xs font-black uppercase tracking-widest text-muted">Side-by-Side Comparison</h3>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setComparisonIds([])}
-              className="px-2 py-1 bg-card border border-border text-muted text-[10px] font-bold rounded hover:bg-red-500/10 hover:text-red-500 transition-colors mr-2"
-            >
-              Clear Selection
-            </button>
-            {nodesToCompare.map(n => (
-              <span key={n!.id} className="px-2 py-1 bg-blue-500/10 text-blue-500 border border-blue-500/20 text-[10px] font-bold rounded capitalize">{n!.name}</span>
-            ))}
-          </div>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <table className="min-w-full border-separate border-spacing-0 text-left">
-            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
-              <tr>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground w-72 sticky left-0 bg-muted/10 z-20 shadow-[1px_0_0_0_var(--color-border)]">Title / Item</th>
-                {nodesToCompare.map(n => (
-                  <Fragment key={n!.id}>
-                    <th className="p-3 text-[11px] font-bold border-r border-b border-border text-blue-500 text-right">Amount ({n!.name})</th>
-                    <th className="p-3 text-[11px] font-bold border-r border-b border-border text-muted">Status/Loc</th>
-                  </Fragment>
-                ))}
-                <th className="p-3 text-[11px] font-bold border-b border-border bg-green-500/5 text-green-600 text-right">Variance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedSections.map(sectionName => {
-                const projectsInSection = Array.from(sectionMap.get(sectionName)!).sort();
-                
-                return (
-                  <Fragment key={sectionName}>
-                    <tr className="bg-muted/20">
-                      <td colSpan={2 + nodesToCompare.length * 2} className="px-3 py-1 border-b border-border font-black text-foreground tracking-widest text-[11px] uppercase sticky left-0 z-10 bg-muted/20 shadow-[1px_0_0_0_var(--color-border)]">
-                        Section: {sectionName}
-                      </td>
-                    </tr>
-                    {projectsInSection.map(title => {
-                      const values = nodesToCompare.map(n => {
-                        const data = Array.isArray(n?.content) ? n.content : [];
-                        return data.find((r: any) => r["Title / Item"] === title && (r.section || "Uncategorized") === sectionName);
-                      });
-
-                      const amount1 = Number(values[0]?.Amount || 0);
-                      const amount2 = Number(values[1]?.Amount || 0);
-                      const variance = amount2 - amount1;
-
-                      return (
-                        <tr key={`${sectionName}-${title}`} className="hover:bg-muted/5 border-b border-border transition-colors">
-                          <td className="p-3 text-sm font-medium text-foreground border-r border-border bg-card sticky left-0 z-10 shadow-[1px_0_0_0_var(--color-border)]">{title}</td>
-                          {values.map((v, idx) => (
-                            <Fragment key={idx}>
-                              <td className="p-3 text-sm font-mono text-right border-r border-border text-foreground">
-                          {v ? Number(v.Amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : <span className="text-muted/30">-</span>}
-                              </td>
-                              <td className="p-3 text-[10px] text-muted italic border-r border-border truncate max-w-30">
-                                {v?.Location || v?.Allocation || ""}
-                              </td>
-                            </Fragment>
-                          ))}
-                          <td className={`p-3 text-sm font-bold text-right ${variance > 0 ? 'text-green-600' : variance < 0 ? 'text-red-600' : 'text-muted/40'}`}>
-                      {variance === 0 ? "0.00" : (variance > 0 ? "+" : "") + variance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderTrashBin = () => {
-    return (
-      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
-        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
-          <h3 className="text-xs font-black uppercase tracking-widest text-muted">Trash Bin</h3>
-          <p className="text-[10px] text-muted font-bold">{deletedNodes.length} items in trash</p>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <table className="min-w-full border-separate border-spacing-0 text-left">
-            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
-              <tr>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Name</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Type</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Deleted Date</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Deleted By</th>
-                <th className="p-3 text-[11px] font-bold border-b border-border text-foreground text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deletedNodes.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-12 text-center text-muted italic text-sm">Trash is empty.</td>
-                </tr>
-              ) : (
-                deletedNodes.map((node) => (
-                  <tr key={node.id} className="hover:bg-muted/5 border-b border-border transition-colors">
-                    <td className="p-3 text-xs font-bold text-foreground flex items-center gap-2">
-                      {node.type === 'folder' ? <Folder size={14} className="text-amber-500" /> : <FileText size={14} className="text-blue-500" />}
-                      {node.name}
-                    </td>
-                    <td className="p-3 text-[10px] uppercase font-black text-muted tracking-tighter">
-                      {node.type}
-                    </td>
-                    <td className="p-3 text-[10px] font-mono text-muted">
-                      {node.deleted_at ? new Date(node.deleted_at).toLocaleString() : '-'}
-                    </td>
-                    <td className="p-3 text-[10px] font-bold text-muted truncate max-w-40" title={node.deleted_by || 'Unknown'}>
-                      {node.deleted_by || <span className="opacity-30 italic font-normal">Unknown</span>}
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button 
-                          onClick={() => handleRestore(node.id)}
-                          className="px-2 py-1 bg-green-500/10 text-green-600 text-[10px] font-bold rounded hover:bg-green-500/20 transition-colors"
-                        >
-                          Restore
-                        </button>
-                        <button 
-                          onClick={() => handlePermanentDelete(node.id)}
-                          className="px-2 py-1 bg-red-500/10 text-red-500 text-[10px] font-bold rounded hover:bg-red-500/20 transition-colors"
-                        >
-                          Delete Permanently
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  const renderAuditLogs = () => {
-    if (isLoadingLogs && auditLogs.length === 0) {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center p-12">
-          <Loader2 className="animate-spin text-accent mb-4" size={32} />
-          <p className="text-sm text-muted font-medium animate-pulse uppercase tracking-widest">Loading audit history...</p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
-        <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
-          <h3 className="text-xs font-black uppercase tracking-widest text-muted">System Audit Trail</h3>
-          <button onClick={() => fetchAuditLogs(0)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Refresh Logs">
-            <RefreshCcw size={14} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <table className="min-w-full border-separate border-spacing-0 text-left">
-            <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
-              <tr>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Timestamp</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">User ID</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">User</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Action</th>
-                <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Target Node</th>
-                <th className="p-3 text-[11px] font-bold border-b border-border text-foreground">Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {auditLogs.length === 0 && !isLoadingLogs ? (
-                <tr>
-                  <td colSpan={6} className="p-12 text-center text-muted italic text-sm">No activity logs found.</td>
-                </tr>
-              ) : (
-                <>
-                  {auditLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-muted/5 border-b border-border transition-colors">
-                    <td className="p-3 text-xs font-mono text-muted whitespace-nowrap">
-                      {new Date(log.created_at).toLocaleString()}
-                    </td>
-                    <td className="p-3 text-[10px] font-mono text-muted truncate max-w-24" title={log.user_id}>
-                      {log.user_id}
-                    </td>
-                    <td className="p-3 text-[10px] font-mono text-muted truncate max-w-48" title={log.details?.user_email || log.user_id}>
-                      {log.details?.user_email || <span className="opacity-30 italic text-[8px]">{log.user_id}</span>}
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${
-                        log.action.includes('CREATED') ? 'bg-green-500/10 text-green-500' :
-                        log.action.includes('DELETED') ? 'bg-red-500/10 text-red-500' :
-                        log.action.includes('UPDATED') ? 'bg-blue-500/10 text-blue-500' :
-                        'bg-muted/20 text-muted'
-                      }`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="p-3 text-xs font-bold text-foreground">
-                      {log.nodes?.name || <span className="text-muted/30 italic font-normal">N/A</span>}
-                    </td>
-                    <td className="p-3 text-[11px] text-muted font-mono whitespace-pre-wrap">
-                      {JSON.stringify(log.details, null, 1)}
-                      {(() => {
-                        const { user_email, ...rest } = log.details || {};
-                        return Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 1) : '-';
-                      })()}
-                    </td>
-                  </tr>
-                ))}
-                {hasMoreLogs && (
-                  <tr>
-                    <td colSpan={6} className="p-4 text-center border-t border-border">
-                      <button 
-                        onClick={() => fetchAuditLogs(auditLogs.length)}
-                        disabled={isLoadingLogs}
-                        className="px-4 py-2 bg-muted/20 hover:bg-muted/30 text-muted rounded text-xs font-bold transition-all disabled:opacity-50 inline-flex items-center gap-2"
-                      >
-                        {isLoadingLogs && <Loader2 className="animate-spin" size={14} />}
-                        {isLoadingLogs ? 'Loading More...' : 'Load More History'}
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
 
   const handleMergeCells = useCallback((visibleHeaders: string[], isHeaderMerge: boolean = false) => {
     if (!selection) return;
@@ -2926,7 +1546,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     const sourceMeta = cellMetadata[toA1Key(startRow, colIdx)];
 
     const newMetadata = { ...cellMetadata };
-    const nextMap = new Map(gridData);
+    const nextMap = new Map<string, any>(gridData);
 
       const min = Math.min(startRow, endRow);
       const max = Math.max(startRow, endRow);
@@ -3038,8 +1658,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       if (!selectedId) {
         setGridData(new Map());
         setRowCount(0);
-        setUndoStack([]);
-        setRedoStack([]);
+        resetHistory();
         setMasterColumnOrder([]);
         setColumnAlignments({});
         setCellAlignments({});
@@ -3049,11 +1668,15 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         setRowHeights({});
         setActiveCell(null);
         setSelectedYear('2020');
-        setRowFilter('');
         return;
       }
 
       setIsLoadingFile(true);
+      setLoadProgress(0);
+      // Simulate deterministic progress: tick to 85 while fetch is in-flight
+      const progressInterval = setInterval(() => {
+        setLoadProgress(prev => prev < 85 ? prev + Math.ceil((85 - prev) * 0.18) : prev);
+      }, 80);
       // Lazy Load: Fetch content and settings only for the selected file
       const { data, error } = await supabase
         .from('nodes')
@@ -3062,8 +1685,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         .single();
 
       if (!error && data) {
-        setUndoStack([]);
-        setRedoStack([]);
+        resetHistory();
         const content = Array.isArray(data.content) ? data.content : [];
         const ds = data.display_settings || {};
         
@@ -3083,11 +1705,14 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         setRowHeights(ds.rowHeights || {});
         setSelectedYear(ds.selectedYear || '2020');
         setActiveCell(null);
-        setRowFilter('');
-        setScrollTop(0);
-        tableContainerRef.current?.scrollTo({ top: 0 });
       }
-      setIsLoadingFile(false);
+      clearInterval(progressInterval as any);
+      setLoadProgress(100);
+      // Brief hold at 100 so the bar completes visually before unmounting
+      setTimeout(() => {
+        setIsLoadingFile(false);
+        setTimeout(() => setLoadProgress(0), 400);
+      }, 120);
     };
 
     loadFileContent();
@@ -3152,950 +1777,13 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
     setRowCount(4);
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
 
-    setIsUpdatingProfile(true);
-    try {
-      // 1. Capture the current avatar URL to check if it needs deletion from storage
-      const oldAvatarUrl = profileAvatar;
-      const isSupabaseUrl = oldAvatarUrl?.includes('/storage/v1/object/public/attachments/avatars/');
-
-      // Use a distinct path for avatars within the 'attachments' bucket
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}_${Date.now()}.${fileExt}`;
-      const filePath = `avatars/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('attachments')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('attachments')
-        .getPublicUrl(filePath);
-
-      setProfileAvatar(publicUrl);
-
-      // 2. If the new upload was successful, delete the old image from storage
-      if (isSupabaseUrl) {
-        const oldPath = oldAvatarUrl.split('/attachments/')[1];
-        if (oldPath) await supabase.storage.from('attachments').remove([oldPath]);
-      }
-    } catch (err: any) {
-      alert('Error uploading avatar: ' + err.message);
-    } finally {
-      setIsUpdatingProfile(false);
-    }
-  };
-
-  const handleUpdateProfile = async () => {
-    setIsUpdatingProfile(true);
-    try {
-      const updateData: any = {
-        data: { full_name: profileName, avatar_url: profileAvatar }
-      };
-      
-      if (profileEmail !== user?.email) updateData.email = profileEmail;
-      if (profilePassword && profilePassword.length >= 6) updateData.password = profilePassword;
-
-      const { error } = await supabase.auth.updateUser(updateData);
-      if (error) throw error;
-
-      if (profileEmail !== user?.email) {
-        alert("Profile updated. A confirmation link has been sent to your new email address.");
-      }
-      setShowProfileModal(false);
-      setProfilePassword('');
-    } catch (err: any) {
-      alert(err.message);
-    }
-    setIsUpdatingProfile(false);
-  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
   };
 
-  const renderTableEditor = () => {
-    try {
-      if (isLoadingFile) {
-        return (
-          <div className="flex-1 flex flex-col items-center justify-center p-12">
-            <Loader2 className="animate-spin text-accent mb-4" size={32} />
-            <p className="text-sm text-muted font-medium animate-pulse uppercase tracking-widest">Loading project data...</p>
-          </div>
-        );
-      }
 
-      if (rowCount === 0) {
-        return (
-          <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
-            <div className="text-center">
-              <p className="font-semibold mb-1 text-sm">Pre-formatted Table Required</p>
-              <p className="text-xs text-amber-700">Initialize the Work A / Work B structure for this file.</p>
-            </div>
-            <button 
-              onClick={initializeExcelTemplate}
-              className="px-4 py-2 bg-accent hover:opacity-90 text-accent-foreground text-xs font-bold rounded transition-colors uppercase tracking-wider shadow-sm"
-            >
-              Initialize Excel Template
-            </button>
-          </div>
-        );
-      }
-
-      // Pre-calculate selection bounds for efficient highlighting
-      const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
-      const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
-      const selMinColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.min(selStartColIdx, selEndColIdx) : -1;
-      const selMaxColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.max(selStartColIdx, selEndColIdx) : -1;
-      const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
-      const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
-      const selColSpan = (selMinColIdx !== -1 && selMaxColIdx !== -1) ? (selMaxColIdx - selMinColIdx + 1) : 0;
-
-      // Helper to check if a header column is part of the current column-wise selection
-      const isHeaderInSelection = (idx: number) => {
-        if (!selection || selMinColIdx === -1) return false;
-        // Selection is valid for headers if it covers the header row (-1) or essentially all rows
-        const isRowSelectionMatching = (selMinRow <= -1 && selMaxRow >= -1) || (selMinRow === 0 && selMaxRow >= rowCount - 1);
-        return isRowSelectionMatching && idx >= selMinColIdx && idx <= selMaxColIdx;
-      };
-
-      const isSectionInSelection = (startIndex: number) => {
-        return selection && startIndex >= selMinRow && startIndex <= selMaxRow;
-      };
-
-      // Binary search for the first visible item based on accumulated offsets
-      // This handles variable row heights (resized rows) correctly.
-      let startIdx = 0;
-      let low = 0;
-      let high = itemOffsets.length - 1;
-      const adjustedScrollTop = scrollTop / zoom; // Adjust for zoom factor
-      
-      while (low <= high) {
-        let mid = Math.floor((low + high) / 2);
-        if (itemOffsets[mid] <= adjustedScrollTop) {
-          startIdx = mid;
-          low = mid + 1;
-        } else {
-          high = mid - 1;
-        }
-      }
-
-      // Buffer (Overscan): Fixed buffers prevent "jumping" caused by dynamic index shifts.
-      // We use a generous overscan to handle fast scrolling without layout thrashing.
-      const overscanTop = 30;
-      const overscanBottom = 40; 
-      
-      const startIndex = Math.max(0, startIdx - overscanTop);
-      const visibleRowEstimate = Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom));
-      const endIndex = Math.min(flatItems.length, startIdx + visibleRowEstimate + overscanBottom);
-      
-      const visibleItems = flatItems.slice(startIndex, endIndex);
-      const translateY = itemOffsets[startIndex] || 0;
-
-      return (
-        <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
-          {/* Excel Toolbar */}
-          <div className={GRID_THEME.toolbar}>
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="relative flex-1 max-w-sm">
-                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-                <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1.5 text-xs border border-border rounded focus:ring-1 focus:ring-accent outline-none bg-background text-foreground placeholder:text-muted/50" />
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
-                <Type size={14} className="text-muted" />
-                <select 
-                  value={(() => {
-                    if (!activeCell) return "";
-                    const mIdx = masterColumnOrder.indexOf(activeCell.col);
-                    const key = toA1Key(activeCell.row, mIdx);
-                    return cellMetadata[key]?.fontFamily || "";
-                  })()} 
-                  onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)} 
-                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-30 dark:bg-card"
-                >
-                  <option value="">Font Family...</option>
-                  {FONT_FAMILIES.map(f => (
-                    <option key={f.id} value={f.value}>{f.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
-                <span className="text-muted">Year:</span>
-                <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer dark:bg-card">
-                  <option value="2020">2020</option>
-                  <option value="2021">2021</option>
-                  <option value="2022">2022</option>
-                  <option value="2023">2023</option>
-                  <option value="2024">2024</option>
-                  <option value="2025">2025</option>
-                  <option value="2026">2026</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium">
-                <span className="text-muted">Columns:</span>
-                <select 
-                  value="" 
-                  onChange={(e) => { if(e.target.value) toggleColumnVisibility(e.target.value); e.target.value = ""; }}
-                  className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-27.5 dark:bg-card"
-                >
-                  <option value="">{hiddenColumns.length > 0 ? `(${hiddenColumns.length} Hidden)` : "All Visible"}</option>
-                  {allHeaders.filter(h => h !== 'section').map(h => (
-                    <option key={h} value={h}>{hiddenColumns.includes(h) ? "Show" : "Hide"} {h}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Zoom Controls */}
-              <div className="flex items-center gap-1 px-1 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
-                <button 
-                  disabled={undoStack.length === 0}
-                  onClick={undo} 
-                  className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
-                  title="Undo (Ctrl+Z)"
-                >
-                  <History size={14} className="rotate-180 flip-y" />
-                </button>
-                <button 
-                  disabled={redoStack.length === 0}
-                  onClick={redo} 
-                  className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
-                  title="Redo (Ctrl+Y)"
-                >
-                  <History size={14} />
-                </button>
-              </div>
-              <div className="flex items-center gap-1 px-2 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
-                <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom Out">
-                  <ZoomOut size={14} />
-                </button>
-                <button onClick={() => setZoom(1)} className="w-10 text-center font-bold text-accent select-none hover:bg-muted/10 rounded transition-colors" title="Reset Zoom">
-                  {Math.round(zoom * 100)}%
-                </button>
-                <button onClick={() => setZoom(Math.min(2, zoom + 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom In">
-                  <ZoomIn size={14} />
-                </button>
-              </div>
-              <div className="flex items-center gap-1 px-1 py-1.5 bg-card border border-border rounded text-xs font-medium shrink-0">
-                <button 
-                  onClick={() => setIsFreezeHeaders(!isFreezeHeaders)} 
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${isFreezeHeaders ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
-                  title="Toggle Freeze Headers (Vertical)"
-                >
-                  <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} /> Headers
-                </button>
-                <button 
-                  onClick={() => setIsFreezePanes(!isFreezePanes)} 
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors ${isFreezePanes ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
-                  title="Toggle Freeze Panes (Horizontal)"
-                >
-                  <ChevronRightIcon size={14} /> Panes
-                </button>
-              </div>
-            <button onClick={handleAddSection} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
-                <Plus size={14} className="text-green-600" /> Add Section
-              </button>
-            <button onClick={handleResetWidths} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground" title="Reset all columns to auto-width">
-                <RefreshCcw size={14} /> Reset Widths
-              </button>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 ml-4">
-            <button onClick={exportToCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
-                <HardDrive size={14} /> Export CSV
-              </button>
-            </div>
-          </div>
-          
-          {/* Cell Context Menu */}
-          {contextMenu && (
-            <div 
-              className="fixed z-100 bg-card border border-border shadow-xl rounded-lg py-1 w-48 animate-in fade-in zoom-in duration-100 context-menu-container"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {contextMenu.type === 'header' ? (
-                <>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Column Options</div>
-                  <div className="flex flex-col gap-0.5">
-                    <button 
-                      onClick={() => { setIsFreezeHeaders(!isFreezeHeaders); setContextMenu(null); }} 
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                    >
-                      {isFreezeHeaders ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
-                      {isFreezeHeaders ? 'Unfreeze Headers' : 'Freeze Headers'}
-                    </button>
-                    <button 
-                      onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                    >
-                      {isFreezePanes ? <Minimize2 size={14} className="text-accent" /> : <Maximize2 size={14} className="text-muted" />}
-                      {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
-                    </button>
-                  </div>
-                  <div className="h-px bg-border my-1"></div>
-                  <div className="relative group/sub">
-                    <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFonts: true, showFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
-                    >
-                      <span className="flex items-center gap-2"><Type size={14} className="text-accent" /> Set Column Font</span>
-                      <ChevronRightIcon size={12} className="text-muted" />
-                    </button>
-                    {contextMenu.showFonts && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
-                        {FONT_FAMILIES.map(f => (
-                          <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Alignment</div>
-                  <button onClick={() => setColumnAlignment(contextMenu.col, 'left')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignLeft size={14} className={columnAlignments[contextMenu.col] === 'left' ? "text-accent" : "text-muted"} /> Left Alignment
-                  </button>
-                  <button onClick={() => setColumnAlignment(contextMenu.col, 'center')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignCenter size={14} className={columnAlignments[contextMenu.col] === 'center' ? "text-accent" : "text-muted"} /> Center Alignment
-                  </button>
-                  <button onClick={() => setColumnAlignment(contextMenu.col, 'right')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignRight size={14} className={columnAlignments[contextMenu.col] === 'right' ? "text-accent" : "text-muted"} /> Right Alignment
-                  </button>
-                  {selColSpan > 1 && (
-                    <>
-                      <div className="h-px bg-border my-1"></div>
-                      <button 
-                        onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground font-bold"
-                      >
-                        <TableIcon size={14} className="text-accent" /> Merge Selected Headers
-                      </button>
-                    </>
-                  )}
-                  {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
-                    <button 
-                      onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                    >
-                      <X size={14} className="text-orange-500" /> Unmerge Header
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <EyeOff size={14} /> Hide Column
-                  </button>
-                  <button 
-                    onClick={() => { handleInsertColumn(contextMenu.col, 'before'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <Plus size={14} className="text-accent" /> Insert Column Before
-                  </button>
-                  <button 
-                    onClick={() => { handleInsertColumn(contextMenu.col, 'after'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <Plus size={14} className="text-accent" /> Insert Column After
-                  </button>
-                  <button 
-                    onClick={() => handleClearColumn(contextMenu.col)} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <X size={14} className="text-orange-500" /> Clear Column Content
-                  </button>
-                  <div className="h-px bg-border my-1"></div>
-                  <button 
-                    onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
-                  >
-                    <Trash2 size={14} /> Delete Column
-                  </button>
-                </>
-              ) : contextMenu.type === 'row' ? (
-                <>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Row Options</div>
-                  <button 
-                    onClick={() => handleInsertRow(contextMenu.row!, 'above')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <Plus size={14} className="text-accent" /> Insert Row Above
-                  </button>
-                  <button 
-                    onClick={() => handleInsertRow(contextMenu.row!, 'after')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <Plus size={14} className="text-accent" /> Insert Row Below
-                  </button>
-                  <button 
-                    onClick={() => handleClearRow(contextMenu.row!)} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <X size={14} className="text-orange-500" /> Clear Row Content
-                  </button>
-                  <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Section Actions</div>
-                  <button 
-                    onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "";
-                      handleInsertSection(section, 'before', contextMenu.row);
-                      setContextMenu(null);
-                    }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <FolderPlus size={14} className="text-accent" /> Insert Section Above
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "";
-                      handleInsertSection(section, 'after', contextMenu.row);
-                      setContextMenu(null);
-                    }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <FolderPlus size={14} className="text-accent" /> Insert Section Below
-                  </button>
-                  <button 
-                    onClick={() => {
-                      const section = gridData.get(`${contextMenu.row}:section`) || "";
-                      addRowToSection(section);
-                      setContextMenu(null);
-                    }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <Plus size={14} className="text-accent" /> Add Row to this Section
-                  </button>
-                  <div className="h-px bg-border my-1"></div>
-                  <button 
-                    onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
-                  >
-                    <Trash2 size={14} /> Delete Row
-                  </button>
-                </>
-              ) : contextMenu.type === 'section' ? (
-                <>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Section Options</div>
-                  <button 
-                    onClick={() => { handleInsertSection(contextMenu.sectionName!, 'before'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <FolderPlus size={14} className="text-accent" /> Insert Section Above
-                  </button>
-                  <button 
-                    onClick={() => { handleInsertSection(contextMenu.sectionName!, 'after'); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <FolderPlus size={14} className="text-accent" /> Insert Section Below
-                  </button>
-                  <div className="h-px bg-border my-1"></div>
-                  <button 
-                    onClick={() => { handleDeleteSection(contextMenu.sectionName!); setContextMenu(null); }} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2"
-                  >
-                    <Trash2 size={14} /> Delete Section
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase border-b border-border/50 mb-1">Selection Actions</div>
-                  <button 
-                    onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                  >
-                    <TableIcon size={14} className="text-accent" /> Merge Selected Cells
-                  </button>
-                  
-                  <button 
-                    onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date'); setContextMenu(null); }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground font-medium"
-                  >
-                    <Calendar size={14} className="text-accent" /> Insert Calendar
-                  </button>
-
-                  {/* Unmerge only shows if the specific cell clicked is a merge host */}
-                  {(() => {
-                    const key = toA1Key(contextMenu.row!, masterColumnOrder.indexOf(contextMenu.col));
-                    const meta = cellMetadata[key];
-                    return (meta?.rowSpan > 1 || meta?.colSpan > 1) && (
-                    <button 
-                      onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"
-                    >
-                      <X size={14} className="text-orange-500" /> Unmerge Cells
-                    </button>
-                    );
-                  })()}
-
-                  <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Alignment</div>
-                  <button onClick={() => setSelectionAlignment('left')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignLeft size={14} className="text-muted" /> Align Left
-                  </button>
-                  <button onClick={() => setSelectionAlignment('center')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignCenter size={14} className="text-muted" /> Align Center
-                  </button>
-                  <button onClick={() => setSelectionAlignment('right')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground">
-                    <AlignRight size={14} className="text-muted" /> Align Right
-                  </button>
-
-                  <div className="h-px bg-border my-1"></div>
-
-                  {(() => {
-                    const colIdx = masterColumnOrder.indexOf(contextMenu.col);
-                    const key = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
-                    const meta = cellMetadata[key];
-                    return meta?.type === 'media' && (
-                    <>
-                      <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-3 py-2 text-xs hover:bg-red-500/10 text-red-500 flex items-center gap-2 font-bold"><Trash2 size={14} /> Remove Attachment</button>
-                      <div className="h-px bg-border my-1"></div>
-                    </>
-                   );
-                  })()}
-
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Format Cell</div>
-                  <button 
-                    onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)}
-                    onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'text')} 
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><FileText size={14} className="text-muted" /> Default Text</button>
-                  
-                  <div className="relative group/sub">
-                    <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: true, showFormulaFormats: false, showNumberFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
-                    >
-                      <span className="flex items-center gap-2"><Calendar size={14} className="text-accent" /> Format as Calendar</span>
-                      <ChevronRightIcon size={12} className="text-muted" />
-                    </button>
-                    
-                    {contextMenu.showFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
-                        {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="relative group/sub">
-                    <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showNumberFormats: true, showFormats: false, showFormulaFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
-                    >
-                      <span className="flex items-center gap-2"><TableIcon size={14} className="text-green-600" /> Format as Number</span>
-                      <ChevronRightIcon size={12} className="text-muted" />
-                    </button>
-                    
-                    {contextMenu.showNumberFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
-                        {NUMBER_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="relative group/sub">
-                    <button 
-                      onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormulaFormats: true, showFormats: false, showNumberFormats: false } : null)}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center justify-between gap-2 text-foreground"
-                    >
-                      <span className="flex items-center gap-2"><Sigma size={14} className="text-purple-500" /> Formula Support</span>
-                      <ChevronRightIcon size={12} className="text-muted" />
-                    </button>
-                    
-                    {contextMenu.showFormulaFormats && (
-                      <div className={`absolute ${contextMenu.x + 384 > window.innerWidth ? 'right-full mr-px' : 'left-full ml-px'} top-0 bg-card border border-border shadow-xl rounded-lg py-1 w-48`}>
-                        <button 
-                          onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula')} 
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground font-bold"
-                        >
-                          Standard (Sum/Number)
-                        </button>
-                        <div className="h-px bg-border my-1"></div>
-                        <div className="px-3 py-1 text-[9px] font-black text-muted/50 tracking-widest uppercase">Date Result Format</div>
-                        {DATE_FORMATS.map(f => (
-                          <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id)} className="w-full text-left px-3 py-2 text-xs hover:bg-accent/10 hover:text-accent text-foreground">{f.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-px bg-border my-1"></div>
-                  <div className="px-3 py-1.5 text-[10px] font-black text-muted/50 tracking-widest uppercase">Media</div>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><ImageIcon size={14} className="text-green-500" /> Insert Image</button>
-                  <button onMouseEnter={() => setContextMenu(prev => prev ? { ...prev, showFormats: false, showFormulaFormats: false, showNumberFormats: false } : null)} onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-3 py-2 text-xs hover:bg-muted/10 flex items-center gap-2 text-foreground"><Paperclip size={14} className="text-amber-500" /> Attach File</button>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Hidden File Input for Media Uploads */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileSelect} 
-            className="hidden" 
-            accept={pendingMedia?.type === 'image' ? "image/*" : "*/*"}
-          />
-
-          {/* Formula Bar - Relocated for a cleaner grid view */}
-          <div className={`${GRID_THEME.formulaBar} min-h-9.5`}>
-            <div 
-              id="address-indicator"
-              className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
-            >
-              {/* Sync with visual sequential labels (A, B, C...) regardless of internal master index */}
-              {activeCell ? toA1Key(activeCell.row, visibleHeaders.indexOf(activeCell.col)) : 'Select...'}
-            </div>
-            <div className="h-4 w-px bg-border mx-1 self-center"></div>
-            <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
-              <Sigma size={14} className="shrink-0" />
-              <span className="text-[10px] font-bold tracking-widest opacity-50">Formula</span>
-            </div>
-            <textarea
-              ref={formulaBarRef}
-              rows={1}
-              placeholder="Enter value or formula (e.g., =SUM(A1, B1) or =ADD_DAYS(A1, 5))..."
-              value={activeCell ? (gridData.get(toA1Key(activeCell.row, masterColumnOrder.indexOf(activeCell.col))) || '') : ''}
-              onChange={(e) => {
-                if (activeCell) {
-                  handleUpdateCell(activeCell.row, activeCell.col, e.target.value);
-                }
-              }}
-              className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
-            />
-          </div>
-
-          <div
-            ref={tableContainerRef}
-            onScroll={handleScroll}
-            className="flex-1 overflow-x-auto overflow-y-scroll relative custom-scrollbar-zoomed"
-            style={{ 
-              scrollbarGutter: 'stable',
-              overflowAnchor: 'none', // Prevents browser from trying to "correct" scroll position
-              willChange: 'scroll-position',
-              '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
-            } as any}
-          >
-            {/* Virtual Scroll Spacer to force correct scrollbar height */}
-            <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
-            
-            <table 
-              className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
-              style={{ 
-                zoom: zoom, 
-              } as any}
-            >
-              <thead className={GRID_THEME.tableHeader}>
-                <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card shadow-sm`}>
-                  {/* The Corner Cell - Standardized border and background */}
-                  <th 
-                    onClick={() => {
-                      if (rowCount > 0 && visibleHeaders.length > 0) {
-                        setSelection({
-                          startRow: -1, // Include headers in selection
-                          endRow: rowCount - 1,
-                          startCol: visibleHeaders[0],
-                          endCol: visibleHeaders[visibleHeaders.length - 1]
-                        });
-                        setActiveCell({ row: 0, col: visibleHeaders[0] });
-                      }
-                    }}
-                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
-                      isFreezeHeaders ? 'top-0' : ''
-                    }`}
-                  >
-                    <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
-                  </th>
-                  {visibleHeaders.map((header, idx) => {
-                    const headerMeta = cellMetadata[`header:${header}`] || {};
-                    const isColumnActive = activeCell?.col === header;
-                    const isInHeaderLabelSelection = isHeaderInSelection(idx);
-
-                    if (headerMeta.mergedIn) return null;
-
-                    return (
-                      <th 
-                        key={`col-label-${idx}`} 
-                        colSpan={headerMeta.colSpan}
-                        onMouseDown={(e) => {
-                          if (e.button === 0 && rowCount > 0) {
-                            setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
-                            setActiveCell({ row: 0, col: header });
-                            setIsSelecting(true);
-                          }
-                        }}
-                        onMouseEnter={() => {
-                          if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
-                            setSelection(prev => prev ? { ...prev, endCol: header } : null);
-                          }
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          // Excel behavior: Preserve selection if right-clicking inside existing header selection
-                          const isAlreadySelected = isHeaderInSelection(idx);
-                          
-                          if (!isAlreadySelected && rowCount > 0) {
-                            setSelection({
-                              startRow: 0,
-                              endRow: rowCount - 1,
-                              startCol: header,
-                              endCol: header
-                            });
-                            setActiveCell({ row: 0, col: header });
-                          }
-                          handleOpenContextMenu(e, 'header', header);
-                        }}
-                        style={{ 
-                          fontFamily: headerMeta.fontFamily || 'inherit',
-                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
-                        }}
-                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${
-                          isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
-                        } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
-                          isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
-                        }`}
-                      >
-                        {getExcelColumnLabel(idx)}
-                        <div 
-                          onMouseDown={(e) => startResizing(header, e)}
-                          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
-                          title="Drag to resize"
-                        />
-                      </th>
-                    );
-                  })}
-                  <th className="border-r border-b border-border bg-card"></th>
-                </tr>
-                <tr className="">
-                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
-                    isFreezeHeaders ? 'top-[20px]' : ''
-                  }`}></th>
-                  {visibleHeaders.map((header, colIdx) => {
-                    const headerMeta = cellMetadata[`header:${header}`] || {};
-                    const isColumnActive = activeCell?.col === header;
-                    
-                    if (headerMeta.mergedIn) return null;
-
-                    const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
-                    const align = columnAlignments[header] || defaultAlign;
-                    const alignClass = align === 'center' ? 'text-center' : 
-                                     align === 'right' ? 'text-right' : 'text-left';
-
-                    const isInHeaderSelection = isHeaderInSelection(colIdx);
-
-                    return (
-                      <th 
-                      key={header} 
-                      colSpan={headerMeta.colSpan}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      // Unified Excel behavior: Right-click selects whole column if not part of multi-selection
-                      if (!isInHeaderSelection && rowCount > 0) {
-                        setSelection({
-                          startRow: 0,
-                          endRow: rowCount - 1,
-                          startCol: header,
-                          endCol: header
-                        });
-                        setActiveCell({ row: 0, col: header });
-                      }
-                        handleOpenContextMenu(e, 'header', header);
-                    }}
-                    onMouseDown={(e) => {
-                      if (e.button === 0) {
-                        setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
-                        setIsSelecting(true);
-                      } else if (e.button === 2) {
-                        if (!isInHeaderSelection) {
-                          setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
-                        }
-                      }
-                    }}
-                    onMouseEnter={() => {
-                      if (isSelecting && selection?.startRow === -1) {
-                        setSelection(prev => prev ? { ...prev, endCol: header } : null);
-                      }
-                    }}
-                      style={{ 
-                        width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                        minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
-                    }}
-                    className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${
-                      isColumnActive ? 'text-accent bg-accent/10' : 'text-muted bg-card'
-                    } ${
-                      isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
-                    } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        <input
-                          defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
-                          onBlur={(e) => handleRenameColumn(header, e.target.value)}
-                          className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
-                        />
-                      </div>
-                      </th>
-                    );
-                  })}
-                  <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${
-                    isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
-                  }`}>
-                    <div className="flex items-center gap-1 px-1">
-                      <input
-                        value={newColName}
-                        onChange={(e) => setNewColName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddColumn(newColName);
-                            setNewColName('');
-                          }
-                        }}
-                        placeholder="Add Column..."
-                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
-                      />
-                      <Plus size={14} className="text-accent/60 shrink-0" />
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {/* Virtualization Spacer: Pushes content down to correct scroll position 
-                    while allowing the headers above to remain sticky at the top. */}
-                <tr style={{ height: `${translateY}px` }} className="border-none"><td colSpan={visibleHeaders.length + 2} className="p-0 border-none" /></tr>
-                {visibleItems.map((item, i) => {
-                  if (item.type === 'section') {
-                  return (
-                      <tr 
-                        key={`section-${item.name}-${item.blockIdx}`} 
-                        className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
-                        onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
-                      >
-                        <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
-                          <div className="flex items-center justify-between">
-                            <input
-                              defaultValue={item.name}
-                              onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
-                              className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
-                            />
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={() => handleInsertSection(item.name, 'before')}
-                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
-                                title="Insert Section Before"
-                              >
-                                <ChevronUp size={12} />
-                              </button>
-                              <button 
-                                onClick={() => handleInsertSection(item.name, 'after')}
-                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
-                                title="Insert Section After"
-                              >
-                                <ChevronDown size={12} />
-                              </button>
-                            <button 
-                              onClick={() => handleDeleteSection(item.name)}
-                              className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
-                              title="Delete Section"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  const globalIndex = item.index;
-                  // Construct row object ONLY for visible rows to save memory
-                  const rowData: any = { _index: globalIndex };
-                  allHeaders.forEach(h => {
-                    const colIdx = masterColumnOrder.indexOf(h);
-                    rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
-                  });
-                  rowData.section = gridData.get(`${globalIndex}:section`);
-
-                  return (
-                    <GridRow 
-                      key={globalIndex}
-                      row={rowData}
-                      globalIndex={globalIndex}
-                      visibleHeaders={visibleHeaders}
-                      activeCell={activeCell}
-                      selection={selection}
-                      cellMetadata={cellMetadata}
-                      cellAlignments={cellAlignments}
-                      columnAlignments={columnAlignments}
-                      isFreezePanes={isFreezePanes}
-                      dragFillRange={dragFillRange}
-                      isSelecting={isSelecting}
-                      handleUpdateCell={handleUpdateCell}
-                      handleKeyDown={handleKeyDown}
-                      setActiveCell={setActiveCell}
-                      setSelection={setSelection}
-                      setIsSelecting={setIsSelecting}
-                      setDragFillRange={setDragFillRange}
-                      onOpenContextMenu={handleOpenContextMenu}
-                      toggleCellAlignment={toggleCellAlignment}
-                      handleDragFillStart={handleDragFillStart}
-                      removeTableRow={removeTableRow}
-                      setViewingMedia={setViewingMedia}
-                      removeCellMetadata={removeCellMetadata}
-                      evaluateFormula={evaluateFormula}
-                      rowHeights={rowHeights}
-                      startRowResizing={startRowResizing}
-                      handleOpenDropdown={handleOpenDropdown}
-                      onMeasuredHeight={onMeasuredHeight}
-                      masterColumnOrder={masterColumnOrder}
-                      zoom={zoom}
-                    />
-                  );
-                })}
-                {/* Bottom Stability Spacer: Ensures the browser doesn't think the 
-                    content height is changing exactly when we hit the bottom pixel. */}
-                <tr style={{ height: '20px' }} className="border-none">
-                  <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
-                </tr>
-              </tbody>
-            </table>
-
-            {showBackToTop && (
-              <button 
-                onClick={scrollToTop}
-                className="fixed bottom-10 right-10 p-3 bg-accent text-accent-foreground rounded-full shadow-2xl hover:opacity-90 transition-all z-50 animate-in fade-in zoom-in duration-300 group"
-                title="Back to Top"
-              >
-                <ArrowUp size={20} className="group-hover:-translate-y-1 transition-transform" />
-              </button>
-            )}
-          </div>
-        </div>
-      );
-    } catch (e) {
-      return (
-        <div className="p-12 border-2 border-dashed border-red-500/20 rounded-xl bg-red-500/5 flex flex-col items-center justify-center text-center">
-          <div className="p-3 bg-red-500/10 rounded-full text-red-500 mb-4">
-            <Code size={24} />
-          </div>
-          <h3 className="text-red-500 font-bold mb-2">JSON Syntax Error</h3>
-          <p className="text-sm text-red-500/70 mb-6 max-w-sm">
-            {e instanceof Error ? e.message : "We encountered an error while parsing your data."}
-            <br />
-            <span className="opacity-70 mt-2 block">Check for missing commas, brackets, or quotes in the code view.</span>
-          </p>
-          <button 
-            onClick={() => setViewMode('code')}
-            className="px-6 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:opacity-90 transition-all shadow-sm"
-          >
-            Switch to JSON Code to Fix
-          </button>
-        </div>
-      );
-    }
-  };
 
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
@@ -4111,176 +1799,42 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       <main className={`${GRID_THEME.main} relative antialiased`}>
       {!isFullScreen && (
         <div className="flex h-full shrink-0 relative">
-          {/* Vertical Icon Rail (Light Theme) */}
-          <div className={`${GRID_THEME.rail} ${
-            isExplorerVisible 
-              ? 'fixed md:relative left-0 top-0 h-full md:h-auto translate-x-0 opacity-100 flex' 
-              : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
-          } transition-[transform,opacity] duration-300`}>
-            <button
-              onClick={() => toggleSidebar()}
-              className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
-            >
-              {isExplorerVisible ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
-              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                {isExplorerVisible ? "Collapse Sidebar" : "Expand Sidebar"}
-              </div>
-            </button>
-            <div className="h-px w-6 bg-border" />
-            <button 
-              className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
-              onClick={() => !isExplorerVisible && toggleSidebar(true)}
-            >
-              <Folder size={20} />
-              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                Project Explorer
-              </div>
-            </button>
-            <button 
-              onClick={() => { setViewMode('logs'); toggleSidebar(false); }}
-              className={`p-2 rounded-lg group relative ${viewMode === 'logs' ? 'text-purple-500 bg-purple-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
-            >
-              <History size={20} />
-              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                System Audit Logs
-              </div>
-            </button>
-            <button 
-              onClick={() => { setViewMode('trash'); toggleSidebar(false); }}
-              className={`p-2 rounded-lg group relative ${viewMode === 'trash' ? 'text-orange-500 bg-orange-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
-            >
-              <Trash2 size={20} />
-              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                Trash Bin
-              </div>
-            </button>
-            <button 
-              onClick={() => setShowGlobalSearch(true)}
-              className="p-2 text-muted hover:text-foreground group relative"
-            >
-              <Search size={20} />
-              <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                Search System
-              </div>
-            </button>
-            <div className="mt-auto flex flex-col gap-4">
-              {recentNodes.length > 0 && (
-                <div className="flex flex-col items-center gap-2 mb-2">
-                  <History size={14} className="text-muted/40 mb-1" />
-                  {recentNodes.map(node => (
-                    <button
-                      key={`recent-${node.id}`}
-                      onClick={() => {
-                        setSelectedId(node.id);
-                        if (['logs', 'trash', 'compare'].includes(viewMode)) setViewMode('table');
-                      }}
-                      className={`p-1.5 rounded group relative ${selectedId === node.id ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
-                    >
-                      <FileText size={16} />
-                      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                        {node.name}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="h-px w-6 bg-border self-center" />
-              <button 
-                onClick={() => setShowProfileModal(true)}
-                className="p-2 text-muted hover:text-accent group relative"
-              >
-                {profileAvatar ? (
-                  <div className="w-6 h-6 rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors shadow-inner">
-                    <img src={profileAvatar} alt="Profile" className="w-full h-full object-cover" />
-                  </div>
-                ) : (
-                  <User size={20} />
-                )}
-                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                  Profile Settings
-                </div>
-              </button>
-              <ThemeToggle />
-              
-              <div className="h-px w-6 bg-border self-center" />
-              
-              <button 
-                onClick={handleLogout}
-                className="p-2 text-muted hover:text-red-500 group relative"
-              >
-                <LogOut size={20}/>
-                <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-                  Sign Out
-                </div>
-              </button>
-            </div>
-          </div>
+          {/* Vertical Icon Rail */}
+          <NavigationSidebar
+            isExplorerVisible={isExplorerVisible}
+            toggleSidebar={toggleSidebar}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            setShowGlobalSearch={setShowGlobalSearch}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            setShowProfileModal={setShowProfileModal}
+            profileAvatar={profileAvatar}
+            handleLogout={handleLogout}
+            activeNode={activeNode}
+          />
 
           {/* Explorer Drawer Panel */}
-          {isExplorerVisible && (
-            <div 
-              className="md:hidden fixed inset-0 bg-background/80 backdrop-blur-[2px] z-40"
-              onClick={() => setIsExplorerVisible(false)}
-            />
-          )}
-          <aside
-            className={`${GRID_THEME.drawer} ${
-              isExplorerVisible 
-                ? 'w-64 p-4 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto' 
-                : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 pointer-events-none'
-            } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
-          >
-            <div className="flex justify-between items-center mb-4 px-1 min-w-55 transition-colors">
-              <h1 className="font-black text-muted text-[10px] uppercase tracking-[0.2em]">Project Tree</h1>
-              <div className="flex items-center gap-0.5">
-                <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-muted/10 rounded-md text-muted transition-colors" title="New Folder">
-                  <FolderPlus size={16} />
-                </button>
-                <button onClick={() => addItem('file')} className="p-1.5 hover:bg-muted/10 rounded-md text-accent transition-colors" title="New File">
-                  <FilePlus size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="mb-4 relative group min-w-55">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent" />
-              <input 
-                type="text" 
-                placeholder="Filter nodes..." 
-                value={explorerSearch}
-                onChange={(e) => setExplorerSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
-              />
-            </div>
-            <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55 [contain:content]">
-              {isLoading ? (
-                <div className="flex justify-center p-4">
-                  <Loader2 className="animate-spin text-accent" size={20} />
-                </div>
-              ) : (
-                filteredTree.map(node => (
-                  <FileNodeItem 
-                    key={node.id} node={node} onDelete={handleDelete} onRename={handleRename} onAdd={addItem}
-                    onSelect={(node) => {
-                      if (selectedId !== node.id) {
-                        setIsLoadingFile(true);
-                        setSelectedId(node.id);
-                      }
-                      // Always switch back to grid view if coming from a global system view
-                      if (['logs', 'trash', 'compare'].includes(viewMode)) {
-                        setViewMode('table');
-                      }
-                    }} 
-                    selectedId={selectedId ?? undefined}
-                    searchTerm={explorerSearch} comparisonIds={comparisonIds} onToggleCompare={toggleComparisonId}
-                  />
-                ))
-              )}
-            </div>
-          </aside>
+          <ProjectExplorer
+            tree={tree}
+            selectedId={selectedId}
+            setSelectedId={setSelectedId}
+            addItem={addItem}
+            handleRename={handleRename}
+            handleDelete={handleDelete}
+            isExplorerVisible={isExplorerVisible}
+            setIsExplorerVisible={setIsExplorerVisible}
+            isLoading={isLoading}
+            setIsLoadingFile={setIsLoadingFile}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            comparisonIds={comparisonIds}
+            toggleComparisonId={toggleComparisonId}
+          />
         </div>
       )}
 
-      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-2 md:p-3'}`}>
+      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-1 md:p-1.5'}`}>
 
         {/* Floating Mobile Toggle Button - Restored for better access while keeping the spreadsheet view maximized */}
         {!isFullScreen && !isExplorerVisible && (
@@ -4374,7 +1928,12 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             
             {viewMode === 'logs' ? (
               <div className="flex flex-col flex-1 min-h-0">
-                {renderAuditLogs()}
+                <AuditLogs 
+                  isLoadingLogs={isLoadingLogs}
+                  auditLogs={auditLogs}
+                  fetchAuditLogs={fetchAuditLogs}
+                  hasMoreLogs={hasMoreLogs}
+                />
                 <footer className={GRID_THEME.statusBar}>
                       <div className="flex items-center gap-4">
                         <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
@@ -4386,7 +1945,11 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   </div>
                 ) : viewMode === 'trash' ? (
                   <div className="flex flex-col flex-1 min-h-0">
-                    {renderTrashBin()}
+                    <TrashBin 
+                      deletedNodes={deletedNodes}
+                      handleRestore={handleRestore}
+                      handlePermanentDelete={handlePermanentDelete}
+                    />
                     <footer className={GRID_THEME.statusBar}>
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
@@ -4425,9 +1988,99 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                     placeholder='{ "content": [...], "display_settings": {...} }'
                   />
                 ) : viewMode === 'table' ? (
-                  renderTableEditor()
+                  <TableEditor
+                    isLoadingFile={isLoadingFile}
+                    loadProgress={loadProgress}
+                    rowCount={rowCount}
+                    setRowCount={setRowCount}
+                    initializeExcelTemplate={initializeExcelTemplate}
+                    visibleHeaders={visibleHeaders}
+                    selection={selection}
+                    setSelection={setSelection}
+                    zoom={zoom}
+                    setZoom={setZoom}
+                    containerHeight={containerHeight}
+                    setContainerHeight={setContainerHeight}
+                    isFullScreen={isFullScreen}
+                    setIsFullScreen={setIsFullScreen}
+                    activeCell={activeCell}
+                    setActiveCell={setActiveCell}
+                    masterColumnOrder={masterColumnOrder}
+                    cellMetadata={cellMetadata}
+                    setCellMetadata={setCellMetadata}
+                    setCellFontFamily={setCellFontFamily}
+                    selectedYear={selectedYear}
+                    setSelectedYear={setSelectedYear}
+                    hiddenColumns={hiddenColumns}
+                    toggleColumnVisibility={toggleColumnVisibility}
+                    allHeaders={allHeaders}
+                    undoStack={undoStack}
+                    redoStack={redoStack}
+                    undo={undo}
+                    redo={redo}
+                    isFreezeHeaders={isFreezeHeaders}
+                    setIsFreezeHeaders={setIsFreezeHeaders}
+                    isFreezePanes={isFreezePanes}
+                    setIsFreezePanes={setIsFreezePanes}
+                    handleAddSection={handleAddSection}
+                    handleResetWidths={handleResetWidths}
+                    exportToCSV={exportToCSV}
+                    contextMenu={contextMenu}
+                    setContextMenu={setContextMenu}
+                    handleMergeCells={handleMergeCells}
+                    handleUnmergeCells={handleUnmergeCells}
+                    setColumnAlignment={setColumnAlignment}
+                    columnAlignments={columnAlignments}
+                    handleRenameColumn={handleRenameColumn}
+                    handleAddColumn={handleAddColumn}
+                    handleDeleteColumn={handleDeleteColumn}
+                    handleInsertColumn={handleInsertColumn}
+                    handleInsertRow={handleInsertRow}
+                    handleClearRow={handleClearRow}
+                    handleInsertSection={handleInsertSection}
+                    addRowToSection={addRowToSection}
+                    handleDeleteSection={handleDeleteSection}
+                    removeTableRow={removeTableRow}
+                    handleClearColumn={handleClearColumn}
+                    gridData={gridData}
+                    cellAlignments={cellAlignments}
+                    rowHeights={rowHeights}
+                    dragFillRange={dragFillRange}
+                    setDragFillRange={setDragFillRange}
+                    isSelecting={isSelecting}
+                    setIsSelecting={setIsSelecting}
+                    handleUpdateCell={handleUpdateCell}
+                    handleKeyDown={handleKeyDown}
+                    handleOpenContextMenu={handleOpenContextMenu}
+                    toggleCellAlignment={toggleCellAlignment}
+                    handleDragFillStart={handleDragFillStart}
+                    setViewingMedia={setViewingMedia}
+                    removeCellMetadata={removeCellMetadata}
+                    evaluateFormula={evaluateFormula}
+                    startRowResizing={startRowResizing}
+                    handleOpenDropdown={handleOpenDropdown}
+                    onMeasuredHeight={onMeasuredHeight}
+                    columnWidths={columnWidths}
+                    startResizing={startResizing}
+                    handleRenameSectionBlock={handleRenameSectionBlock}
+                    handleFileSelect={handleFileSelect}
+                    pendingMedia={pendingMedia}
+                    fileInputRef={fileInputRef}
+                    formulaBarRef={formulaBarRef}
+                    setCellType={setCellType}
+                    setSelectionAlignment={setSelectionAlignment}
+                    insertMedia={insertMedia}
+                    setViewMode={setViewMode}
+                    selectedId={selectedId}
+                    isSidebarMoving={isSidebarMoving}
+                  />
                 ) : viewMode === 'compare' ? (
-                  renderComparisonTable()
+                  <ComparisonTable
+                    comparisonIds={comparisonIds}
+                    tree={tree}
+                    toggleComparisonId={toggleComparisonId}
+                    setComparisonIds={setComparisonIds}
+                  />
                 ) : null}
 
                 {/* High-density Status Bar */}
@@ -4639,201 +2292,21 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
         )}
 
         {/* Profile Settings Modal */}
-        {showProfileModal && (
-          <div className="fixed inset-0 z-300 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="p-6 border-b border-border bg-muted/5 flex justify-between items-center">
-                <h3 className="font-black text-xs uppercase tracking-[0.2em] text-foreground">User Profile</h3>
-                <button onClick={() => setShowProfileModal(false)} className="p-1 text-muted hover:text-foreground"><X size={20} /></button>
-              </div>
-              <div className="p-8 space-y-6">
-                <div className="flex flex-col items-center">
-                  <div 
-                    className="w-24 h-24 rounded-2xl bg-accent/10 border-2 border-accent/20 flex items-center justify-center text-accent overflow-hidden mb-4 shadow-inner cursor-pointer group relative"
-                    onClick={() => avatarFileInputRef.current?.click()}
-                    title="Click to upload new photo"
-                  >
-                    {profileAvatar ? (
-                      <img src={profileAvatar} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <User size={48} />
-                    )}
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ImageIcon size={24} className="text-white" />
-                    </div>
-                  </div>
-                  <input type="file" ref={avatarFileInputRef} onChange={handleAvatarUpload} className="hidden" accept="image/*" />
-                  <h4 className="font-bold text-lg text-foreground">{profileName || 'MEO Administrator'}</h4>
-                  <p className="text-xs text-muted font-mono">{user?.email}</p>
-                  <span className="mt-2 px-2 py-0.5 bg-accent/20 text-accent text-[9px] font-black uppercase rounded tracking-widest">
-                    {user?.app_metadata?.role || 'User'}
-                  </span>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Full Name</label>
-                    <input 
-                      type="text" 
-                      value={profileName} 
-                      onChange={(e) => setProfileName(e.target.value)} 
-                      placeholder="e.g. Juan Dela Cruz"
-                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Email Address</label>
-                    <input 
-                      type="email" 
-                      value={profileEmail} 
-                      onChange={(e) => setProfileEmail(e.target.value)} 
-                      placeholder="admin@labason.gov.ph"
-                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">New Password</label>
-                    <input 
-                      type="password" 
-                      value={profilePassword} 
-                      onChange={(e) => setProfilePassword(e.target.value)} 
-                      placeholder="Leave blank to keep current"
-                      className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-4 flex gap-3">
-                  <button 
-                    onClick={() => setShowProfileModal(false)}
-                    className="flex-1 py-3 border border-border text-foreground rounded-xl font-bold text-xs hover:bg-muted/10 transition-all uppercase tracking-widest"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleUpdateProfile}
-                    disabled={isUpdatingProfile}
-                    className="flex-1 py-3 bg-accent text-accent-foreground rounded-xl font-bold text-xs shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 uppercase tracking-widest"
-                  >
-                    {isUpdatingProfile ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                    Update Profile
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <ProfileModal
+          user={user}
+          showProfileModal={showProfileModal}
+          setShowProfileModal={setShowProfileModal}
+          profileAvatar={profileAvatar}
+          setProfileAvatar={setProfileAvatar}
+        />
 
         {/* Global Entry Search Modal */}
-        {showGlobalSearch && (
-          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-card w-full max-w-2xl h-[80vh] rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
-              <div className="p-4 border-b border-border bg-muted/5 flex items-center gap-4">
-                <Search className="text-accent" size={20} />
-                <input 
-                  autoFocus
-                  type="text" 
-                  placeholder="Search for any entry across all projects..." 
-                  value={globalSearchQuery}
-                  onChange={(e) => performGlobalSearch(e.target.value)}
-                  className="flex-1 bg-transparent border-0 outline-none text-lg font-medium text-foreground placeholder:text-muted/30"
-                />
-                {globalSearchQuery && (
-                  <button 
-                    onClick={() => performGlobalSearch('')}
-                    className="p-1.5 text-muted hover:text-foreground hover:bg-muted/20 rounded-full transition-colors"
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-                <div className="h-6 w-px bg-border mx-1 hidden sm:block" />
-                <button onClick={() => setShowGlobalSearch(false)} className="p-1 text-muted hover:text-foreground transition-colors">
-                  <span className="text-[10px] font-black uppercase tracking-widest mr-2 opacity-50 hidden sm:inline">Esc</span>
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                {isSearchingGlobal ? (
-                  <div className="flex flex-col items-center justify-center h-full gap-3">
-                    <Loader2 className="animate-spin text-accent" size={32} />
-                    <p className="text-xs font-black uppercase tracking-widest text-muted animate-pulse">Scanning records...</p>
-                  </div>
-                ) : globalSearchResults.length > 0 ? (
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center mb-4">
-                      <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Found {globalSearchResults.length} matches</p>
-                      <p className="text-[10px] font-bold text-muted/40 uppercase tracking-widest hidden sm:block">Use arrows <span className="px-1 py-0.5 bg-muted/20 rounded">↑</span> <span className="px-1 py-0.5 bg-muted/20 rounded">↓</span> to navigate</p>
-                    </div>
-                    {globalSearchResults.map((result, idx) => {
-                      const isHighlighted = globalSearchHighlightIndex === idx;
-                      return (
-                        <button 
-                          key={`${result.nodeId}-${idx}`}
-                          ref={isHighlighted ? highlightedResultRef : null}
-                          onClick={() => {
-                            setSelectedId(result.nodeId);
-                            setViewMode('table');
-                            setShowGlobalSearch(false);
-                          }}
-                          className={`w-full text-left p-4 rounded-xl border transition-all group ${
-                            isHighlighted 
-                              ? 'border-accent bg-accent/5 ring-1 ring-accent/20 translate-x-1' 
-                              : 'border-border hover:border-accent/50 hover:bg-accent/5'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-2">
-                              <FileText size={14} className={isHighlighted ? "text-accent" : "text-blue-500"} />
-                              <span className={`text-xs font-bold transition-colors ${isHighlighted ? "text-accent" : "text-foreground group-hover:text-accent"}`}>{result.nodeName}</span>
-                            </div>
-                            <span className="text-[10px] font-mono text-muted bg-muted/10 px-1.5 py-0.5 rounded">Row {result.rowIndex + 1}</span>
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            {Object.entries(result.row).map(([key, val]) => {
-                              if (key === '_index' || key === 'section' || !val) return null;
-                              const valStr = String(val);
-                              const isMatch = valStr.toLowerCase().includes(globalSearchQuery.toLowerCase());
-                              return (
-                                <div key={key} className={`flex flex-col p-2 rounded-lg border border-transparent transition-colors ${isMatch ? 'bg-accent/5 border-accent/10' : 'bg-muted/5'}`}>
-                                  <span className="text-[8px] font-black text-muted uppercase tracking-widest mb-1">{key}</span>
-                                  <span className="text-[11px] text-foreground font-semibold truncate leading-tight">
-                                    {isMatch ? highlightText(valStr, globalSearchQuery) : valStr}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : globalSearchQuery.length >= 2 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-muted py-12">
-                    <Search size={48} className="mb-4 opacity-10" />
-                    <p className="font-bold">No matches found for "{globalSearchQuery}"</p>
-                    <p className="text-xs">Try a different search term or check for typos.</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-muted py-12">
-                    <div className="p-4 bg-muted/10 rounded-2xl mb-4">
-                      <Sigma size={32} className="opacity-20" />
-                    </div>
-                    <p className="text-sm font-medium">Global Entry Search</p>
-                    <p className="text-xs max-w-xs text-center mt-1">Type at least 2 characters to search for amounts, locations, project titles, and notes across your entire system.</p>
-                    
-                    <div className="mt-8 grid grid-cols-2 gap-2 w-full max-w-sm">
-                      <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Amounts</div>
-                      <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Locations</div>
-                      <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Projects</div>
-                      <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Contractors</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        <GlobalSearchModal
+          showGlobalSearch={showGlobalSearch}
+          setShowGlobalSearch={setShowGlobalSearch}
+          setSelectedId={setSelectedId}
+          setViewMode={setViewMode}
+        />
       </div>
     </main>
   );
@@ -4842,20 +2315,24 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [status, setStatus] = useState<'loading' | 'unauthorized' | 'ready'>('loading');
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('meo-theme') as 'light' | 'dark';
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        return savedTheme;
+      }
+    }
+    return 'dark';
+  });
   const isTransitioning = useRef(false);
 
   // Theme Management Logic
-  useEffect(() => {
-    const savedTheme = localStorage.getItem('meo-theme') as 'light' | 'dark';
-    if (savedTheme) setTheme(savedTheme);
-  }, []);
-
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem('meo-theme', theme);
   }, [theme]);
+
 
   const toggleTheme = useCallback(() => {
     if (isTransitioning.current) return;

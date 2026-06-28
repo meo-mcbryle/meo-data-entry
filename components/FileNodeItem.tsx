@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, Trash2, Edit2, Plus, FolderPlus, FilePlus } from 'lucide-react';
 import { FileNode } from '@/lib/tree-utils';
 
@@ -14,9 +14,9 @@ interface Props {
   onToggleCompare: (id: string) => void;
 }
 
-export default function FileNodeItem({ 
+const FileNodeItem = React.memo(({ 
   node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm, comparisonIds, onToggleCompare 
-}: Props) {
+}: Props) => {
   const [isOpen, setIsOpen] = useState(false);
   const isFolder = node.type === 'folder';
   const isSearching = !!searchTerm?.trim();
@@ -31,7 +31,7 @@ export default function FileNodeItem({
   return (
     <div className="select-none">
       <div 
-        className={`flex items-center group py-1.5 px-2 rounded-md cursor-pointer ${
+        className={`flex items-center group py-1 px-1.5 rounded-md cursor-pointer ${
           selectedId === node.id ? 'bg-accent/10 text-accent shadow-sm' : 'hover:bg-muted/10 text-muted hover:text-foreground'
         }`}
       >
@@ -43,11 +43,11 @@ export default function FileNodeItem({
           ) : <span className="w-5" />}
           
           {isFolder ? (
-            <Folder size={18} className={`${selectedId === node.id ? 'text-accent' : 'text-accent/60'} mr-2 fill-current opacity-80`} />
+            <Folder size={15} className={`${selectedId === node.id ? 'text-accent' : 'text-accent/60'} mr-2 fill-current opacity-80`} />
           ) : (
-            <File size={18} className="text-muted/60 mr-2 opacity-80" />
+            <File size={15} className="text-muted/60 mr-2 opacity-80" />
           )}
-          <span className="text-sm font-medium truncate">{node.name}</span>
+          <span className="text-xs font-semibold truncate">{node.name}</span>
         </div>
         
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-0.5">
@@ -97,4 +97,6 @@ export default function FileNodeItem({
       )}
     </div>
   );
-}
+});
+
+export default FileNodeItem;

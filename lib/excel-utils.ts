@@ -203,3 +203,64 @@ export const rekeyMetadataRecord = (
 
   return newObj;
 };
+
+export const formatNumberDisplay = (value: any, formatId: string = 'decimal'): string => {
+  if (value === "" || value === undefined || value === null) return "0.00";
+  const num = Number(value);
+  if (isNaN(num)) return value;
+  switch (formatId) {
+    case 'currency': return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+    case 'percent': return (num * 100).toFixed(2) + '%';
+    case 'integer': return Math.round(num).toLocaleString();
+    default: return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+};
+
+export const formatDateDisplay = (value: any, formatId: string = 'long'): string => {
+  if (value === null || value === undefined || value === '') return '';
+
+  let date: Date;
+  if (value instanceof Date) {
+    date = value;
+  } else if (typeof value === 'number') {
+    date = new Date(value);
+  } else {
+    const strValue = String(value);
+    const parts = strValue.split('-');
+    // Only manually parse if it looks like YYYY-MM-DD (ISO)
+    // This prevents MM-DD-YYYY from being parsed as Year 01, Month 23...
+    if (parts.length === 3 && parts[0].length === 4) {
+      const [y, m, d] = parts.map(Number);
+      date = new Date(y, m - 1, d);
+    } else {
+      date = new Date(strValue);
+    }
+  }
+
+  if (isNaN(date.getTime())) return String(value);
+
+  switch (formatId) {
+    case 'medium': return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    case 'short': return date.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
+    case 'iso': {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    default: return date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  }
+};
+
+/**
+ * Helper to shift A1-style cell references in formulas during drag-fill operations.
+ * Handles anchored references like $A$1.
+ */
+export const shiftFormula = (formula: any, rowOffset: number): any => {
+  if (typeof formula !== 'string' || !formula.startsWith('=')) return formula;
+  return formula.replace(/(\$?[A-Z]+)(\$?)(\d+)/gi, (match, col, anchor, row) => {
+    if (anchor === '$') return match; // Row is anchored, do not shift
+    const newRow = parseInt(row, 10) + rowOffset;
+    return `${col}${anchor}${newRow}`;
+  });
+};

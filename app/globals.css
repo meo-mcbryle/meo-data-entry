@@ -26,6 +26,19 @@
   color-scheme: dark;
 }
 
+input[type="date"] {
+  color-scheme: light !important;
+}
+
+.dark input[type="date"] {
+  color-scheme: dark !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  display: none !important;
+}
+
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -68,3 +81,41 @@ body {
   font-weight: 900 !important;
   box-shadow: inset 0 -2px 0 0 currentColor !important;
 }
+
+/* Shimmer skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -800px 0;
+  }
+  100% {
+    background-position: 800px 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    color-mix(in srgb, var(--card) 60%, var(--border)) 50%,
+    var(--border) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+/* Grid table slide-up fade-in when data is ready */
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-up-fade {
+  animation: slide-up-fade 260ms ease-out forwards;
+}
+
