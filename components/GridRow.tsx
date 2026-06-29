@@ -267,7 +267,7 @@ export const GridRow = React.memo(({
               const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
               if (input) input.focus();
             }}
-           className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-accent/5 ring-1 ring-inset ring-accent/50 z-10' : ''}`}
+           className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-accent/5 ring-1 ring-inset ring-accent/50 z-10' : ''} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'animate-cell-flash' : ''}`}
             style={{ 
               fontFamily: meta.fontFamily || 'inherit', 
               height: '1px', /* Forces cell to respect content height */

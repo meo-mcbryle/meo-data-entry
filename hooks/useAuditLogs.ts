@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { User } from '@supabase/supabase-js';
 
 const LOGS_PAGE_SIZE = 50;
 
-export function useAuditLogs(user: any) {
+export function useAuditLogs(user: User | null) {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [hasMoreLogs, setHasMoreLogs] = useState(true);
@@ -26,7 +27,7 @@ export function useAuditLogs(user: any) {
     setIsLoadingLogs(false);
   }, [user]);
 
-  const logAction = useCallback(async (action: string, nodeId: string | null, details: any = {}) => {
+  const logAction = useCallback(async (action: string, nodeId: string | null, details: Record<string, any> = {}) => {
     if (!user) return;
     const { error } = await supabase.from('audit_logs').insert([{
       action,

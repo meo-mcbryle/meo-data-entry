@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import type { User } from '@supabase/supabase-js';
 
-export function useProfile(user: any) {
+export function useProfile(user: User | null) {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileAvatar, setProfileAvatar] = useState(user?.user_metadata?.avatar_url || '');
 

@@ -9,180 +9,117 @@ import {
 import { toA1Key, getExcelColumnLabel } from '@/lib/excel-utils';
 import { GRID_THEME, FONT_FAMILIES, DATE_FORMATS, NUMBER_FORMATS } from '@/lib/constants';
 import { GridRow } from './GridRow';
+import { useSpreadsheetOperations } from '@/hooks/useSpreadsheetOperations';
 
 interface TableEditorProps {
- isLoadingFile: boolean;
- loadProgress: number;
- rowCount: number;
- setRowCount: React.Dispatch<React.SetStateAction<number>>;
- initializeExcelTemplate: () => void;
- visibleHeaders: string[];
- selection: { startRow: number; endRow: number; startCol: string; endCol: string } | null;
- setSelection: (selection: any) => void;
- zoom: number;
- setZoom: React.Dispatch<React.SetStateAction<number>>;
- containerHeight: number;
- setContainerHeight: React.Dispatch<React.SetStateAction<number>>;
- isFullScreen: boolean;
- setIsFullScreen: React.Dispatch<React.SetStateAction<boolean>>;
- activeCell: { row: number, col: string } | null;
- setActiveCell: (cell: { row: number, col: string } | null) => void;
- masterColumnOrder: string[];
- cellMetadata: Record<string, any>;
- setCellMetadata: React.Dispatch<React.SetStateAction<Record<string, any>>>;
- setCellFontFamily: (row: number, col: string, fontFamily: string) => void;
- selectedYear: string;
- setSelectedYear: (year: string) => void;
- hiddenColumns: string[];
- toggleColumnVisibility: (col: string) => void;
- allHeaders: string[];
- undoStack: any[];
- redoStack: any[];
- undo: () => void;
- redo: () => void;
- isFreezeHeaders: boolean;
- setIsFreezeHeaders: React.Dispatch<React.SetStateAction<boolean>>;
- isFreezePanes: boolean;
- setIsFreezePanes: React.Dispatch<React.SetStateAction<boolean>>;
- handleAddSection: () => void;
- handleResetWidths: () => void;
- exportToCSV: () => void;
- contextMenu: any;
- setContextMenu: (menu: any) => void;
- handleMergeCells: (visibleHeaders: string[], isHeaderMerge?: boolean) => void;
- handleUnmergeCells: (row: number, col: string, visibleHeaders: string[]) => void;
- setColumnAlignment: (header: string, align: 'left' | 'center' | 'right') => void;
- columnAlignments: Record<string, 'left' | 'center' | 'right'>;
- handleRenameColumn: (oldKey: string, newKey: string) => void;
- handleAddColumn: (name?: string) => void;
- handleDeleteColumn: (col: string) => void;
- handleInsertColumn: (col: string, position: 'before' | 'after') => void;
- handleInsertRow: (row: number, position: 'above' | 'after') => void;
- handleClearRow: (row: number) => void;
- handleInsertSection: (section: string, position: 'before' | 'after', specificIndex?: number) => void;
- addRowToSection: (section: string) => void;
- handleDeleteSection: (section: string) => void;
- removeTableRow: (row: number) => void;
- handleClearColumn: (col: string) => void;
- gridData: Map<string, any>;
- cellAlignments: Record<string, 'left' | 'center' | 'right'>;
- rowHeights: Record<string, number>;
- dragFillRange: { startRow: number; endRow: number; col: string } | null;
- setDragFillRange: React.Dispatch<React.SetStateAction<{ startRow: number; endRow: number; col: string } | null>>;
- isSelecting: boolean;
- setIsSelecting: React.Dispatch<React.SetStateAction<boolean>>;
- handleUpdateCell: (index: number, key: string, value: any) => void;
- handleKeyDown: (e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => void;
- handleOpenContextMenu: (e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string, row?: number, sectionName?: string) => void;
- toggleCellAlignment: (rowIndex: number, header: string) => void;
- handleDragFillStart: (e: React.MouseEvent, row: number, col: string) => void;
- setViewingMedia: (media: any) => void;
- removeCellMetadata: (row: number, col: string) => void;
- evaluateFormula: (value: any, row: any, format?: string) => any;
- startRowResizing: (row: number, e: React.MouseEvent) => void;
- handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
- onMeasuredHeight: (index: number, height: number) => void;
- columnWidths: Record<string, number>;
- startResizing: (header: string, e: React.MouseEvent) => void;
- handleRenameSectionBlock: (startIndex: number, oldName: string, newName: string) => void;
- handleFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
- pendingMedia: any;
- fileInputRef: React.RefObject<HTMLInputElement | null>;
- formulaBarRef: React.RefObject<HTMLTextAreaElement | null>;
- setCellType: (row: number, col: string, type: string, format?: string) => void;
- setSelectionAlignment: (align: 'left' | 'center' | 'right') => void;
- insertMedia: (row: number, col: string, mediaType: 'image' | 'file') => void;
- setViewMode: (mode: 'code' | 'table' | 'compare' | 'logs' | 'trash') => void;
- selectedId: string | null;
- isSidebarMoving: boolean;
+  isLoadingFile: boolean;
+  loadProgress: number;
+  zoom: number;
+  setZoom: React.Dispatch<React.SetStateAction<number>>;
+  containerHeight: number;
+  setContainerHeight: React.Dispatch<React.SetStateAction<number>>;
+  isFullScreen: boolean;
+  setIsFullScreen: React.Dispatch<React.SetStateAction<boolean>>;
+  onMeasuredHeight: (index: number, height: number) => void;
+  setViewMode: (mode: 'code' | 'table' | 'compare' | 'logs' | 'trash') => void;
+  selectedId: string | null;
+  isSidebarMoving: boolean;
+  isFreezeHeaders: boolean;
+  setIsFreezeHeaders: React.Dispatch<React.SetStateAction<boolean>>;
+  isFreezePanes: boolean;
+  setIsFreezePanes: React.Dispatch<React.SetStateAction<boolean>>;
+  spreadsheet: ReturnType<typeof useSpreadsheetOperations>;
 }
 
 export const TableEditor = ({
- isLoadingFile,
- loadProgress,
- rowCount,
- setRowCount,
- initializeExcelTemplate,
- visibleHeaders,
- selection,
- setSelection,
- zoom,
- setZoom,
- containerHeight,
- setContainerHeight,
- isFullScreen,
- setIsFullScreen,
- activeCell,
- setActiveCell,
- masterColumnOrder,
- cellMetadata,
- setCellMetadata,
- setCellFontFamily,
- selectedYear,
- setSelectedYear,
- hiddenColumns,
- toggleColumnVisibility,
- allHeaders,
- undoStack,
- redoStack,
- undo,
- redo,
- isFreezeHeaders,
- setIsFreezeHeaders,
- isFreezePanes,
- setIsFreezePanes,
- handleAddSection,
- handleResetWidths,
- exportToCSV,
- contextMenu,
- setContextMenu,
- handleMergeCells,
- handleUnmergeCells,
- setColumnAlignment,
- columnAlignments,
- handleRenameColumn,
- handleAddColumn,
- handleDeleteColumn,
- handleInsertColumn,
- handleInsertRow,
- handleClearRow,
- handleInsertSection,
- addRowToSection,
- handleDeleteSection,
- removeTableRow,
- handleClearColumn,
- gridData,
- cellAlignments,
- rowHeights,
- dragFillRange,
- setDragFillRange,
- isSelecting,
- setIsSelecting,
- handleUpdateCell,
- handleKeyDown,
- handleOpenContextMenu,
- toggleCellAlignment,
- handleDragFillStart,
- setViewingMedia,
- removeCellMetadata,
- evaluateFormula,
- startRowResizing,
- handleOpenDropdown,
- onMeasuredHeight,
- columnWidths,
- startResizing,
- handleRenameSectionBlock,
- handleFileSelect,
- pendingMedia,
- fileInputRef,
- formulaBarRef,
- setCellType,
- setSelectionAlignment,
- insertMedia,
- setViewMode,
- selectedId,
- isSidebarMoving
+  isLoadingFile,
+  loadProgress,
+  zoom,
+  setZoom,
+  containerHeight,
+  setContainerHeight,
+  isFullScreen,
+  setIsFullScreen,
+  onMeasuredHeight,
+  setViewMode,
+  selectedId,
+  isSidebarMoving,
+  isFreezeHeaders,
+  setIsFreezeHeaders,
+  isFreezePanes,
+  setIsFreezePanes,
+  spreadsheet
 }: TableEditorProps) => {
+  const {
+    rowCount,
+    setRowCount,
+    initializeExcelTemplate,
+    visibleHeaders,
+    selection,
+    setSelection,
+    activeCell,
+    setActiveCell,
+    masterColumnOrder,
+    cellMetadata,
+    setCellMetadata,
+    setCellFontFamily,
+    selectedYear,
+    setSelectedYear,
+    hiddenColumns,
+    toggleColumnVisibility,
+    allHeaders,
+    undoStack,
+    redoStack,
+    undo,
+    redo,
+    handleAddSection,
+    handleResetWidths,
+    exportToCSV,
+    contextMenu,
+    setContextMenu,
+    handleMergeCells,
+    handleUnmergeCells,
+    setColumnAlignment,
+    columnAlignments,
+    handleRenameColumn,
+    handleAddColumn,
+    handleDeleteColumn,
+    handleInsertColumn,
+    handleInsertRow,
+    handleClearRow,
+    handleInsertSection,
+    addRowToSection,
+    handleDeleteSection,
+    removeTableRow,
+    handleClearColumn,
+    gridData,
+    cellAlignments,
+    rowHeights,
+    dragFillRange,
+    setDragFillRange,
+    isSelecting,
+    setIsSelecting,
+    handleUpdateCell,
+    handleKeyDown,
+    handleOpenContextMenu,
+    toggleCellAlignment,
+    handleDragFillStart,
+    setViewingMedia,
+    removeCellMetadata,
+    evaluateFormula,
+    startRowResizing,
+    handleOpenDropdown,
+    columnWidths,
+    startResizing,
+    handleRenameSectionBlock,
+    handleFileSelect,
+    pendingMedia,
+    fileInputRef,
+    formulaBarRef,
+    setCellType,
+    setSelectionAlignment,
+    insertMedia
+  } = spreadsheet;
  const [rowFilter, setRowFilter] = useState<string>('');
  const [newColName, setNewColName] = useState<string>('');
  const [scrollTop, setScrollTop] = useState(0);
@@ -277,11 +214,70 @@ export const TableEditor = ({
  });
 
  return { 
- flatItems: items, 
+flatItems: items, 
  itemOffsets: offsets, 
  totalVirtualHeight: currentOffset + 30
  };
  }, [sectionBlocks, rowHeights]);
+
+  // Refs to avoid unnecessary scroll re-triggers during live grid cell edits
+  const flatItemsRef = useRef(flatItems);
+  const itemOffsetsRef = useRef(itemOffsets);
+  const rowHeightsRef = useRef(rowHeights);
+  const zoomRef = useRef(zoom);
+  const containerHeightRef = useRef(containerHeight);
+
+  flatItemsRef.current = flatItems;
+  itemOffsetsRef.current = itemOffsets;
+  rowHeightsRef.current = rowHeights;
+  zoomRef.current = zoom;
+  containerHeightRef.current = containerHeight;
+
+  // Scroll active cell into view when it changes and is off-screen
+  useEffect(() => {
+    if (isLoadingFile || !activeCell || !tableContainerRef.current) return;
+    
+    // Defer scroll action slightly to allow browser layout paint
+    const timer = setTimeout(() => {
+      const container = tableContainerRef.current;
+      if (!container) return;
+      
+      const currentFlatItems = flatItemsRef.current;
+      const currentItemOffsets = itemOffsetsRef.current;
+      const currentRowHeights = rowHeightsRef.current;
+      const currentZoom = zoomRef.current;
+      const currentContainerHeight = containerHeightRef.current;
+
+      if (currentFlatItems.length === 0) return;
+      
+      // Find the item index for the active cell row
+      const itemIndex = currentFlatItems.findIndex(item => item.type === 'row' && item.index === activeCell.row);
+      if (itemIndex === -1) return;
+      
+      const rowTop = currentItemOffsets[itemIndex];
+      const rowHeight = currentRowHeights[String(activeCell.row)] || 30;
+      
+      const rowTopScreen = rowTop * currentZoom;
+      const rowHeightScreen = rowHeight * currentZoom;
+      
+      const currentScrollTop = container.scrollTop;
+      const containerRect = container.getBoundingClientRect();
+      const containerHeightPx = containerRect.height || currentContainerHeight || 800;
+      
+      const isAbove = rowTopScreen < currentScrollTop;
+      const isBelow = rowTopScreen + rowHeightScreen > currentScrollTop + containerHeightPx;
+      
+      if (isAbove || isBelow) {
+        const targetScroll = rowTopScreen - (containerHeightPx / 2) + (rowHeightScreen / 2);
+        container.scrollTo({
+          top: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [activeCell, isLoadingFile]);
 
  // Scroll handler
  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {

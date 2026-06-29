@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Search, Loader2, FolderPlus, FilePlus } from 'lucide-react';
+import { Search, Loader2, FolderPlus, FilePlus, X } from 'lucide-react';
 import { FileNode } from '@/lib/tree-utils';
 import FileNodeItem from './FileNodeItem';
 import { GRID_THEME } from '@/lib/constants';
@@ -56,16 +56,20 @@ export const ProjectExplorer = ({
     const filterNodes = (nodes: FileNode[]): FileNode[] => {
       return nodes
         .map(node => {
+          const nameMatches = node.name.toLowerCase().includes(explorerSearch.toLowerCase());
+          
           if (node.type === 'folder' && node.children) {
             const filteredChildren = filterNodes(node.children);
+            if (nameMatches) {
+              return node; // Show folder and all children if folder name matches query
+            }
             if (filteredChildren.length > 0) {
               return { ...node, children: filteredChildren };
             }
+            return null;
           }
-          if (node.name.toLowerCase().includes(explorerSearch.toLowerCase())) {
-            return node;
-          }
-          return null;
+          
+          return nameMatches ? node : null;
         })
         .filter(Boolean) as FileNode[];
     };
@@ -108,8 +112,22 @@ export const ProjectExplorer = ({
               placeholder="Filter nodes..." 
               value={explorerSearch}
               onChange={(e) => setExplorerSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-1 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  setExplorerSearch('');
+                }
+              }}
+              className="w-full pl-9 pr-8 py-1 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
             />
+            {explorerSearch && (
+              <button 
+                onClick={() => setExplorerSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted hover:text-foreground hover:bg-muted/10 rounded-full transition-all cursor-pointer"
+                title="Clear filter"
+              >
+                <X size={11} />
+              </button>
+            )}
           </div>
           <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55 [contain:content]">
             {isLoading ? (

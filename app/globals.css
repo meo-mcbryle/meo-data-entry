@@ -119,3 +119,17 @@ body {
   animation: slide-up-fade 260ms ease-out forwards;
 }
 
+/* Highlight glow for newly selected cells from search */
+@keyframes cell-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.animate-cell-flash {
+  animation: cell-flash 1.5s ease-out forwards;
+}
+

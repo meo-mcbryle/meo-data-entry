@@ -7,12 +7,13 @@ import {
   shiftFormula
 } from '@/lib/excel-utils';
 import { evaluateFormula as evaluateFormulaLib } from '@/lib/formula-evaluator';
+import type { User } from '@supabase/supabase-js';
 
 interface UseSpreadsheetOperationsOptions {
-  user: any;
+  user: User | null;
   activeNode: any;
   selectedId: string | null;
-  logAction: (action: string, nodeId: string | null, details?: any) => Promise<void>;
+  logAction: (action: string, nodeId: string | null, details?: Record<string, any>) => Promise<void>;
   fetchFiles: () => Promise<void>;
   isLoadingFile: boolean;
   setIsLoadingFile: React.Dispatch<React.SetStateAction<boolean>>;
@@ -60,7 +61,25 @@ export function useSpreadsheetOperations({
   const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  const [activeCell, setActiveCell] = useState<{ row: number; col: string } | null>(null);
+  const [activeCell, setActiveCellState] = useState<{ row: number; col: string } | null>(null);
+  const pendingActiveCellRef = useRef<{ row: number; col: string } | null>(null);
+
+  const setActiveCell = useCallback((
+    valueOrUpdater: 
+      | { row: number; col: string } 
+      | null 
+      | ((prev: { row: number; col: string } | null) => { row: number; col: string } | null)
+  ) => {
+    setActiveCellState(prev => {
+      const next = typeof valueOrUpdater === 'function'
+        ? valueOrUpdater(prev)
+        : valueOrUpdater;
+      if (next) {
+        pendingActiveCellRef.current = next;
+      }
+      return next;
+    });
+  }, []);
   const [dropdownMenu, setDropdownMenu] = useState<{ x: number; y: number; width: number; row: number; col: string; options: string[]; highlightIndex: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; row?: number; col: string; type: 'cell' | 'header' | 'row' | 'section'; sectionName?: string; showFormats?: boolean; showFormulaFormats?: boolean; showNumberFormats?: boolean; showFonts?: boolean } | null>(null);
   const [selection, setSelection] = useState<{ startRow: number; endRow: number; startCol: string; endCol: string } | null>(null);
@@ -235,7 +254,12 @@ export function useSpreadsheetOperations({
         setCellMetadata(ds.cellMetadata || {});
         setRowHeights(ds.rowHeights || {});
         setSelectedYear(ds.selectedYear || '2020');
-        setActiveCell(null);
+        if (pendingActiveCellRef.current) {
+          setActiveCellState(pendingActiveCellRef.current);
+          pendingActiveCellRef.current = null;
+        } else {
+          setActiveCellState(null);
+        }
       }
       clearInterval(progressInterval as any);
       setLoadProgress(100);

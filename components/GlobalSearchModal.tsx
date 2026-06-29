@@ -7,18 +7,21 @@ interface GlobalSearchModalProps {
   setShowGlobalSearch: (show: boolean) => void;
   setSelectedId: (id: string | null) => void;
   setViewMode: (mode: 'code' | 'table' | 'compare' | 'logs' | 'trash') => void;
+  setActiveCell: (cell: { row: number, col: string } | null) => void;
 }
 
 export const GlobalSearchModal = ({
   showGlobalSearch,
   setShowGlobalSearch,
   setSelectedId,
-  setViewMode
+  setViewMode,
+  setActiveCell
 }: GlobalSearchModalProps) => {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([]);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const latestQueryRef = useRef('');
 
   const [globalSearchHighlightIndex, setGlobalSearchHighlightIndex] = useState(-1);
   const highlightedResultRef = useRef<HTMLButtonElement>(null);
@@ -27,6 +30,20 @@ export const GlobalSearchModal = ({
   useEffect(() => {
     setGlobalSearchHighlightIndex(globalSearchResults.length > 0 ? 0 : -1);
   }, [globalSearchResults]);
+
+  // Handle selected results to focus grid rows
+  const handleSelectResult = useCallback((result: any) => {
+    setSelectedId(result.nodeId);
+
+    const matchingKey = Object.entries(result.row).find(([key, val]) => {
+      if (key === '_index' || key === 'section' || !val) return false;
+      return String(val).toLowerCase().includes(globalSearchQuery.toLowerCase());
+    })?.[0] || 'Title / Item';
+
+    setActiveCell({ row: result.rowIndex, col: matchingKey });
+    setViewMode('table');
+    setShowGlobalSearch(false);
+  }, [setSelectedId, setViewMode, setShowGlobalSearch, setActiveCell, globalSearchQuery]);
 
   // Keyboard navigation for global search
   useEffect(() => {
@@ -44,21 +61,19 @@ export const GlobalSearchModal = ({
       } else if (e.key === 'Enter' && globalSearchHighlightIndex >= 0) {
         const result = globalSearchResults[globalSearchHighlightIndex];
         if (result) {
-          setSelectedId(result.nodeId);
-          setViewMode('table');
-          setShowGlobalSearch(false);
+          handleSelectResult(result);
         }
       }
     };
 
     window.addEventListener('keydown', handleGlobalSearchKeys);
     return () => window.removeEventListener('keydown', handleGlobalSearchKeys);
-  }, [showGlobalSearch, globalSearchResults, globalSearchHighlightIndex, setSelectedId, setViewMode, setShowGlobalSearch]);
+  }, [showGlobalSearch, globalSearchResults, globalSearchHighlightIndex, handleSelectResult, setShowGlobalSearch]);
 
   const performGlobalSearch = useCallback((query: string) => {
     setGlobalSearchQuery(query);
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    
+
     if (!query.trim() || query.length < 2) {
       setGlobalSearchResults([]);
       setIsSearchingGlobal(false);
@@ -66,25 +81,30 @@ export const GlobalSearchModal = ({
     }
 
     setIsSearchingGlobal(true);
+    const currentQuery = query;
+    latestQueryRef.current = currentQuery;
+
     searchTimeoutRef.current = setTimeout(async () => {
       try {
         const { data, error } = await supabase
           .from('nodes')
-          .select('id, name, content') 
+          .select('id, name, content')
           .eq('type', 'file')
           .eq('is_deleted', false)
-          .limit(50); // Safety limit for global scan
+          .limit(200); // Safety limit for global scan
 
         if (error) throw error;
 
-        const term = query.toLowerCase();
+        if (latestQueryRef.current !== currentQuery) return; // Stale query check
+
+        const term = currentQuery.toLowerCase();
         const matches: any[] = [];
 
         data?.forEach(node => {
           if (Array.isArray(node.content)) {
             node.content.forEach((row: any, idx: number) => {
               const hasMatch = Object.entries(row).some(([key, val]) => {
-                if (key === '_index' || key === 'section') return false;
+                if (key === '_index' || key === 'section' || !val) return false;
                 return String(val || '').toLowerCase().includes(term);
               });
 
@@ -98,7 +118,9 @@ export const GlobalSearchModal = ({
       } catch (err) {
         console.error('Global search error:', err);
       } finally {
-        setIsSearchingGlobal(false);
+        if (latestQueryRef.current === currentQuery) {
+          setIsSearchingGlobal(false);
+        }
       }
     }, 400);
   }, []);
@@ -108,9 +130,9 @@ export const GlobalSearchModal = ({
     const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
     return (
       <>
-        {parts.map((part, i) => 
-          part.toLowerCase() === query.toLowerCase() 
-            ? <mark key={i} className="bg-accent/30 text-accent font-bold rounded-sm px-0.5 no-underline">{part}</mark> 
+        {parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase()
+            ? <mark key={i} className="bg-accent/30 text-accent font-bold rounded-sm px-0.5 no-underline">{part}</mark>
             : part
         )}
       </>
@@ -130,16 +152,16 @@ export const GlobalSearchModal = ({
       <div className="bg-card w-full max-w-2xl h-[80vh] rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
         <div className="p-4 border-b border-border bg-muted/5 flex items-center gap-4">
           <Search className="text-accent" size={20} />
-          <input 
+          <input
             autoFocus
-            type="text" 
-            placeholder="Search for any entry across all projects..." 
+            type="text"
+            placeholder="Search for any entry across all projects..."
             value={globalSearchQuery}
             onChange={(e) => performGlobalSearch(e.target.value)}
             className="flex-1 bg-transparent border-0 outline-none text-lg font-medium text-foreground placeholder:text-muted/30"
           />
           {globalSearchQuery && (
-            <button 
+            <button
               onClick={() => performGlobalSearch('')}
               className="p-1.5 text-muted hover:text-foreground hover:bg-muted/20 rounded-full transition-colors"
             >
@@ -152,7 +174,7 @@ export const GlobalSearchModal = ({
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
           {isSearchingGlobal ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -168,19 +190,14 @@ export const GlobalSearchModal = ({
               {globalSearchResults.map((result, idx) => {
                 const isHighlighted = globalSearchHighlightIndex === idx;
                 return (
-                  <button 
+                  <button
                     key={`${result.nodeId}-${idx}`}
                     ref={isHighlighted ? highlightedResultRef : null}
-                    onClick={() => {
-                      setSelectedId(result.nodeId);
-                      setViewMode('table');
-                      setShowGlobalSearch(false);
-                    }}
-                    className={`w-full text-left p-4 rounded-xl border transition-all group ${
-                      isHighlighted 
-                        ? 'border-accent bg-accent/5 ring-1 ring-accent/20 translate-x-1' 
+                    onClick={() => handleSelectResult(result)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all group ${isHighlighted
+                        ? 'border-accent bg-accent/5 ring-1 ring-accent/20 translate-x-1'
                         : 'border-border hover:border-accent/50 hover:bg-accent/5'
-                    }`}
+                      }`}
                   >
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex items-center gap-2">
@@ -221,7 +238,7 @@ export const GlobalSearchModal = ({
               </div>
               <p className="text-sm font-medium">Global Entry Search</p>
               <p className="text-xs max-w-xs text-center mt-1">Type at least 2 characters to search for amounts, locations, project titles, and notes across your entire system.</p>
-              
+
               <div className="mt-8 grid grid-cols-2 gap-2 w-full max-w-sm">
                 <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Amounts</div>
                 <div className="p-2 rounded-lg bg-muted/5 border border-border text-[10px] font-bold text-center">Search Locations</div>

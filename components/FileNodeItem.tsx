@@ -14,6 +14,22 @@ interface Props {
   onToggleCompare: (id: string) => void;
 }
 
+const highlightMatch = (text: string, query: string) => {
+  if (!query || !query.trim()) return text;
+  const parts = text.split(new RegExp(`(${query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, index) => 
+        part.toLowerCase() === query.toLowerCase() ? (
+          <mark key={index} className="bg-accent/25 text-accent rounded-sm px-0.5 font-bold">{part}</mark>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+};
+
 const FileNodeItem = React.memo(({ 
   node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm, comparisonIds, onToggleCompare 
 }: Props) => {
@@ -47,7 +63,7 @@ const FileNodeItem = React.memo(({
           ) : (
             <File size={15} className="text-muted/60 mr-2 opacity-80" />
           )}
-          <span className="text-xs font-semibold truncate">{node.name}</span>
+          <span className="text-xs font-semibold truncate">{highlightMatch(node.name, searchTerm || '')}</span>
         </div>
         
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-0.5">

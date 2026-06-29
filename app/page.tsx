@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { supabase } from '@/lib/supabase';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { useSearchParams } from 'next/navigation';
 import { 
   hydrateMapToArray, 
@@ -32,7 +33,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useDashboardLayout } from '@/hooks/useDashboardLayout';
 import { useSpreadsheetOperations } from '@/hooks/useSpreadsheetOperations';
 
-const DashboardContent = React.memo(({ user }: { user: any }) => {
+const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs' | 'trash'>('table');
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
@@ -155,22 +156,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
       }
     };
     setCodeViewContent(JSON.stringify(fullData, null, 2));
-  }, [
-    viewMode,
-    activeNode?.id,
-    spreadsheet.gridData,
-    spreadsheet.rowCount,
-    spreadsheet.allHeaders,
-    spreadsheet.masterColumnOrder,
-    spreadsheet.columnAlignments,
-    spreadsheet.cellAlignments,
-    spreadsheet.hiddenColumns,
-    spreadsheet.selectedYear,
-    spreadsheet.columnOrder,
-    spreadsheet.columnWidths,
-    spreadsheet.cellMetadata,
-    spreadsheet.rowHeights
-  ]);
+  }, [viewMode, activeNode?.id]);
 
   const handleCodeChange = (val: string) => {
     setCodeViewContent(val);
@@ -187,7 +173,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
           spreadsheet.setColumnAlignments(ds.columnAlignments || {});
           spreadsheet.setCellAlignments(ds.cellAlignments || {});
           spreadsheet.setHiddenColumns(ds.hiddenColumns || []);
-          spreadsheet.setSelectedYear(ds.selectedYear || '2020');
+          spreadsheet.setSelectedYear(ds.selectedYear || new Date().getFullYear().toString());
           spreadsheet.setColumnOrder(ds.columnOrder || []);
           spreadsheet.setColumnWidths(ds.columnWidths || {});
           spreadsheet.setCellMetadata(ds.cellMetadata || {});
@@ -327,7 +313,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   {activeNode && <button onClick={handleShare} className="p-1.5 text-muted hover:text-accent transition-colors" title="Copy Link"><Share2 size={16} /></button>}
                   <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Toggle Focus Mode">{isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                   <div className="h-4 w-px bg-border mx-1" />
-                  {activeNode && (
+                  {activeNode && viewMode !== 'logs' && viewMode !== 'trash' && (
                     <button 
                       onClick={spreadsheet.handleSave}
                       disabled={spreadsheet.isSaving}
@@ -343,6 +329,16 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
             
             {viewMode === 'logs' ? (
               <div className="flex flex-col flex-1 min-h-0">
+                {isFullScreen && (
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted shrink-0">
+                      <History size={14} /> System Audit Logs
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-4">
+                      <button onClick={() => setIsFullScreen(false)} className="text-muted hover:text-foreground p-1" title="Exit Focus Mode"><Minimize2 size={14} /></button>
+                    </div>
+                  </div>
+                )}
                 <AuditLogs 
                   isLoadingLogs={isLoadingLogs}
                   auditLogs={auditLogs}
@@ -360,6 +356,16 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
               </div>
             ) : viewMode === 'trash' ? (
               <div className="flex flex-col flex-1 min-h-0">
+                {isFullScreen && (
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-card overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-2 text-xs font-bold text-muted shrink-0">
+                      <Trash2 size={14} /> Trash Bin
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-4">
+                      <button onClick={() => setIsFullScreen(false)} className="text-muted hover:text-foreground p-1" title="Exit Focus Mode"><Minimize2 size={14} /></button>
+                    </div>
+                  </div>
+                )}
                 <TrashBin 
                   deletedNodes={deletedNodes}
                   handleRestore={handleRestore}
@@ -406,88 +412,21 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
                   <TableEditor
                     isLoadingFile={isLoadingFile}
                     loadProgress={loadProgress}
-                    rowCount={spreadsheet.rowCount}
-                    setRowCount={spreadsheet.setRowCount}
-                    initializeExcelTemplate={spreadsheet.initializeExcelTemplate}
-                    visibleHeaders={spreadsheet.visibleHeaders}
-                    selection={spreadsheet.selection}
-                    setSelection={spreadsheet.setSelection}
                     zoom={zoom}
                     setZoom={setZoom}
                     containerHeight={containerHeight}
                     setContainerHeight={setContainerHeight}
                     isFullScreen={isFullScreen}
                     setIsFullScreen={setIsFullScreen}
-                    activeCell={spreadsheet.activeCell}
-                    setActiveCell={spreadsheet.setActiveCell}
-                    masterColumnOrder={spreadsheet.masterColumnOrder}
-                    cellMetadata={spreadsheet.cellMetadata}
-                    setCellMetadata={spreadsheet.setCellMetadata}
-                    setCellFontFamily={spreadsheet.setCellFontFamily}
-                    selectedYear={spreadsheet.selectedYear}
-                    setSelectedYear={spreadsheet.setSelectedYear}
-                    hiddenColumns={spreadsheet.hiddenColumns}
-                    toggleColumnVisibility={spreadsheet.toggleColumnVisibility}
-                    allHeaders={spreadsheet.allHeaders}
-                    undoStack={spreadsheet.undoStack}
-                    redoStack={spreadsheet.redoStack}
-                    undo={spreadsheet.undo}
-                    redo={spreadsheet.redo}
+                    onMeasuredHeight={onMeasuredHeight}
+                    setViewMode={setViewMode}
+                    selectedId={selectedId}
+                    isSidebarMoving={isSidebarMoving}
                     isFreezeHeaders={isFreezeHeaders}
                     setIsFreezeHeaders={setIsFreezeHeaders}
                     isFreezePanes={isFreezePanes}
                     setIsFreezePanes={setIsFreezePanes}
-                    handleAddSection={spreadsheet.handleAddSection}
-                    handleResetWidths={spreadsheet.handleResetWidths}
-                    exportToCSV={spreadsheet.exportToCSV}
-                    contextMenu={spreadsheet.contextMenu}
-                    setContextMenu={spreadsheet.setContextMenu}
-                    handleMergeCells={spreadsheet.handleMergeCells}
-                    handleUnmergeCells={spreadsheet.handleUnmergeCells}
-                    setColumnAlignment={spreadsheet.setColumnAlignment}
-                    columnAlignments={spreadsheet.columnAlignments}
-                    handleRenameColumn={spreadsheet.handleRenameColumn}
-                    handleAddColumn={spreadsheet.handleAddColumn}
-                    handleDeleteColumn={spreadsheet.handleDeleteColumn}
-                    handleInsertColumn={spreadsheet.handleInsertColumn}
-                    handleInsertRow={spreadsheet.handleInsertRow}
-                    handleClearRow={spreadsheet.handleClearRow}
-                    handleInsertSection={spreadsheet.handleInsertSection}
-                    addRowToSection={spreadsheet.addRowToSection}
-                    handleDeleteSection={spreadsheet.handleDeleteSection}
-                    removeTableRow={spreadsheet.removeTableRow}
-                    handleClearColumn={spreadsheet.handleClearColumn}
-                    gridData={spreadsheet.gridData}
-                    cellAlignments={spreadsheet.cellAlignments}
-                    rowHeights={spreadsheet.rowHeights}
-                    dragFillRange={spreadsheet.dragFillRange}
-                    setDragFillRange={spreadsheet.setDragFillRange}
-                    isSelecting={spreadsheet.isSelecting}
-                    setIsSelecting={spreadsheet.setIsSelecting}
-                    handleUpdateCell={spreadsheet.handleUpdateCell}
-                    handleKeyDown={spreadsheet.handleKeyDown}
-                    handleOpenContextMenu={spreadsheet.handleOpenContextMenu}
-                    toggleCellAlignment={spreadsheet.toggleCellAlignment}
-                    handleDragFillStart={spreadsheet.handleDragFillStart}
-                    setViewingMedia={spreadsheet.setViewingMedia}
-                    removeCellMetadata={spreadsheet.removeCellMetadata}
-                    evaluateFormula={spreadsheet.evaluateFormula}
-                    startRowResizing={spreadsheet.startRowResizing}
-                    handleOpenDropdown={spreadsheet.handleOpenDropdown}
-                    onMeasuredHeight={onMeasuredHeight}
-                    columnWidths={spreadsheet.columnWidths}
-                    startResizing={spreadsheet.startResizing}
-                    handleRenameSectionBlock={spreadsheet.handleRenameSectionBlock}
-                    handleFileSelect={spreadsheet.handleFileSelect}
-                    pendingMedia={spreadsheet.pendingMedia}
-                    fileInputRef={spreadsheet.fileInputRef}
-                    formulaBarRef={spreadsheet.formulaBarRef}
-                    setCellType={spreadsheet.setCellType}
-                    setSelectionAlignment={spreadsheet.setSelectionAlignment}
-                    insertMedia={spreadsheet.insertMedia}
-                    setViewMode={setViewMode}
-                    selectedId={selectedId}
-                    isSidebarMoving={isSidebarMoving}
+                    spreadsheet={spreadsheet}
                   />
                 ) : viewMode === 'compare' ? (
                   <ComparisonTable
@@ -568,6 +507,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
           setShowGlobalSearch={setShowGlobalSearch}
           setSelectedId={setSelectedId}
           setViewMode={setViewMode}
+          setActiveCell={spreadsheet.setActiveCell}
         />
         
         {/* Hidden File Input for spreadsheet media uploading */}
@@ -586,7 +526,7 @@ const DashboardContent = React.memo(({ user }: { user: any }) => {
 DashboardContent.displayName = 'DashboardContent';
 
 export default function Dashboard() {
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [status, setStatus] = useState<'loading' | 'unauthorized' | 'ready'>('loading');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
@@ -631,7 +571,7 @@ export default function Dashboard() {
   }, [theme]);
   
   useEffect(() => {
-    const checkAuth = async (currentSession: any) => {
+    const checkAuth = async (currentSession: Session | null) => {
       if (!currentSession) {
         setSession(null);
         setStatus('unauthorized');
@@ -671,7 +611,13 @@ export default function Dashboard() {
     );
   }
 
-  if (!session || status === 'unauthorized') return <LoginPage />;
+  if (!session || status === 'unauthorized') {
+    return (
+      <ThemeContext.Provider value={{ theme, toggleTheme }}>
+        <LoginPage />
+      </ThemeContext.Provider>
+    );
+  }
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>

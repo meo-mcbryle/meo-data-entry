@@ -55,14 +55,16 @@ export function useDashboardLayout(
 
   // Responsive Sidebar: Desktop: Open by default, Mobile: Hidden by default
   useEffect(() => {
+    let prevIsDesktop = window.innerWidth >= 768;
+    setIsExplorerVisible(prevIsDesktop);
+
     const handleResponsiveSidebar = () => {
-      if (window.innerWidth >= 768) {
-        setIsExplorerVisible(true);
-      } else {
-        setIsExplorerVisible(false);
+      const isDesktop = window.innerWidth >= 768;
+      if (isDesktop !== prevIsDesktop) {
+        setIsExplorerVisible(isDesktop);
+        prevIsDesktop = isDesktop;
       }
     };
-    handleResponsiveSidebar();
     window.addEventListener('resize', handleResponsiveSidebar);
     return () => window.removeEventListener('resize', handleResponsiveSidebar);
   }, []);

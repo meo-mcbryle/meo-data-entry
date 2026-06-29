@@ -2,10 +2,11 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import { TrashNode } from '@/lib/types';
+import type { User } from '@supabase/supabase-js';
 
 export function useFileExplorer(
-  user: any,
-  logAction: (action: string, nodeId: string | null, details?: any) => Promise<void>
+  user: User | null,
+  logAction: (action: string, nodeId: string | null, details?: Record<string, any>) => Promise<void>
 ) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
