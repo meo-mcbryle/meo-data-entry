@@ -32,6 +32,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
 
       - name: Package & Publish Electron App
-        run: npx electron-builder --publish always
+        run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
