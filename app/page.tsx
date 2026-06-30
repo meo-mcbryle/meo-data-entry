@@ -38,6 +38,45 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
+  const [isSystemOnline, setIsSystemOnline] = useState(typeof window !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Verify Supabase server connectivity only when loading or transitioning back online
+    const checkDbConnection = async () => {
+      if (!navigator.onLine) {
+        setIsSystemOnline(false);
+        return;
+      }
+      try {
+        const { error } = await supabase.from('nodes').select('id').limit(1);
+        setIsSystemOnline(!error);
+      } catch (e) {
+        setIsSystemOnline(false);
+      }
+    };
+
+    // Verify once on start
+    checkDbConnection();
+
+    const handleOnline = () => {
+      setIsSystemOnline(true);
+      checkDbConnection(); // Double check server accessibility
+    };
+
+    const handleOffline = () => {
+      setIsSystemOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // 1. Audit Logs Hook
   const {
@@ -189,8 +228,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
     }
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
+  const formatSize = (bytes: number | null | undefined) => {
+    if (!bytes) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -350,7 +389,10 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                     <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+                      {isSystemOnline ? 'Live System' : 'Connection Error'}
+                    </div>
                   </div>
                 </footer>
               </div>
@@ -376,7 +418,10 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                     <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+                      {isSystemOnline ? 'Live System' : 'Connection Error'}
+                    </div>
                   </div>
                 </footer>
               </div>
@@ -452,7 +497,10 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                     {activeNode && (
                       <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40"/> {formatSize(activeNode.size_bytes)}</div>
                     )}
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live System</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+                      {isSystemOnline ? 'Live System' : 'Connection Error'}
+                    </div>
                   </div>
                 </footer>
               </div>

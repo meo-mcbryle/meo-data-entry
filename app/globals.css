@@ -133,3 +133,22 @@ body {
   animation: cell-flash 1.5s ease-out forwards;
 }
 
+/* High-tech button energy pulse hover animation */
+@keyframes energy-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(59, 130, 246, 0.35), 
+                0 0 0px rgba(6, 182, 212, 0),
+                inset 0 0 0px rgba(255, 255, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.75), 
+                0 0 10px rgba(6, 182, 212, 0.35),
+                inset 0 0 5px rgba(255, 255, 255, 0.2);
+  }
+}
+
+.btn-energy-pulse:hover:not(:disabled) {
+  animation: energy-pulse 1.6s infinite ease-in-out;
+}
+
+

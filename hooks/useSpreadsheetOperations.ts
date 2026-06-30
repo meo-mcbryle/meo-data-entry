@@ -312,7 +312,13 @@ export function useSpreadsheetOperations({
         masterColumnOrder 
       };
       
-      const { error } = await supabase.from('nodes').update({ content: contentArray, display_settings }).eq('id', activeNode.id);
+      const payloadString = JSON.stringify({ content: contentArray, display_settings });
+      const size_bytes = new Blob([payloadString]).size;
+      
+      const { error } = await supabase
+        .from('nodes')
+        .update({ content: contentArray, display_settings, size_bytes })
+        .eq('id', activeNode.id);
       if (error) throw error;
       await logAction('CONTENT_UPDATED', activeNode.id);
       await fetchFiles();

@@ -13,7 +13,11 @@ export const ThemeContext = createContext<ThemeContextProps>({
 
 export const useTheme = () => useContext(ThemeContext);
 
-export const ThemeToggle = () => {
+interface ThemeToggleProps {
+  tooltipAlign?: 'left' | 'right' | 'bottom' | 'top';
+}
+
+export const ThemeToggle: React.FC<ThemeToggleProps> = ({ tooltipAlign = 'right' }) => {
   const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -25,6 +29,13 @@ export const ThemeToggle = () => {
   // and the actual theme state on the client after mount.
   const displayTheme = mounted ? theme : 'dark';
 
+  const positionClasses = {
+    right: 'absolute left-full ml-3 top-1/2 -translate-y-1/2',
+    left: 'absolute right-full mr-3 top-1/2 -translate-y-1/2',
+    bottom: 'absolute top-full mt-2 left-1/2 -translate-x-1/2',
+    top: 'absolute bottom-full mb-2 left-1/2 -translate-x-1/2',
+  }[tooltipAlign];
+
   return (
     <button 
       onClick={toggleTheme}
@@ -32,7 +43,7 @@ export const ThemeToggle = () => {
       aria-label={`Switch to ${displayTheme === 'light' ? 'dark' : 'light'} mode`}
     >
       {displayTheme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-      <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+      <div className={`${positionClasses} px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity`}>
         {displayTheme === 'light' ? "Dark Mode" : "Light Mode"}
       </div>
     </button>
