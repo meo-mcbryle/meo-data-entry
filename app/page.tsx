@@ -4,9 +4,9 @@ import { flushSync } from 'react-dom';
 import { supabase } from '@/lib/supabase';
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { useSearchParams } from 'next/navigation';
-import { 
-  hydrateMapToArray, 
-  dehydrateArrayToMap 
+import {
+  hydrateMapToArray,
+  dehydrateArrayToMap
 } from '@/lib/excel-utils';
 import { ProjectExplorer } from '@/components/ProjectExplorer';
 import { ComparisonTable } from '@/components/ComparisonTable';
@@ -20,11 +20,12 @@ import { ProfileModal } from '@/components/ProfileModal';
 import { NavigationSidebar } from '@/components/NavigationSidebar';
 import { DropdownMenu } from '@/components/DropdownMenu';
 import { MediaPreviewModal } from '@/components/MediaPreviewModal';
+import { SyncModal } from '@/components/SyncModal';
 import { GRID_THEME } from '@/lib/constants';
-import { 
-  Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Trash2, 
-  Printer, Share2, PanelLeftOpen, Loader2, RefreshCcw, FileIcon, 
-  Maximize2, Minimize2, History
+import {
+  Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Trash2,
+  Printer, Share2, PanelLeftOpen, Loader2, RefreshCcw, FileIcon,
+  Maximize2, Minimize2, History, Wifi
 } from 'lucide-react';
 
 import { useAuditLogs } from '@/hooks/useAuditLogs';
@@ -39,6 +40,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [isSystemOnline, setIsSystemOnline] = useState(typeof window !== 'undefined' ? navigator.onLine : true);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -63,6 +65,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
     const handleOnline = () => {
       setIsSystemOnline(true);
       checkDbConnection(); // Double check server accessibility
+      setIsSyncModalOpen(true); // Open sync dialog when connection is re-established
     };
 
     const handleOffline = () => {
@@ -77,6 +80,19 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Check if we need to sync on mount
+  useEffect(() => {
+    if (isSystemOnline) {
+      import('@/lib/local-db').then(({ LocalDB }) => {
+        LocalDB.getSyncQueue().then(queue => {
+          if (queue.length > 0) {
+            setIsSyncModalOpen(true);
+          }
+        });
+      });
+    }
+  }, [isSystemOnline]);
 
   // 1. Audit Logs Hook
   const {
@@ -166,7 +182,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   }, [viewMode, fetchAuditLogs, fetchFiles]);
 
   const toggleComparisonId = useCallback((id: string) => {
-    setComparisonIds(prev => 
+    setComparisonIds(prev =>
       (prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
     );
   }, []);
@@ -201,7 +217,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
     setCodeViewContent(val);
     try {
       const parsed = JSON.parse(val);
-      
+
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.content)) {
         if (parsed.display_settings) {
           const ds = parsed.display_settings;
@@ -218,7 +234,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           spreadsheet.setCellMetadata(ds.cellMetadata || {});
           spreadsheet.setRowHeights(ds.rowHeights || {});
         }
-      } 
+      }
       else if (Array.isArray(parsed)) {
         spreadsheet.setGridData(dehydrateArrayToMap(parsed, spreadsheet.allHeaders, spreadsheet.masterColumnOrder));
         spreadsheet.setRowCount(parsed.length);
@@ -313,34 +329,31 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                       <h2 className="text-sm font-bold text-foreground truncate max-w-30 md:max-w-60">{activeNode?.name}</h2>
                     </>
                   )}
-                  
+
                   <div className="h-4 w-px bg-border mx-1" />
-                  
+
                   <nav className={GRID_THEME.navContainer}>
-                    <button 
+                    <button
                       onClick={() => setViewMode('table')}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
-                        viewMode === 'table' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
-                      }`}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'table' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                        }`}
                     >
                       <TableIcon size={12} /> Grid
                     </button>
                     {viewMode !== 'logs' && viewMode !== 'trash' && (
-                      <button 
+                      <button
                         onClick={() => setViewMode('code')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
-                          viewMode === 'code' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'code' ? 'bg-card text-accent shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                          }`}
                       >
                         <Code size={12} /> JSON
                       </button>
                     )}
                     {viewMode !== 'logs' && viewMode !== 'trash' && (
-                      <button 
+                      <button
                         onClick={() => setViewMode('compare')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${
-                          viewMode === 'compare' ? 'bg-card text-green-600 shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'compare' ? 'bg-card text-green-600 shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+                          }`}
                       >
                         <RefreshCcw size={12} /> Compare {comparisonIds.length > 0 && `(${comparisonIds.length})`}
                       </button>
@@ -353,7 +366,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                   <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1.5 text-muted hover:text-accent transition-colors" title="Toggle Focus Mode">{isFullScreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
                   <div className="h-4 w-px bg-border mx-1" />
                   {activeNode && viewMode !== 'logs' && viewMode !== 'trash' && (
-                    <button 
+                    <button
                       onClick={spreadsheet.handleSave}
                       disabled={spreadsheet.isSaving}
                       className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 disabled:opacity-50 shadow-sm"
@@ -365,7 +378,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                 </div>
               </div>
             )}
-            
+
             {viewMode === 'logs' ? (
               <div className="flex flex-col flex-1 min-h-0">
                 {isFullScreen && (
@@ -378,7 +391,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                     </div>
                   </div>
                 )}
-                <AuditLogs 
+                <AuditLogs
                   isLoadingLogs={isLoadingLogs}
                   auditLogs={auditLogs}
                   fetchAuditLogs={fetchAuditLogs}
@@ -386,9 +399,18 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                 />
                 <footer className={GRID_THEME.statusBar}>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40" /> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
+                    {isSystemOnline && (
+                      <button 
+                        onClick={() => setIsSyncModalOpen(true)}
+                        className="flex items-center gap-1.5 text-[9px] text-accent hover:text-accent-foreground/80 font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                        title="Open Sync Manager"
+                      >
+                        <Wifi size={10} className="animate-pulse text-accent" /> Sync Hub
+                      </button>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
                       {isSystemOnline ? 'Live System' : 'Connection Error'}
@@ -408,16 +430,25 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                     </div>
                   </div>
                 )}
-                <TrashBin 
+                <TrashBin
                   deletedNodes={deletedNodes}
                   handleRestore={handleRestore}
                   handlePermanentDelete={handlePermanentDelete}
                 />
                 <footer className={GRID_THEME.statusBar}>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40" /> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
+                    {isSystemOnline && (
+                      <button 
+                        onClick={() => setIsSyncModalOpen(true)}
+                        className="flex items-center gap-1.5 text-[9px] text-accent hover:text-accent-foreground/80 font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                        title="Open Sync Manager"
+                      >
+                        <Wifi size={10} className="animate-pulse text-accent" /> Sync Hub
+                      </button>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
                       {isSystemOnline ? 'Live System' : 'Connection Error'}
@@ -433,7 +464,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                       <TableIcon size={14} /> {activeNode.name}
                     </div>
                     <div className="flex items-center gap-3 shrink-0 ml-4">
-                      <button 
+                      <button
                         onClick={spreadsheet.handleSave}
                         disabled={spreadsheet.isSaving}
                         className="flex items-center gap-2 px-3 py-1.5 bg-accent text-accent-foreground rounded text-[11px] font-bold hover:opacity-90 transition-all disabled:opacity-50 shadow-sm"
@@ -487,15 +518,24 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                   <div className="flex items-center gap-4">
                     {activeNode && (
                       <>
-                        <div className="flex items-center gap-1.5"><Clock size={12} className="text-muted/40"/> Created {new Date(activeNode.created_at).toLocaleDateString()}</div>
+                        <div className="flex items-center gap-1.5"><Clock size={12} className="text-muted/40" /> Created {new Date(activeNode.created_at).toLocaleDateString()}</div>
                         <div className="h-3 w-px bg-border" />
                       </>
                     )}
-                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40"/> LGU Admin</div>
+                    <div className="flex items-center gap-1.5"><User size={12} className="text-muted/40" /> LGU Admin</div>
                   </div>
                   <div className="flex items-center gap-4">
                     {activeNode && (
-                      <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40"/> {formatSize(activeNode.size_bytes)}</div>
+                      <div className="flex items-center gap-1.5"><HardDrive size={12} className="text-muted/40" /> {formatSize(activeNode.size_bytes)}</div>
+                    )}
+                    {isSystemOnline && (
+                      <button 
+                        onClick={() => setIsSyncModalOpen(true)}
+                        className="flex items-center gap-1.5 text-[9px] text-accent hover:text-accent-foreground/80 font-bold tracking-wider px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                        title="Open Sync Manager"
+                      >
+                        <Wifi size={10} className="animate-pulse text-accent" /> Sync Hub
+                      </button>
                     )}
                     <div className="flex items-center gap-1.5">
                       <span className={`w-1.5 h-1.5 rounded-full ${isSystemOnline ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
@@ -511,7 +551,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             <Folder size={48} className="mb-4 opacity-10" />
             <p>Select a file to start data entry.</p>
             {!isExplorerVisible && (
-              <button 
+              <button
                 onClick={() => toggleSidebar(true)}
                 className="md:hidden mt-4 flex items-center gap-2 px-4 py-2 bg-accent text-accent-foreground rounded-lg font-bold text-sm shadow-sm"
               >
@@ -557,14 +597,21 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           setViewMode={setViewMode}
           setActiveCell={spreadsheet.setActiveCell}
         />
-        
+
         {/* Hidden File Input for spreadsheet media uploading */}
-        <input 
-          type="file" 
-          ref={spreadsheet.fileInputRef} 
-          onChange={spreadsheet.handleFileSelect} 
-          className="hidden" 
+        <input
+          type="file"
+          ref={spreadsheet.fileInputRef}
+          onChange={spreadsheet.handleFileSelect}
+          className="hidden"
           accept={spreadsheet.pendingMedia?.type === 'image' ? 'image/*' : '*/*'}
+        />
+
+        {/* Sync Manager Modal */}
+        <SyncModal
+          isOpen={isSyncModalOpen}
+          onClose={() => setIsSyncModalOpen(false)}
+          onSyncCompleted={() => fetchFiles()}
         />
       </div>
     </main>
@@ -572,6 +619,15 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
 });
 
 DashboardContent.displayName = 'DashboardContent';
+
+let authInitPromise: Promise<{ data: { session: Session | null }; error: any }> | null = null;
+
+const getInitialSession = () => {
+  if (!authInitPromise) {
+    authInitPromise = supabase.auth.getSession();
+  }
+  return authInitPromise;
+};
 
 export default function Dashboard() {
   const [session, setSession] = useState<Session | null>(null);
@@ -598,13 +654,13 @@ export default function Dashboard() {
     if (isTransitioning.current) return;
 
     const next = theme === 'light' ? 'dark' : 'light';
-    
+
     // @ts-ignore
     if (!document.startViewTransition) {
       setTheme(next);
       return;
     }
-    
+
     isTransitioning.current = true;
     // @ts-ignore
     const transition = document.startViewTransition(() => {
@@ -617,17 +673,48 @@ export default function Dashboard() {
       isTransitioning.current = false;
     });
   }, [theme]);
-  
+
   useEffect(() => {
-    const checkAuth = async (currentSession: Session | null) => {
+    let isMounted = true;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const checkAuth = async (currentSession: Session | null, event?: string) => {
+      if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('meo-offline-session');
+        if (isMounted) {
+          setSession(null);
+          setStatus('unauthorized');
+        }
+        return;
+      }
+
       if (!currentSession) {
-        setSession(null);
-        setStatus('unauthorized');
+        const cachedSessionStr = localStorage.getItem('meo-offline-session');
+        
+        if (cachedSessionStr) {
+          try {
+            const cachedSession = JSON.parse(cachedSessionStr);
+            if (cachedSession?.user?.app_metadata?.role === 'admin') {
+              if (isMounted) {
+                setSession(cachedSession);
+                setStatus('ready');
+              }
+              return;
+            }
+          } catch (e) {
+            console.error("Failed to parse cached offline session:", e);
+          }
+        }
+
+        if (isMounted) {
+          setSession(null);
+          setStatus('unauthorized');
+        }
         return;
       }
 
       const isAuthorized = currentSession.user?.app_metadata?.role === 'admin';
-      
+
       if (!isAuthorized) {
         try {
           await supabase.auth.signOut();
@@ -635,20 +722,57 @@ export default function Dashboard() {
         } catch (e) {
           console.error("Sign out during unauthorized access check failed", e);
         } finally {
-          setSession(null);
-          setStatus('unauthorized');
+          localStorage.removeItem('meo-offline-session');
+          if (isMounted) {
+            setSession(null);
+            setStatus('unauthorized');
+          }
         }
       } else {
-        setSession(currentSession);
-        setStatus('ready');
+        localStorage.setItem('meo-offline-session', JSON.stringify({
+          user: {
+            id: currentSession.user.id,
+            email: currentSession.user.email,
+            user_metadata: currentSession.user.user_metadata,
+            app_metadata: currentSession.user.app_metadata
+          },
+          expires_at: currentSession.expires_at
+        }));
+        if (isMounted) {
+          setSession(currentSession);
+          setStatus('ready');
+        }
       }
     };
 
-    supabase.auth.getSession().then(({ data: { session: initSession } }) => checkAuth(initSession));
+    const init = async () => {
+      let initSession: Session | null = null;
+      try {
+        const { data } = await getInitialSession();
+        initSession = data.session;
+      } catch (err) {
+        console.warn("Failed to get initial session from Supabase (offline?):", err);
+      }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => checkAuth(newSession));
+      if (!isMounted) return;
 
-    return () => subscription.unsubscribe();
+      await checkAuth(initSession);
+
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+        if (!isMounted) return;
+        await checkAuth(newSession, event);
+      });
+      subscription = sub;
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   if (status === 'loading') {

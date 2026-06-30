@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut 
+import {
+  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut
 } from 'lucide-react';
 import { FileNode } from '@/lib/tree-utils';
 import { ThemeToggle } from './ThemeToggle';
@@ -39,10 +39,10 @@ export const NavigationSidebar = ({
   useEffect(() => {
     const saved = localStorage.getItem('meo-recent-files');
     if (saved) {
-      try { 
-        setRecentNodes(JSON.parse(saved)); 
-      } catch (e) { 
-        console.error("Failed to parse recent files"); 
+      try {
+        setRecentNodes(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse recent files");
       }
     }
   }, []);
@@ -62,11 +62,10 @@ export const NavigationSidebar = ({
   return (
     <div className="flex h-full shrink-0 relative">
       {/* Vertical Icon Rail (Light Theme) */}
-      <div className={`${GRID_THEME.rail} ${
-        isExplorerVisible 
-          ? 'fixed md:relative left-0 top-0 h-full md:h-auto translate-x-0 opacity-100 flex' 
+      <div className={`${GRID_THEME.rail} ${isExplorerVisible
+          ? 'fixed md:relative left-0 top-0 h-full md:h-auto translate-x-0 opacity-100 flex'
           : 'fixed md:relative -translate-x-full md:translate-x-0 md:flex pointer-events-none md:pointer-events-auto opacity-0 md:opacity-100'
-      } transition-[transform,opacity] duration-300`}>
+        } transition-[transform,opacity] duration-300`}>
         <button
           onClick={() => toggleSidebar()}
           className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent bg-accent/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
@@ -77,7 +76,7 @@ export const NavigationSidebar = ({
           </div>
         </button>
         <div className="h-px w-6 bg-border" />
-        <button 
+        <button
           className={`p-2 rounded-lg group relative ${isExplorerVisible ? 'text-accent' : 'text-muted hover:text-foreground'}`}
           onClick={() => !isExplorerVisible && toggleSidebar(true)}
         >
@@ -86,7 +85,7 @@ export const NavigationSidebar = ({
             Project Explorer
           </div>
         </button>
-        <button 
+        <button
           onClick={() => { setViewMode('logs'); toggleSidebar(false); }}
           className={`p-2 rounded-lg group relative ${viewMode === 'logs' ? 'text-purple-500 bg-purple-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
         >
@@ -95,7 +94,7 @@ export const NavigationSidebar = ({
             System Audit Logs
           </div>
         </button>
-        <button 
+        <button
           onClick={() => { setViewMode('trash'); toggleSidebar(false); }}
           className={`p-2 rounded-lg group relative ${viewMode === 'trash' ? 'text-orange-500 bg-orange-500/10 shadow-sm' : 'text-muted hover:text-foreground hover:bg-muted/10'}`}
         >
@@ -104,7 +103,7 @@ export const NavigationSidebar = ({
             Trash Bin
           </div>
         </button>
-        <button 
+        <button
           onClick={() => setShowGlobalSearch(true)}
           className="p-2 text-muted hover:text-foreground group relative"
         >
@@ -135,7 +134,7 @@ export const NavigationSidebar = ({
             </div>
           )}
           <div className="h-px w-6 bg-border self-center" />
-          <button 
+          <button
             onClick={() => setShowProfileModal(true)}
             className="p-2 text-muted hover:text-accent group relative"
           >
@@ -151,14 +150,14 @@ export const NavigationSidebar = ({
             </div>
           </button>
           <ThemeToggle />
-          
+
           <div className="h-px w-6 bg-border self-center" />
-          
-          <button 
+
+          <button
             onClick={handleLogout}
             className="p-2 text-muted hover:text-red-500 group relative"
           >
-            <LogOut size={20}/>
+            <LogOut size={20} />
             <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
               Sign Out
             </div>

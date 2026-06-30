@@ -57,7 +57,7 @@ export const ProjectExplorer = ({
       return nodes
         .map(node => {
           const nameMatches = node.name.toLowerCase().includes(explorerSearch.toLowerCase());
-          
+
           if (node.type === 'folder' && node.children) {
             const filteredChildren = filterNodes(node.children);
             if (nameMatches) {
@@ -68,7 +68,7 @@ export const ProjectExplorer = ({
             }
             return null;
           }
-          
+
           return nameMatches ? node : null;
         })
         .filter(Boolean) as FileNode[];
@@ -81,17 +81,16 @@ export const ProjectExplorer = ({
     <>
       {/* Explorer Drawer Panel */}
       {isExplorerVisible && (
-        <div 
+        <div
           className="md:hidden fixed inset-0 bg-background/80 backdrop-blur-[2px] z-40"
           onClick={() => setIsExplorerVisible(false)}
         />
       )}
       <aside
-        className={`${GRID_THEME.drawer} ${
-          isExplorerVisible 
-            ? 'w-60 p-3 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto' 
+        className={`${GRID_THEME.drawer} ${isExplorerVisible
+            ? 'w-60 p-3 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto'
             : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 pointer-events-none'
-        } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
+          } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
       >
         <div className="w-[220px] h-full flex flex-col shrink-0">
           <div className="flex justify-between items-center mb-3 px-1 min-w-55 transition-colors">
@@ -107,9 +106,9 @@ export const ProjectExplorer = ({
           </div>
           <div className="mb-3 relative group min-w-55">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent" />
-            <input 
-              type="text" 
-              placeholder="Filter nodes..." 
+            <input
+              type="text"
+              placeholder="Filter nodes..."
               value={explorerSearch}
               onChange={(e) => setExplorerSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -120,7 +119,7 @@ export const ProjectExplorer = ({
               className="w-full pl-9 pr-8 py-1 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
             />
             {explorerSearch && (
-              <button 
+              <button
                 onClick={() => setExplorerSearch('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted hover:text-foreground hover:bg-muted/10 rounded-full transition-all cursor-pointer"
                 title="Clear filter"
@@ -136,16 +135,16 @@ export const ProjectExplorer = ({
               </div>
             ) : (
               filteredTree.map(node => (
-                <FileNodeItem 
-                  key={node.id} 
-                  node={node} 
-                  onDelete={handleDelete} 
-                  onRename={handleRename} 
+                <FileNodeItem
+                  key={node.id}
+                  node={node}
+                  onDelete={handleDelete}
+                  onRename={handleRename}
                   onAdd={addItem}
-                  onSelect={handleSelectNode} 
+                  onSelect={handleSelectNode}
                   selectedId={selectedId ?? undefined}
-                  searchTerm={explorerSearch} 
-                  comparisonIds={comparisonIds} 
+                  searchTerm={explorerSearch}
+                  comparisonIds={comparisonIds}
                   onToggleCompare={toggleComparisonId}
                 />
               ))

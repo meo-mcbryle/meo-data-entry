@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { 
- Search, Type, Sigma, History, ZoomOut, ZoomIn, ChevronDown, ChevronUp, 
- ChevronRight as ChevronRightIcon, Plus, RefreshCcw, HardDrive, 
- Minimize2, Maximize2, Table as TableIcon, X, AlignLeft, AlignCenter, 
- AlignRight, EyeOff, FolderPlus, Trash2, Calendar, Image as ImageIcon, 
- Paperclip, FileText, Code, ArrowUp, Loader2
+import {
+  Search, Type, Sigma, History, ZoomOut, ZoomIn, ChevronDown, ChevronUp,
+  ChevronRight as ChevronRightIcon, Plus, RefreshCcw, HardDrive,
+  Minimize2, Maximize2, Table as TableIcon, X, AlignLeft, AlignCenter,
+  AlignRight, EyeOff, FolderPlus, Trash2, Calendar, Image as ImageIcon,
+  Paperclip, FileText, Code, ArrowUp, Loader2
 } from 'lucide-react';
 import { toA1Key, getExcelColumnLabel } from '@/lib/excel-utils';
 import { GRID_THEME, FONT_FAMILIES, DATE_FORMATS, NUMBER_FORMATS } from '@/lib/constants';
@@ -120,105 +120,105 @@ export const TableEditor = ({
     setSelectionAlignment,
     insertMedia
   } = spreadsheet;
- const [rowFilter, setRowFilter] = useState<string>('');
- const [newColName, setNewColName] = useState<string>('');
- const [scrollTop, setScrollTop] = useState(0);
- const [showBackToTop, setShowBackToTop] = useState(false);
- const tableContainerRef = useRef<HTMLDivElement>(null);
- 
- const [editingValue, setEditingValue] = useState('');
+  const [rowFilter, setRowFilter] = useState<string>('');
+  const [newColName, setNewColName] = useState<string>('');
+  const [scrollTop, setScrollTop] = useState(0);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
 
- const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
- if (selectedId !== prevSelectedId) {
- setPrevSelectedId(selectedId);
- setScrollTop(0);
- }
+  const [editingValue, setEditingValue] = useState('');
 
- // Grid entry animation key — re-mounts on every new file selection
- const gridKey = selectedId ?? 'grid';
+  const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
+  if (selectedId !== prevSelectedId) {
+    setPrevSelectedId(selectedId);
+    setScrollTop(0);
+  }
 
- const activeCellKey = activeCell ? toA1Key(activeCell.row, masterColumnOrder.indexOf(activeCell.col)) : null;
- const activeCellValue = activeCellKey ? (gridData.get(activeCellKey) || '') : '';
+  // Grid entry animation key — re-mounts on every new file selection
+  const gridKey = selectedId ?? 'grid';
 
- useEffect(() => {
- setEditingValue(activeCellValue);
- }, [activeCellKey, activeCellValue]);
+  const activeCellKey = activeCell ? toA1Key(activeCell.row, masterColumnOrder.indexOf(activeCell.col)) : null;
+  const activeCellValue = activeCellKey ? (gridData.get(activeCellKey) || '') : '';
 
- const handleLocalEditing = useCallback((val: string) => {
- setEditingValue(val);
- }, []);
- 
- const DEFAULT_ROW_HEIGHT = 30;
+  useEffect(() => {
+    setEditingValue(activeCellValue);
+  }, [activeCellKey, activeCellValue]);
 
- // Reset scroll state on node change
- useEffect(() => {
- setScrollTop(0);
- setShowBackToTop(false);
- tableContainerRef.current?.scrollTo({ top: 0 });
- }, [selectedId]);
+  const handleLocalEditing = useCallback((val: string) => {
+    setEditingValue(val);
+  }, []);
 
- // Virtualization state and Web Worker logic
- const [filteredRowIndices, setFilteredRowIndices] = useState<number[]>([]);
- const filterWorkerRef = useRef<Worker | null>(null);
+  const DEFAULT_ROW_HEIGHT = 30;
 
- useEffect(() => {
- // Initialize the worker relative to the bundle
- filterWorkerRef.current = new Worker(new URL('../app/filter.worker.ts', import.meta.url));
- filterWorkerRef.current.onmessage = (e: MessageEvent<number[]>) => {
- setFilteredRowIndices(e.data);
- };
- return () => filterWorkerRef.current?.terminate();
- }, []);
+  // Reset scroll state on node change
+  useEffect(() => {
+    setScrollTop(0);
+    setShowBackToTop(false);
+    tableContainerRef.current?.scrollTo({ top: 0 });
+  }, [selectedId]);
 
- useEffect(() => {
- if (filterWorkerRef.current) {
- filterWorkerRef.current.postMessage({
- rowCount,
- rowFilter,
- allHeaders,
- masterColumnOrder,
- gridData
- });
- }
- }, [gridData, rowCount, allHeaders, rowFilter, masterColumnOrder]);
+  // Virtualization state and Web Worker logic
+  const [filteredRowIndices, setFilteredRowIndices] = useState<number[]>([]);
+  const filterWorkerRef = useRef<Worker | null>(null);
 
- const sectionBlocks = useMemo(() => {
- const blocks: { name: string, indices: number[] }[] = [];
- filteredRowIndices.forEach(idx => {
- const sectionName = gridData.get(`${idx}:section`) || "";
- const lastBlock = blocks[blocks.length - 1];
- if (lastBlock && lastBlock.name === sectionName) lastBlock.indices.push(idx);
- else blocks.push({ name: sectionName, indices: [idx] });
- });
- return blocks;
- }, [filteredRowIndices, gridData]);
+  useEffect(() => {
+    // Initialize the worker relative to the bundle
+    filterWorkerRef.current = new Worker(new URL('../app/filter.worker.ts', import.meta.url));
+    filterWorkerRef.current.onmessage = (e: MessageEvent<number[]>) => {
+      setFilteredRowIndices(e.data);
+    };
+    return () => filterWorkerRef.current?.terminate();
+  }, []);
 
- // Virtualization: Flatten sections and rows with accurate height offsets
- const { flatItems, itemOffsets, totalVirtualHeight } = useMemo(() => {
- const items: any[] = [];
- const offsets: number[] = [];
- let currentOffset = 0;
+  useEffect(() => {
+    if (filterWorkerRef.current) {
+      filterWorkerRef.current.postMessage({
+        rowCount,
+        rowFilter,
+        allHeaders,
+        masterColumnOrder,
+        gridData
+      });
+    }
+  }, [gridData, rowCount, allHeaders, rowFilter, masterColumnOrder]);
 
- sectionBlocks.forEach((block, blockIdx) => {
- if (block.name !== "") {
- offsets.push(currentOffset);
- items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
- currentOffset += 30;
- }
+  const sectionBlocks = useMemo(() => {
+    const blocks: { name: string, indices: number[] }[] = [];
+    filteredRowIndices.forEach(idx => {
+      const sectionName = gridData.get(`${idx}:section`) || "";
+      const lastBlock = blocks[blocks.length - 1];
+      if (lastBlock && lastBlock.name === sectionName) lastBlock.indices.push(idx);
+      else blocks.push({ name: sectionName, indices: [idx] });
+    });
+    return blocks;
+  }, [filteredRowIndices, gridData]);
 
- block.indices.forEach(idx => {
- offsets.push(currentOffset);
- items.push({ type: 'row', index: idx });
- currentOffset += (rowHeights[String(idx)] || 30);
- });
- });
+  // Virtualization: Flatten sections and rows with accurate height offsets
+  const { flatItems, itemOffsets, totalVirtualHeight } = useMemo(() => {
+    const items: any[] = [];
+    const offsets: number[] = [];
+    let currentOffset = 0;
 
- return { 
-flatItems: items, 
- itemOffsets: offsets, 
- totalVirtualHeight: currentOffset + 30
- };
- }, [sectionBlocks, rowHeights]);
+    sectionBlocks.forEach((block, blockIdx) => {
+      if (block.name !== "") {
+        offsets.push(currentOffset);
+        items.push({ type: 'section', name: block.name, startIndex: block.indices[0], blockIdx });
+        currentOffset += 30;
+      }
+
+      block.indices.forEach(idx => {
+        offsets.push(currentOffset);
+        items.push({ type: 'row', index: idx });
+        currentOffset += (rowHeights[String(idx)] || 30);
+      });
+    });
+
+    return {
+      flatItems: items,
+      itemOffsets: offsets,
+      totalVirtualHeight: currentOffset + 30
+    };
+  }, [sectionBlocks, rowHeights]);
 
   // Refs to avoid unnecessary scroll re-triggers during live grid cell edits
   const flatItemsRef = useRef(flatItems);
@@ -236,12 +236,12 @@ flatItems: items,
   // Scroll active cell into view when it changes and is off-screen
   useEffect(() => {
     if (isLoadingFile || !activeCell || !tableContainerRef.current) return;
-    
+
     // Defer scroll action slightly to allow browser layout paint
     const timer = setTimeout(() => {
       const container = tableContainerRef.current;
       if (!container) return;
-      
+
       const currentFlatItems = flatItemsRef.current;
       const currentItemOffsets = itemOffsetsRef.current;
       const currentRowHeights = rowHeightsRef.current;
@@ -249,24 +249,24 @@ flatItems: items,
       const currentContainerHeight = containerHeightRef.current;
 
       if (currentFlatItems.length === 0) return;
-      
+
       // Find the item index for the active cell row
       const itemIndex = currentFlatItems.findIndex(item => item.type === 'row' && item.index === activeCell.row);
       if (itemIndex === -1) return;
-      
+
       const rowTop = currentItemOffsets[itemIndex];
       const rowHeight = currentRowHeights[String(activeCell.row)] || 30;
-      
+
       const rowTopScreen = rowTop * currentZoom;
       const rowHeightScreen = rowHeight * currentZoom;
-      
+
       const currentScrollTop = container.scrollTop;
       const containerRect = container.getBoundingClientRect();
       const containerHeightPx = containerRect.height || currentContainerHeight || 800;
-      
+
       const isAbove = rowTopScreen < currentScrollTop;
       const isBelow = rowTopScreen + rowHeightScreen > currentScrollTop + containerHeightPx;
-      
+
       if (isAbove || isBelow) {
         const targetScroll = rowTopScreen - (containerHeightPx / 2) + (rowHeightScreen / 2);
         container.scrollTo({
@@ -279,943 +279,934 @@ flatItems: items,
     return () => clearTimeout(timer);
   }, [activeCell, isLoadingFile]);
 
- // Scroll handler
- const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
- const top = e.currentTarget.scrollTop;
- setScrollTop(top);
- setShowBackToTop(top > 300);
- }, []);
+  // Scroll handler
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const top = e.currentTarget.scrollTop;
+    setScrollTop(top);
+    setShowBackToTop(top > 300);
+  }, []);
 
- const scrollToTop = () => {
- tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
- };
+  const scrollToTop = () => {
+    tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
- // Viewport tracking for ResizeObserver
- useEffect(() => {
- if (!tableContainerRef.current) return;
- 
- const observer = new ResizeObserver((entries) => {
- if (isSidebarMoving) return;
- requestAnimationFrame(() => {
- const entry = entries[0];
- if (!entry) return;
- 
- const h = Math.floor(entry.contentRect.height);
- if (h > 0) {
- setContainerHeight(prev => (Math.abs(prev - h) > 20) ? h : prev);
- }
- });
- });
- observer.observe(tableContainerRef.current);
- setContainerHeight(tableContainerRef.current.getBoundingClientRect().height || 800);
- return () => observer.disconnect();
- }, [setContainerHeight, selectedId, isSidebarMoving]);
+  // Viewport tracking for ResizeObserver
+  useEffect(() => {
+    if (!tableContainerRef.current) return;
 
- try {
- if (!isLoadingFile && rowCount === 0) {
- return (
- <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
- <div className="text-center">
- <p className="font-semibold mb-1 text-sm">Pre-formatted Table Required</p>
- <p className="text-xs text-amber-700">Initialize the Work A / Work B structure for this file.</p>
- </div>
- <button 
- onClick={initializeExcelTemplate}
- className="px-4 py-2 bg-accent hover:opacity-90 text-accent-foreground text-xs font-bold rounded transition-colors uppercase tracking-wider shadow-sm"
- >
- Initialize Excel Template
- </button>
- </div>
- );
- }
+    const observer = new ResizeObserver((entries) => {
+      if (isSidebarMoving) return;
+      requestAnimationFrame(() => {
+        const entry = entries[0];
+        if (!entry) return;
 
- // Pre-calculate selection bounds for efficient highlighting
- const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
- const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
- const selMinColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.min(selStartColIdx, selEndColIdx) : -1;
- const selMaxColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.max(selStartColIdx, selEndColIdx) : -1;
- const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
- const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
- const selColSpan = (selMinColIdx !== -1 && selMaxColIdx !== -1) ? (selMaxColIdx - selMinColIdx + 1) : 0;
+        const h = Math.floor(entry.contentRect.height);
+        if (h > 0) {
+          setContainerHeight(prev => (Math.abs(prev - h) > 20) ? h : prev);
+        }
+      });
+    });
+    observer.observe(tableContainerRef.current);
+    setContainerHeight(tableContainerRef.current.getBoundingClientRect().height || 800);
+    return () => observer.disconnect();
+  }, [setContainerHeight, selectedId, isSidebarMoving]);
 
- // Helper to check if a header column is part of the current column-wise selection
- const isHeaderInSelection = (idx: number) => {
- if (!selection || selMinColIdx === -1) return false;
- const isRowSelectionMatching = (selMinRow <= -1 && selMaxRow >= -1) || (selMinRow === 0 && selMaxRow >= rowCount - 1);
- return isRowSelectionMatching && idx >= selMinColIdx && idx <= selMaxColIdx;
- };
+  try {
+    if (!isLoadingFile && rowCount === 0) {
+      return (
+        <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-600 shadow-sm flex flex-col items-center gap-4">
+          <div className="text-center">
+            <p className="font-semibold mb-1 text-sm">Pre-formatted Table Required</p>
+            <p className="text-xs text-amber-700">Initialize the Work A / Work B structure for this file.</p>
+          </div>
+          <button
+            onClick={initializeExcelTemplate}
+            className="px-4 py-2 bg-accent hover:opacity-90 text-accent-foreground text-xs font-bold rounded transition-colors uppercase tracking-wider shadow-sm"
+          >
+            Initialize Excel Template
+          </button>
+        </div>
+      );
+    }
 
- const isSectionInSelection = (startIndex: number) => {
- return selection && startIndex >= selMinRow && startIndex <= selMaxRow;
- };
+    // Pre-calculate selection bounds for efficient highlighting
+    const selStartColIdx = visibleHeaders.indexOf(selection?.startCol || "");
+    const selEndColIdx = visibleHeaders.indexOf(selection?.endCol || "");
+    const selMinColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.min(selStartColIdx, selEndColIdx) : -1;
+    const selMaxColIdx = (selection && selStartColIdx !== -1 && selEndColIdx !== -1) ? Math.max(selStartColIdx, selEndColIdx) : -1;
+    const selMinRow = selection ? Math.min(selection.startRow, selection.endRow) : -2;
+    const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -2;
+    const selColSpan = (selMinColIdx !== -1 && selMaxColIdx !== -1) ? (selMaxColIdx - selMinColIdx + 1) : 0;
 
- // Binary search for first visible virtual index
- let startIdx = 0;
- let low = 0;
- let high = itemOffsets.length - 1;
- const adjustedScrollTop = scrollTop / zoom;
- 
- while (low <= high) {
- let mid = Math.floor((low + high) / 2);
- if (itemOffsets[mid] <= adjustedScrollTop) {
- startIdx = mid;
- low = mid + 1;
- } else {
- high = mid - 1;
- }
- }
+    // Helper to check if a header column is part of the current column-wise selection
+    const isHeaderInSelection = (idx: number) => {
+      if (!selection || selMinColIdx === -1) return false;
+      const isRowSelectionMatching = (selMinRow <= -1 && selMaxRow >= -1) || (selMinRow === 0 && selMaxRow >= rowCount - 1);
+      return isRowSelectionMatching && idx >= selMinColIdx && idx <= selMaxColIdx;
+    };
 
- const overscanTop = 30;
- const overscanBottom = 40; 
- 
- const startIndex = Math.max(0, startIdx - overscanTop);
- const visibleRowEstimate = Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom));
- const endIndex = Math.min(flatItems.length, startIdx + visibleRowEstimate + overscanBottom);
- 
- const visibleItems = flatItems.slice(startIndex, endIndex);
- const translateY = itemOffsets[startIndex] || 0;
+    const isSectionInSelection = (startIndex: number) => {
+      return selection && startIndex >= selMinRow && startIndex <= selMaxRow;
+    };
 
- return (
- <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
- {/* Excel Toolbar */}
- <div className={GRID_THEME.toolbar}>
- <div className="flex items-center gap-1.5 shrink-0">
- <div className="relative flex-1 max-w-sm">
- <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
- <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1 text-xs border border-border rounded focus:ring-1 focus:ring-accent outline-none bg-background text-foreground placeholder:text-muted/50" />
- </div>
- <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
- <Type size={14} className="text-muted" />
- <select 
- value={(() => {
- if (!activeCell) return "";
- const mIdx = masterColumnOrder.indexOf(activeCell.col);
- const key = toA1Key(activeCell.row, mIdx);
- return cellMetadata[key]?.fontFamily || "";
- })()} 
- onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)} 
- className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-30 dark:bg-card"
- >
- <option value="">Font Family...</option>
- {FONT_FAMILIES.map(f => (
- <option key={f.id} value={f.value}>{f.label}</option>
- ))}
- </select>
- </div>
- <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
- <span className="text-muted">Year:</span>
- <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer dark:bg-card">
- <option value="2020">2020</option>
- <option value="2021">2021</option>
- <option value="2022">2022</option>
- <option value="2023">2023</option>
- <option value="2024">2024</option>
- <option value="2025">2025</option>
- <option value="2026">2026</option>
- </select>
- </div>
- <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
- <span className="text-muted">Columns:</span>
- <select 
- value="" 
- onChange={(e) => { if(e.target.value) toggleColumnVisibility(e.target.value); e.target.value = ""; }}
- className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-27.5 dark:bg-card"
- >
- <option value="">{hiddenColumns.length > 0 ? `(${hiddenColumns.length} Hidden)` : "All Visible"}</option>
- {allHeaders.filter(h => h !== 'section').map(h => (
- <option key={h} value={h}>{hiddenColumns.includes(h) ? "Show" : "Hide"} {h}</option>
- ))}
- </select>
- </div>
- {/* Zoom Controls */}
- <div className="flex items-center gap-1 px-1 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
- <button 
- disabled={undoStack.length === 0}
- onClick={undo} 
- className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
- title="Undo (Ctrl+Z)"
- >
- <History size={14} className="rotate-180 flip-y" />
- </button>
- <button 
- disabled={redoStack.length === 0}
- onClick={redo} 
- className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30" 
- title="Redo (Ctrl+Y)"
- >
- <History size={14} />
- </button>
- </div>
- <div className="flex items-center gap-1 px-1.5 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
- <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom Out">
- <ZoomOut size={14} />
- </button>
- <button onClick={() => setZoom(1)} className="w-10 text-center font-bold text-accent select-none hover:bg-muted/10 rounded transition-colors" title="Reset Zoom">
- {Math.round(zoom * 100)}%
- </button>
- <button onClick={() => setZoom(Math.min(2, zoom + 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom In">
- <ZoomIn size={14} />
- </button>
- </div>
- <div className="flex items-center gap-1 px-1 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
- <button 
- onClick={() => setIsFreezeHeaders(!isFreezeHeaders)} 
- className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${isFreezeHeaders ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
- title="Toggle Freeze Headers (Vertical)"
- >
- <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} /> Headers
- </button>
- <button 
- onClick={() => setIsFreezePanes(!isFreezePanes)} 
- className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${isFreezePanes ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
- title="Toggle Freeze Panes (Horizontal)"
- >
- <ChevronRightIcon size={14} /> Panes
- </button>
- </div>
- <button onClick={handleAddSection} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
- <Plus size={14} className="text-green-600" /> Add Section
- </button>
- <button onClick={handleResetWidths} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground" title="Reset all columns to auto-width">
- <RefreshCcw size={14} /> Reset Widths
- </button>
- </div>
- <div className="flex items-center gap-1.5 shrink-0 ml-4">
- <button onClick={exportToCSV} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
- <HardDrive size={14} /> Export CSV
- </button>
- </div>
- </div>
- 
- {/* Cell Context Menu */}
- {contextMenu && (
- <div 
- className="fixed z-[100] bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-48 animate-in fade-in zoom-in-95 duration-150 context-menu-container flex flex-col gap-0.5 p-1"
- style={{ left: contextMenu.x, top: contextMenu.y }}
- onClick={(e) => e.stopPropagation()}
- >
- {contextMenu.type === 'header' ? (
- <>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Column Options</div>
- <div className="flex flex-col gap-0.5">
- <button 
- onClick={() => { setIsFreezeHeaders(!isFreezeHeaders); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- {isFreezeHeaders ? <Minimize2 size={13} className="text-accent" /> : <Maximize2 size={13} className="text-muted" />}
- {isFreezeHeaders ? 'Unfreeze Headers' : 'Freeze Headers'}
- </button>
- <button 
- onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- {isFreezePanes ? <Minimize2 size={13} className="text-accent" /> : <Maximize2 size={13} className="text-muted" />}
- {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
- </button>
- </div>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="relative group/sub">
- <button 
- onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: true, showFormats: false } : null)}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
- >
- <span className="flex items-center gap-2"><Type size={13} className="text-accent" /> Set Column Font</span>
- <ChevronRightIcon size={12} className="text-muted" />
- </button>
- {contextMenu.showFonts && (
- <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
- {FONT_FAMILIES.map(f => (
- <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
- ))}
- </div>
- )}
- </div>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="px-2 py-1 flex items-center justify-between mx-1 gap-2">
- <span className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase">Align</span>
- <div className="flex bg-muted/20 p-0.5 rounded-md border border-border/30 w-32">
- {(['left', 'center', 'right'] as const).map((a) => {
- const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
- const defaultAlign = (contextMenu.col === "Title / Item" || contextMenu.col === "Amount") ? "right" : "left";
- const active = (cellAlignments[`header:${contextMenu.col}`] || columnAlignments[contextMenu.col] || defaultAlign) === a;
- return (
- <button
- key={a}
- onClick={() => setColumnAlignment(contextMenu.col, a)}
- title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
- className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${
- active 
- ? 'bg-card text-accent shadow-sm border border-border/20 font-medium' 
- : 'text-muted-foreground hover:text-foreground'
- }`}
- >
- <Icon size={12} />
- </button>
- );
- })}
- </div>
- </div>
- {selColSpan > 1 && (
- <>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <button 
- onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-bold transition-colors"
- >
- <TableIcon size={13} className="text-accent" /> Merge Selected Headers
- </button>
- </>
- )}
- {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
- <button 
- onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <X size={13} className="text-orange-500" /> Unmerge Header
- </button>
- )}
- <button 
- onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <EyeOff size={13} /> Hide Column
- </button>
- <button 
- onClick={() => { handleInsertColumn(contextMenu.col, 'before'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <Plus size={13} className="text-accent" /> Insert Column Before
- </button>
- <button 
- onClick={() => { handleInsertColumn(contextMenu.col, 'after'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <Plus size={13} className="text-accent" /> Insert Column After
- </button>
- <button 
- onClick={() => handleClearColumn(contextMenu.col)} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <X size={13} className="text-orange-500" /> Clear Column Content
- </button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <button 
- onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
- >
- <Trash2 size={13} /> Delete Column
- </button>
- </>
- ) : contextMenu.type === 'row' ? (
- <>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Row Options</div>
- <button 
- onClick={() => handleInsertRow(contextMenu.row!, 'above')} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <Plus size={13} className="text-accent" /> Insert Row Above
- </button>
- <button 
- onClick={() => handleInsertRow(contextMenu.row!, 'after')} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <Plus size={13} className="text-accent" /> Insert Row Below
- </button>
- <button 
- onClick={() => handleClearRow(contextMenu.row!)} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <X size={13} className="text-orange-500" /> Clear Row Content
- </button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Section Actions</div>
- <button 
- onClick={() => {
- const section = gridData.get(`${contextMenu.row}:section`) || "";
- handleInsertSection(section, 'before', contextMenu.row);
- setContextMenu(null);
- }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <FolderPlus size={13} className="text-accent" /> Insert Section Above
- </button>
- <button 
- onClick={() => {
- const section = gridData.get(`${contextMenu.row}:section`) || "";
- handleInsertSection(section, 'after', contextMenu.row);
- setContextMenu(null);
- }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <FolderPlus size={13} className="text-accent" /> Insert Section Below
- </button>
- <button 
- onClick={() => {
- const section = gridData.get(`${contextMenu.row}:section`) || "";
- addRowToSection(section);
- setContextMenu(null);
- }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <Plus size={13} className="text-accent" /> Add Row to this Section
- </button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <button 
- onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
- >
- <Trash2 size={13} /> Delete Row
- </button>
- </>
- ) : contextMenu.type === 'section' ? (
- <>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Section Options</div>
- <button 
- onClick={() => { handleInsertSection(contextMenu.sectionName!, 'before'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <FolderPlus size={13} className="text-accent" /> Insert Section Above
- </button>
- <button 
- onClick={() => { handleInsertSection(contextMenu.sectionName!, 'after'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <FolderPlus size={13} className="text-accent" /> Insert Section Below
- </button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <button 
- onClick={() => { handleDeleteSection(contextMenu.sectionName!); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
- >
- <Trash2 size={13} /> Delete Section
- </button>
- </>
- ) : (
- <>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Selection Actions</div>
- <button 
- onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <TableIcon size={13} className="text-accent" /> Merge Selected Cells
- </button>
- 
- <button 
- onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date'); setContextMenu(null); }}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-medium transition-colors"
- >
- <Calendar size={13} className="text-accent" /> Insert Calendar
- </button>
+    // Binary search for first visible virtual index
+    let startIdx = 0;
+    let low = 0;
+    let high = itemOffsets.length - 1;
+    const adjustedScrollTop = scrollTop / zoom;
 
- {(() => {
- const key = toA1Key(contextMenu.row!, masterColumnOrder.indexOf(contextMenu.col));
- const meta = cellMetadata[key];
- return (meta?.rowSpan > 1 || meta?.colSpan > 1) && (
- <button 
- onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <X size={13} className="text-orange-500" /> Unmerge Cells
- </button>
- );
- })()}
+    while (low <= high) {
+      let mid = Math.floor((low + high) / 2);
+      if (itemOffsets[mid] <= adjustedScrollTop) {
+        startIdx = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
 
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="px-2 py-1 flex items-center justify-between mx-1 gap-2">
- <span className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase">Align</span>
- <div className="flex bg-muted/20 p-0.5 rounded-md border border-border/30 w-32">
- {(() => {
- const colIdx = masterColumnOrder.indexOf(contextMenu.col);
- const activeCellKey = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
- const defaultAlign = (contextMenu.col === "Title / Item" || contextMenu.col === "Amount") ? "right" : "left";
- const activeAlign = cellAlignments[activeCellKey] || columnAlignments[contextMenu.col] || defaultAlign;
- return (['left', 'center', 'right'] as const).map((a) => {
- const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
- const active = activeAlign === a;
- return (
- <button
- key={a}
- onClick={() => setSelectionAlignment(a)}
- title={`Align ${a.charAt(0).toUpperCase() + a.slice(1)}`}
- className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${
- active 
- ? 'bg-card text-accent shadow-sm border border-border/20 font-medium' 
- : 'text-muted-foreground hover:text-foreground'
- }`}
- >
- <Icon size={12} />
- </button>
- );
- });
- })()}
- </div>
- </div>
+    const overscanTop = 30;
+    const overscanBottom = 40;
 
- <div className="h-px bg-border/50 my-1 mx-2"></div>
+    const startIndex = Math.max(0, startIdx - overscanTop);
+    const visibleRowEstimate = Math.ceil(containerHeight / (DEFAULT_ROW_HEIGHT * zoom));
+    const endIndex = Math.min(flatItems.length, startIdx + visibleRowEstimate + overscanBottom);
 
- {(() => {
- const colIdx = masterColumnOrder.indexOf(contextMenu.col);
- const key = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
- const meta = cellMetadata[key];
- return meta?.type === 'media' && (
- <>
- <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md font-bold transition-colors"><Trash2 size={13} /> Remove Attachment</button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- </>
- );
- })()}
+    const visibleItems = flatItems.slice(startIndex, endIndex);
+    const translateY = itemOffsets[startIndex] || 0;
 
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Format Cell</div>
- <button 
- onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'text'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
- >
- <FileText size={13} className="text-muted" /> Default Text
- </button>
- 
- <div className="relative group/sub">
- <button 
- onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFormats: true, showFormulaFormats: false, showNumberFormats: false } : null)}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
- >
- <span className="flex items-center gap-2"><Calendar size={13} className="text-accent" /> Format as Calendar</span>
- <ChevronRightIcon size={12} className="text-muted" />
- </button>
- 
- {contextMenu.showFormats && (
- <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
- {DATE_FORMATS.map(f => (
- <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
- ))}
- </div>
- )}
- </div>
+    return (
+      <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
+        {/* Excel Toolbar */}
+        <div className={GRID_THEME.toolbar}>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <div className="relative flex-1 max-w-sm">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+              <input type="text" placeholder="Search records..." value={rowFilter} onChange={(e) => setRowFilter(e.target.value)} className="w-full pl-9 pr-4 py-1 text-xs border border-border rounded focus:ring-1 focus:ring-accent outline-none bg-background text-foreground placeholder:text-muted/50" />
+            </div>
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
+              <Type size={14} className="text-muted" />
+              <select
+                value={(() => {
+                  if (!activeCell) return "";
+                  const mIdx = masterColumnOrder.indexOf(activeCell.col);
+                  const key = toA1Key(activeCell.row, mIdx);
+                  return cellMetadata[key]?.fontFamily || "";
+                })()}
+                onChange={(e) => activeCell && setCellFontFamily(activeCell.row, activeCell.col, e.target.value)}
+                className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-30 dark:bg-card"
+              >
+                <option value="">Font Family...</option>
+                {FONT_FAMILIES.map(f => (
+                  <option key={f.id} value={f.value}>{f.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
+              <span className="text-muted">Year:</span>
+              <select value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)} className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer dark:bg-card">
+                <option value="2020">2020</option>
+                <option value="2021">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023">2023</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-card border border-border rounded text-xs font-medium">
+              <span className="text-muted">Columns:</span>
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) toggleColumnVisibility(e.target.value); e.target.value = ""; }}
+                className="bg-transparent border-0 font-bold text-accent focus:ring-0 cursor-pointer max-w-27.5 dark:bg-card"
+              >
+                <option value="">{hiddenColumns.length > 0 ? `(${hiddenColumns.length} Hidden)` : "All Visible"}</option>
+                {allHeaders.filter(h => h !== 'section').map(h => (
+                  <option key={h} value={h}>{hiddenColumns.includes(h) ? "Show" : "Hide"} {h}</option>
+                ))}
+              </select>
+            </div>
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-1 px-1 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
+              <button
+                disabled={undoStack.length === 0}
+                onClick={undo}
+                className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30"
+                title="Undo (Ctrl+Z)"
+              >
+                <History size={14} className="rotate-180 flip-y" />
+              </button>
+              <button
+                disabled={redoStack.length === 0}
+                onClick={redo}
+                className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors disabled:opacity-30"
+                title="Redo (Ctrl+Y)"
+              >
+                <History size={14} />
+              </button>
+            </div>
+            <div className="flex items-center gap-1 px-1.5 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
+              <button onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom Out">
+                <ZoomOut size={14} />
+              </button>
+              <button onClick={() => setZoom(1)} className="w-10 text-center font-bold text-accent select-none hover:bg-muted/10 rounded transition-colors" title="Reset Zoom">
+                {Math.round(zoom * 100)}%
+              </button>
+              <button onClick={() => setZoom(Math.min(2, zoom + 0.1))} className="p-1 hover:bg-muted/20 rounded text-muted hover:text-accent transition-colors" title="Zoom In">
+                <ZoomIn size={14} />
+              </button>
+            </div>
+            <div className="flex items-center gap-1 px-1 py-1 bg-card border border-border rounded text-xs font-medium shrink-0">
+              <button
+                onClick={() => setIsFreezeHeaders(!isFreezeHeaders)}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${isFreezeHeaders ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
+                title="Toggle Freeze Headers (Vertical)"
+              >
+                <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} /> Headers
+              </button>
+              <button
+                onClick={() => setIsFreezePanes(!isFreezePanes)}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${isFreezePanes ? 'bg-accent/10 text-accent font-bold' : 'text-muted hover:bg-muted/10'}`}
+                title="Toggle Freeze Panes (Horizontal)"
+              >
+                <ChevronRightIcon size={14} /> Panes
+              </button>
+            </div>
+            <button onClick={handleAddSection} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
+              <Plus size={14} className="text-green-600" /> Add Section
+            </button>
+            <button onClick={handleResetWidths} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground" title="Reset all columns to auto-width">
+              <RefreshCcw size={14} /> Reset Widths
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0 ml-4">
+            <button onClick={exportToCSV} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground">
+              <HardDrive size={14} /> Export CSV
+            </button>
+          </div>
+        </div>
 
- <div className="relative group/sub">
- <button 
- onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showNumberFormats: true, showFormats: false, showFormulaFormats: false } : null)}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
- >
- <span className="flex items-center gap-2"><TableIcon size={13} className="text-green-600" /> Format as Number</span>
- <ChevronRightIcon size={12} className="text-muted" />
- </button>
- 
- {contextMenu.showNumberFormats && (
- <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
- {NUMBER_FORMATS.map(f => (
- <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
- ))}
- </div>
- )}
- </div>
+        {/* Cell Context Menu */}
+        {contextMenu && (
+          <div
+            className="fixed z-[100] bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-48 animate-in fade-in zoom-in-95 duration-150 context-menu-container flex flex-col gap-0.5 p-1"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {contextMenu.type === 'header' ? (
+              <>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Column Options</div>
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={() => { setIsFreezeHeaders(!isFreezeHeaders); setContextMenu(null); }}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    {isFreezeHeaders ? <Minimize2 size={13} className="text-accent" /> : <Maximize2 size={13} className="text-muted" />}
+                    {isFreezeHeaders ? 'Unfreeze Headers' : 'Freeze Headers'}
+                  </button>
+                  <button
+                    onClick={() => { setIsFreezePanes(!isFreezePanes); setContextMenu(null); }}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    {isFreezePanes ? <Minimize2 size={13} className="text-accent" /> : <Maximize2 size={13} className="text-muted" />}
+                    {isFreezePanes ? 'Unfreeze Panes' : 'Freeze Panes'}
+                  </button>
+                </div>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <div className="relative group/sub">
+                  <button
+                    onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: true, showFormats: false } : null)}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><Type size={13} className="text-accent" /> Set Column Font</span>
+                    <ChevronRightIcon size={12} className="text-muted" />
+                  </button>
+                  {contextMenu.showFonts && (
+                    <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                      {FONT_FAMILIES.map(f => (
+                        <button key={f.id} onClick={() => setCellFontFamily(-1, contextMenu.col, f.value)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <div className="px-2 py-1 flex items-center justify-between mx-1 gap-2">
+                  <span className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase">Align</span>
+                  <div className="flex bg-muted/20 p-0.5 rounded-md border border-border/30 w-32">
+                    {(['left', 'center', 'right'] as const).map((a) => {
+                      const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
+                      const defaultAlign = (contextMenu.col === "Title / Item" || contextMenu.col === "Amount") ? "right" : "left";
+                      const active = (cellAlignments[`header:${contextMenu.col}`] || columnAlignments[contextMenu.col] || defaultAlign) === a;
+                      return (
+                        <button
+                          key={a}
+                          onClick={() => setColumnAlignment(contextMenu.col, a)}
+                          title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
+                          className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${active
+                              ? 'bg-card text-accent shadow-sm border border-border/20 font-medium'
+                              : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                        >
+                          <Icon size={12} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {selColSpan > 1 && (
+                  <>
+                    <div className="h-px bg-border/50 my-1 mx-2"></div>
+                    <button
+                      onClick={() => { handleMergeCells(visibleHeaders, true); setContextMenu(null); }}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-bold transition-colors"
+                    >
+                      <TableIcon size={13} className="text-accent" /> Merge Selected Headers
+                    </button>
+                  </>
+                )}
+                {cellMetadata[`header:${contextMenu.col}`]?.colSpan > 1 && (
+                  <button
+                    onClick={() => { handleUnmergeCells(-1, contextMenu.col, visibleHeaders); setContextMenu(null); }}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    <X size={13} className="text-orange-500" /> Unmerge Header
+                  </button>
+                )}
+                <button
+                  onClick={() => { toggleColumnVisibility(contextMenu.col); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <EyeOff size={13} /> Hide Column
+                </button>
+                <button
+                  onClick={() => { handleInsertColumn(contextMenu.col, 'before'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Plus size={13} className="text-accent" /> Insert Column Before
+                </button>
+                <button
+                  onClick={() => { handleInsertColumn(contextMenu.col, 'after'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Plus size={13} className="text-accent" /> Insert Column After
+                </button>
+                <button
+                  onClick={() => handleClearColumn(contextMenu.col)}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <X size={13} className="text-orange-500" /> Clear Column Content
+                </button>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <button
+                  onClick={() => { handleDeleteColumn(contextMenu.col); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
+                >
+                  <Trash2 size={13} /> Delete Column
+                </button>
+              </>
+            ) : contextMenu.type === 'row' ? (
+              <>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Row Options</div>
+                <button
+                  onClick={() => handleInsertRow(contextMenu.row!, 'above')}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Plus size={13} className="text-accent" /> Insert Row Above
+                </button>
+                <button
+                  onClick={() => handleInsertRow(contextMenu.row!, 'after')}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Plus size={13} className="text-accent" /> Insert Row Below
+                </button>
+                <button
+                  onClick={() => handleClearRow(contextMenu.row!)}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <X size={13} className="text-orange-500" /> Clear Row Content
+                </button>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Section Actions</div>
+                <button
+                  onClick={() => {
+                    const section = gridData.get(`${contextMenu.row}:section`) || "";
+                    handleInsertSection(section, 'before', contextMenu.row);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <FolderPlus size={13} className="text-accent" /> Insert Section Above
+                </button>
+                <button
+                  onClick={() => {
+                    const section = gridData.get(`${contextMenu.row}:section`) || "";
+                    handleInsertSection(section, 'after', contextMenu.row);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <FolderPlus size={13} className="text-accent" /> Insert Section Below
+                </button>
+                <button
+                  onClick={() => {
+                    const section = gridData.get(`${contextMenu.row}:section`) || "";
+                    addRowToSection(section);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Plus size={13} className="text-accent" /> Add Row to this Section
+                </button>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <button
+                  onClick={() => { removeTableRow(contextMenu.row!); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
+                >
+                  <Trash2 size={13} /> Delete Row
+                </button>
+              </>
+            ) : contextMenu.type === 'section' ? (
+              <>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Section Options</div>
+                <button
+                  onClick={() => { handleInsertSection(contextMenu.sectionName!, 'before'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <FolderPlus size={13} className="text-accent" /> Insert Section Above
+                </button>
+                <button
+                  onClick={() => { handleInsertSection(contextMenu.sectionName!, 'after'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <FolderPlus size={13} className="text-accent" /> Insert Section Below
+                </button>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <button
+                  onClick={() => { handleDeleteSection(contextMenu.sectionName!); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
+                >
+                  <Trash2 size={13} /> Delete Section
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Selection Actions</div>
+                <button
+                  onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <TableIcon size={13} className="text-accent" /> Merge Selected Cells
+                </button>
 
- <div className="relative group/sub">
- <button 
- onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFormulaFormats: true, showFormats: false, showNumberFormats: false } : null)}
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
- >
- <span className="flex items-center gap-2"><Sigma size={13} className="text-purple-500" /> Formula Support</span>
- <ChevronRightIcon size={12} className="text-muted" />
- </button>
- 
- {contextMenu.showFormulaFormats && (
- <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
- <button 
- onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula'); setContextMenu(null); }} 
- className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md font-bold transition-colors"
- >
- Standard (Sum/Number)
- </button>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="px-3 py-1 text-[9px] font-black text-muted/50 tracking-widest uppercase">Date Result Format</div>
- {DATE_FORMATS.map(f => (
- <button key={f.id} onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id); setContextMenu(null); }} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
- ))}
- </div>
- )}
- </div>
- <div className="h-px bg-border/50 my-1 mx-2"></div>
- <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Media</div>
- <button onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"><ImageIcon size={13} className="text-green-500" /> Insert Image</button>
- <button onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"><Paperclip size={13} className="text-amber-500" /> Attach File</button>
- </>
- )}
- </div>
- )}
+                <button
+                  onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-medium transition-colors"
+                >
+                  <Calendar size={13} className="text-accent" /> Insert Calendar
+                </button>
 
- {/* Hidden File Input for Media Uploads */}
- <input 
- type="file" 
- ref={fileInputRef} 
- onChange={handleFileSelect} 
- className="hidden" 
- accept={pendingMedia?.type === 'image' ? "image/*" : "*/*"}
- />
+                {(() => {
+                  const key = toA1Key(contextMenu.row!, masterColumnOrder.indexOf(contextMenu.col));
+                  const meta = cellMetadata[key];
+                  return (meta?.rowSpan > 1 || meta?.colSpan > 1) && (
+                    <button
+                      onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <X size={13} className="text-orange-500" /> Unmerge Cells
+                    </button>
+                  );
+                })()}
 
- {/* Formula Bar - Relocated for a cleaner grid view */}
- <div className={`${GRID_THEME.formulaBar} min-h-9.5`}>
- <div 
- id="address-indicator"
- className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
- >
- {activeCell ? toA1Key(activeCell.row, visibleHeaders.indexOf(activeCell.col)) : 'Select...'}
- </div>
- <div className="h-4 w-px bg-border mx-1 self-center"></div>
- <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
- <Sigma size={14} className="shrink-0" />
- <span className="text-[10px] font-bold tracking-widest opacity-50">Formula</span>
- </div>
- <textarea
- ref={formulaBarRef}
- rows={1}
- placeholder="Enter value or formula (e.g., =SUM(A1, B1) or =ADD_DAYS(A1, 5))..."
- value={editingValue}
- onChange={(e) => {
- const val = e.target.value;
- setEditingValue(val);
- if (activeCell) {
- handleUpdateCell(activeCell.row, activeCell.col, val);
- }
- }}
- className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
- />
- </div>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <div className="px-2 py-1 flex items-center justify-between mx-1 gap-2">
+                  <span className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase">Align</span>
+                  <div className="flex bg-muted/20 p-0.5 rounded-md border border-border/30 w-32">
+                    {(() => {
+                      const colIdx = masterColumnOrder.indexOf(contextMenu.col);
+                      const activeCellKey = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
+                      const defaultAlign = (contextMenu.col === "Title / Item" || contextMenu.col === "Amount") ? "right" : "left";
+                      const activeAlign = cellAlignments[activeCellKey] || columnAlignments[contextMenu.col] || defaultAlign;
+                      return (['left', 'center', 'right'] as const).map((a) => {
+                        const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
+                        const active = activeAlign === a;
+                        return (
+                          <button
+                            key={a}
+                            onClick={() => setSelectionAlignment(a)}
+                            title={`Align ${a.charAt(0).toUpperCase() + a.slice(1)}`}
+                            className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${active
+                                ? 'bg-card text-accent shadow-sm border border-border/20 font-medium'
+                                : 'text-muted-foreground hover:text-foreground'
+                              }`}
+                          >
+                            <Icon size={12} />
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
 
- {/* Deterministic progress bar */}
- {isLoadingFile && (
- <div className="absolute top-0 left-0 right-0 z-50 h-[2px] overflow-hidden bg-border">
- <div
- className="h-full bg-accent transition-all duration-150 ease-out"
- style={{ width: `${loadProgress}%` }}
- />
- </div>
- )}
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
 
- <div
- ref={tableContainerRef}
- onScroll={handleScroll}
- className="flex-1 overflow-x-auto overflow-y-scroll relative custom-scrollbar-zoomed"
- style={{ 
- scrollbarGutter: 'stable',
- overflowAnchor: 'none',
- willChange: 'scroll-position',
- '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
- } as any}
- >
- {/* Real grid — slide-up-fade on mount, keyed per file */}
- {!isLoadingFile && (
- <div key={gridKey} className="slide-up-fade contents">
- {/* Virtual Scroll Spacer */}
- <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+                {(() => {
+                  const colIdx = masterColumnOrder.indexOf(contextMenu.col);
+                  const key = colIdx !== -1 ? toA1Key(contextMenu.row!, colIdx) : '';
+                  const meta = cellMetadata[key];
+                  return meta?.type === 'media' && (
+                    <>
+                      <button onClick={() => removeCellMetadata(contextMenu.row!, contextMenu.col)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md font-bold transition-colors"><Trash2 size={13} /> Remove Attachment</button>
+                      <div className="h-px bg-border/50 my-1 mx-2"></div>
+                    </>
+                  );
+                })()}
 
- <table
- className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
- style={{
- zoom: zoom,
- } as any}
- >
- <thead className={GRID_THEME.tableHeader}>
- <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card shadow-sm`}>
- <th 
- onClick={() => {
- if (rowCount > 0 && visibleHeaders.length > 0) {
- setSelection({
- startRow: -1,
- endRow: rowCount - 1,
- startCol: visibleHeaders[0],
- endCol: visibleHeaders[visibleHeaders.length - 1]
- });
- setActiveCell({ row: 0, col: visibleHeaders[0] });
- }
- }}
- className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
- isFreezeHeaders ? 'top-0' : ''
- }`}
- >
- <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
- </th>
- {visibleHeaders.map((header, idx) => {
- const headerMeta = cellMetadata[`header:${header}`] || {};
- const isColumnActive = activeCell?.col === header;
- const isInHeaderLabelSelection = isHeaderInSelection(idx);
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Format Cell</div>
+                <button
+                  onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'text'); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <FileText size={13} className="text-muted" /> Default Text
+                </button>
 
- if (headerMeta.mergedIn) return null;
+                <div className="relative group/sub">
+                  <button
+                    onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFormats: true, showFormulaFormats: false, showNumberFormats: false } : null)}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><Calendar size={13} className="text-accent" /> Format as Calendar</span>
+                    <ChevronRightIcon size={12} className="text-muted" />
+                  </button>
 
- return (
- <th 
- key={`col-label-${idx}`} 
- colSpan={headerMeta.colSpan}
- onMouseDown={(e) => {
- if (e.button === 0 && rowCount > 0) {
- setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
- setActiveCell({ row: 0, col: header });
- setIsSelecting(true);
- }
- }}
- onMouseEnter={() => {
- if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
- setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
- }
- }}
- onContextMenu={(e) => {
- e.preventDefault();
- const isAlreadySelected = isHeaderInSelection(idx);
- 
- if (!isAlreadySelected && rowCount > 0) {
- setSelection({
- startRow: 0,
- endRow: rowCount - 1,
- startCol: header,
- endCol: header
- });
- setActiveCell({ row: 0, col: header });
- }
- handleOpenContextMenu(e, 'header', header);
- }}
- style={{ 
- fontFamily: headerMeta.fontFamily || 'inherit',
- width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
- minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
- }}
- className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${
- isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
- } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${
- isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
- }`}
- >
- {getExcelColumnLabel(idx)}
- <div 
- onMouseDown={(e) => startResizing(header, e)}
- className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
- title="Drag to resize"
- />
- </th>
- );
- })}
- <th className="border-r border-b border-border bg-card"></th>
- </tr>
- <tr className="">
- <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${
- isFreezeHeaders ? 'top-[20px]' : ''
- }`}></th>
- {visibleHeaders.map((header, colIdx) => {
- const headerMeta = cellMetadata[`header:${header}`] || {};
- const isColumnActive = activeCell?.col === header;
- 
- if (headerMeta.mergedIn) return null;
+                  {contextMenu.showFormats && (
+                    <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                      {DATE_FORMATS.map(f => (
+                        <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'date', f.id)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
- const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
- const align = cellAlignments[`header:${header}`] || columnAlignments[header] || defaultAlign;
- const alignClass = align === 'center' ? 'text-center' : 
- align === 'right' ? 'text-right' : 'text-left';
+                <div className="relative group/sub">
+                  <button
+                    onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showNumberFormats: true, showFormats: false, showFormulaFormats: false } : null)}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><TableIcon size={13} className="text-green-600" /> Format as Number</span>
+                    <ChevronRightIcon size={12} className="text-muted" />
+                  </button>
 
- const isInHeaderSelection = isHeaderInSelection(colIdx);
+                  {contextMenu.showNumberFormats && (
+                    <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                      {NUMBER_FORMATS.map(f => (
+                        <button key={f.id} onClick={() => setCellType(contextMenu.row!, contextMenu.col, 'number', f.id)} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
- return (
- <th 
- key={header} 
- colSpan={headerMeta.colSpan}
- onContextMenu={(e) => {
- e.preventDefault();
- if (!isInHeaderSelection && rowCount > 0) {
- setSelection({
- startRow: 0,
- endRow: rowCount - 1,
- startCol: header,
- endCol: header
- });
- setActiveCell({ row: 0, col: header });
- }
- handleOpenContextMenu(e, 'header', header);
- }}
- onMouseDown={(e) => {
- if (e.button === 0) {
- setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
- setIsSelecting(true);
- } else if (e.button === 2) {
- if (!isInHeaderSelection) {
- setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
- }
- }
- }}
- onMouseEnter={() => {
- if (isSelecting && selection?.startRow === -1) {
- setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
- }
- }}
- style={{ 
- width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
- minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px' 
- }}
- className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${
- isColumnActive ? 'text-accent bg-accent/10' : 'text-muted bg-card'
- } ${
- isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
- } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
- >
- <div className="flex items-center gap-1">
- <input
- defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
- onBlur={(e) => handleRenameColumn(header, e.target.value)}
- className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
- />
- </div>
- </th>
- );
- })}
- <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${
- isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
- }`}>
- <div className="flex items-center gap-1 px-1">
- <input
- value={newColName}
- onChange={(e) => setNewColName(e.target.value)}
- onKeyDown={(e) => {
- if (e.key === 'Enter') {
- handleAddColumn(newColName);
- setNewColName('');
- }
- }}
- placeholder="Add Column..."
- className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
- />
- <Plus size={14} className="text-accent/60 shrink-0" />
- </div>
- </th>
- </tr>
- </thead>
- <tbody className="divide-y divide-border">
- <tr style={{ height: `${translateY}px` }} className="border-none">
- <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
- </tr>
- {visibleItems.map((item, i) => {
- if (item.type === 'section') {
- return (
- <tr 
- key={`section-${item.name}-${item.blockIdx}`} 
- className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
- onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
- >
- <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
- <div className="flex items-center justify-between">
- <input
- defaultValue={item.name}
- onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
- className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
- />
- <div className="flex items-center gap-1">
- <button 
- onClick={() => handleInsertSection(item.name, 'before')}
- className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
- title="Insert Section Before"
- >
- <ChevronUp size={12} />
- </button>
- <button 
- onClick={() => handleInsertSection(item.name, 'after')}
- className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
- title="Insert Section After"
- >
- <ChevronDown size={12} />
- </button>
- <button 
- onClick={() => handleDeleteSection(item.name)}
- className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
- title="Delete Section"
- >
- <Trash2 size={12} />
- </button>
- </div>
- </div>
- </td>
- </tr>
- );
- }
+                <div className="relative group/sub">
+                  <button
+                    onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFormulaFormats: true, showFormats: false, showNumberFormats: false } : null)}
+                    className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><Sigma size={13} className="text-purple-500" /> Formula Support</span>
+                    <ChevronRightIcon size={12} className="text-muted" />
+                  </button>
 
- const globalIndex = item.index;
- const rowData: any = { _index: globalIndex };
- allHeaders.forEach(h => {
- const colIdx = masterColumnOrder.indexOf(h);
- rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
- });
- rowData.section = gridData.get(`${globalIndex}:section`);
+                  {contextMenu.showFormulaFormats && (
+                    <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                      <button
+                        onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula'); setContextMenu(null); }}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md font-bold transition-colors"
+                      >
+                        Standard (Sum/Number)
+                      </button>
+                      <div className="h-px bg-border/50 my-1 mx-2"></div>
+                      <div className="px-3 py-1 text-[9px] font-black text-muted/50 tracking-widest uppercase">Date Result Format</div>
+                      {DATE_FORMATS.map(f => (
+                        <button key={f.id} onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id); setContextMenu(null); }} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors">{f.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Media</div>
+                <button onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'image')} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"><ImageIcon size={13} className="text-green-500" /> Insert Image</button>
+                <button onClick={() => insertMedia(contextMenu.row!, contextMenu.col, 'file')} className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"><Paperclip size={13} className="text-amber-500" /> Attach File</button>
+              </>
+            )}
+          </div>
+        )}
 
- return (
- <GridRow 
- key={globalIndex}
- row={rowData}
- globalIndex={globalIndex}
- visibleHeaders={visibleHeaders}
- activeCell={activeCell}
- selection={selection}
- cellMetadata={cellMetadata}
- cellAlignments={cellAlignments}
- columnAlignments={columnAlignments}
- isFreezePanes={isFreezePanes}
- dragFillRange={dragFillRange}
- isSelecting={isSelecting}
- handleUpdateCell={handleUpdateCell}
- handleKeyDown={handleKeyDown}
- setActiveCell={setActiveCell}
- setSelection={setSelection}
- setIsSelecting={setIsSelecting}
- setDragFillRange={setDragFillRange}
- onOpenContextMenu={handleOpenContextMenu}
- toggleCellAlignment={toggleCellAlignment}
- handleDragFillStart={handleDragFillStart}
- removeTableRow={removeTableRow}
- setViewingMedia={setViewingMedia}
- removeCellMetadata={removeCellMetadata}
- evaluateFormula={evaluateFormula}
- rowHeights={rowHeights}
- startRowResizing={startRowResizing}
- handleOpenDropdown={handleOpenDropdown}
- onMeasuredHeight={onMeasuredHeight}
- masterColumnOrder={masterColumnOrder}
- zoom={zoom}
- onLocalEditing={handleLocalEditing}
- />
- );
- })}
- <tr style={{ height: '20px' }} className="border-none">
- <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
- </tr>
- </tbody>
- </table>
- </div>
- )}
+        {/* Hidden File Input for Media Uploads */}
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileSelect}
+          className="hidden"
+          accept={pendingMedia?.type === 'image' ? "image/*" : "*/*"}
+        />
 
- {showBackToTop && (
- <button 
- onClick={scrollToTop}
- className="fixed bottom-10 right-10 p-3 bg-accent text-accent-foreground rounded-full shadow-2xl hover:opacity-90 transition-all z-50 animate-in fade-in zoom-in duration-300 group"
- title="Back to Top"
- >
- <ArrowUp size={20} className="group-hover:-translate-y-1 transition-transform" />
- </button>
- )}
- </div>
- </div>
- );
- } catch (e) {
- return (
- <div className="p-12 border-2 border-dashed border-red-500/20 rounded-xl bg-red-500/5 flex flex-col items-center justify-center text-center">
- <div className="p-3 bg-red-500/10 rounded-full text-red-500 mb-4">
- <Code size={24} />
- </div>
- <h3 className="text-red-500 font-bold mb-2">JSON Syntax Error</h3>
- <p className="text-sm text-red-500/70 mb-6 max-w-sm">
- {e instanceof Error ? e.message : "We encountered an error while parsing your data."}
- <br />
- <span className="opacity-70 mt-2 block">Check for missing commas, brackets, or quotes in the code view.</span>
- </p>
- <button 
- onClick={() => setViewMode('code')}
- className="px-6 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:opacity-90 transition-all shadow-sm"
- >
- Switch to JSON Code to Fix
- </button>
- </div>
- );
- }
+        {/* Formula Bar - Relocated for a cleaner grid view */}
+        <div className={`${GRID_THEME.formulaBar} min-h-9.5`}>
+          <div
+            id="address-indicator"
+            className="flex items-center gap-1.5 px-3 py-1 bg-muted/10 rounded border border-border text-[10px] font-black text-muted tracking-tighter min-w-30 justify-center shadow-sm mt-0.5"
+          >
+            {activeCell ? toA1Key(activeCell.row, visibleHeaders.indexOf(activeCell.col)) : 'Select...'}
+          </div>
+          <div className="h-4 w-px bg-border mx-1 self-center"></div>
+          <div className="flex items-center gap-1.5 px-2 text-purple-500 mt-1">
+            <Sigma size={14} className="shrink-0" />
+            <span className="text-[10px] font-bold tracking-widest opacity-50">Formula</span>
+          </div>
+          <textarea
+            ref={formulaBarRef}
+            rows={1}
+            placeholder="Enter value or formula (e.g., =SUM(A1, B1) or =ADD_DAYS(A1, 5))..."
+            value={editingValue}
+            onChange={(e) => {
+              const val = e.target.value;
+              setEditingValue(val);
+              if (activeCell) {
+                handleUpdateCell(activeCell.row, activeCell.col, val);
+              }
+            }}
+            className="flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 overflow-y-auto max-h-32"
+          />
+        </div>
+
+        {/* Deterministic progress bar */}
+        {isLoadingFile && (
+          <div className="absolute top-0 left-0 right-0 z-50 h-[2px] overflow-hidden bg-border">
+            <div
+              className="h-full bg-accent transition-all duration-150 ease-out"
+              style={{ width: `${loadProgress}%` }}
+            />
+          </div>
+        )}
+
+        <div
+          ref={tableContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-x-auto overflow-y-scroll relative custom-scrollbar-zoomed"
+          style={{
+            scrollbarGutter: 'stable',
+            overflowAnchor: 'none',
+            willChange: 'scroll-position',
+            '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
+          } as any}
+        >
+          {/* Real grid — slide-up-fade on mount, keyed per file */}
+          {!isLoadingFile && (
+            <div key={gridKey} className="slide-up-fade contents">
+              {/* Virtual Scroll Spacer */}
+              <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+
+              <table
+                className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
+                style={{
+                  zoom: zoom,
+                } as any}
+              >
+                <thead className={GRID_THEME.tableHeader}>
+                  <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card shadow-sm`}>
+                    <th
+                      onClick={() => {
+                        if (rowCount > 0 && visibleHeaders.length > 0) {
+                          setSelection({
+                            startRow: -1,
+                            endRow: rowCount - 1,
+                            startCol: visibleHeaders[0],
+                            endCol: visibleHeaders[visibleHeaders.length - 1]
+                          });
+                          setActiveCell({ row: 0, col: visibleHeaders[0] });
+                        }
+                      }}
+                      className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-0' : ''
+                        }`}
+                    >
+                      <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
+                    </th>
+                    {visibleHeaders.map((header, idx) => {
+                      const headerMeta = cellMetadata[`header:${header}`] || {};
+                      const isColumnActive = activeCell?.col === header;
+                      const isInHeaderLabelSelection = isHeaderInSelection(idx);
+
+                      if (headerMeta.mergedIn) return null;
+
+                      return (
+                        <th
+                          key={`col-label-${idx}`}
+                          colSpan={headerMeta.colSpan}
+                          onMouseDown={(e) => {
+                            if (e.button === 0 && rowCount > 0) {
+                              setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
+                              setActiveCell({ row: 0, col: header });
+                              setIsSelecting(true);
+                            }
+                          }}
+                          onMouseEnter={() => {
+                            if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
+                              setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
+                            }
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            const isAlreadySelected = isHeaderInSelection(idx);
+
+                            if (!isAlreadySelected && rowCount > 0) {
+                              setSelection({
+                                startRow: 0,
+                                endRow: rowCount - 1,
+                                startCol: header,
+                                endCol: header
+                              });
+                              setActiveCell({ row: 0, col: header });
+                            }
+                            handleOpenContextMenu(e, 'header', header);
+                          }}
+                          style={{
+                            fontFamily: headerMeta.fontFamily || 'inherit',
+                            width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                            minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                          }}
+                          className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
+                            } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
+                            }`}
+                        >
+                          {getExcelColumnLabel(idx)}
+                          <div
+                            onMouseDown={(e) => startResizing(header, e)}
+                            className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
+                            title="Drag to resize"
+                          />
+                        </th>
+                      );
+                    })}
+                    <th className="border-r border-b border-border bg-card"></th>
+                  </tr>
+                  <tr className="">
+                    <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-[20px]' : ''
+                      }`}></th>
+                    {visibleHeaders.map((header, colIdx) => {
+                      const headerMeta = cellMetadata[`header:${header}`] || {};
+                      const isColumnActive = activeCell?.col === header;
+
+                      if (headerMeta.mergedIn) return null;
+
+                      const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
+                      const align = cellAlignments[`header:${header}`] || columnAlignments[header] || defaultAlign;
+                      const alignClass = align === 'center' ? 'text-center' :
+                        align === 'right' ? 'text-right' : 'text-left';
+
+                      const isInHeaderSelection = isHeaderInSelection(colIdx);
+
+                      return (
+                        <th
+                          key={header}
+                          colSpan={headerMeta.colSpan}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            if (!isInHeaderSelection && rowCount > 0) {
+                              setSelection({
+                                startRow: 0,
+                                endRow: rowCount - 1,
+                                startCol: header,
+                                endCol: header
+                              });
+                              setActiveCell({ row: 0, col: header });
+                            }
+                            handleOpenContextMenu(e, 'header', header);
+                          }}
+                          onMouseDown={(e) => {
+                            if (e.button === 0) {
+                              setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                              setIsSelecting(true);
+                            } else if (e.button === 2) {
+                              if (!isInHeaderSelection) {
+                                setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                              }
+                            }
+                          }}
+                          onMouseEnter={() => {
+                            if (isSelecting && selection?.startRow === -1) {
+                              setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
+                            }
+                          }}
+                          style={{
+                            width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                            minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                          }}
+                          className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-accent/10' : 'text-muted bg-card'
+                            } ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
+                            } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <input
+                              defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
+                              onBlur={(e) => handleRenameColumn(header, e.target.value)}
+                              className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
+                            />
+                          </div>
+                        </th>
+                      );
+                    })}
+                    <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
+                      }`}>
+                      <div className="flex items-center gap-1 px-1">
+                        <input
+                          value={newColName}
+                          onChange={(e) => setNewColName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddColumn(newColName);
+                              setNewColName('');
+                            }
+                          }}
+                          placeholder="Add Column..."
+                          className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
+                        />
+                        <Plus size={14} className="text-accent/60 shrink-0" />
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  <tr style={{ height: `${translateY}px` }} className="border-none">
+                    <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
+                  </tr>
+                  {visibleItems.map((item, i) => {
+                    if (item.type === 'section') {
+                      return (
+                        <tr
+                          key={`section-${item.name}-${item.blockIdx}`}
+                          className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
+                          onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
+                        >
+                          <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
+                            <div className="flex items-center justify-between">
+                              <input
+                                defaultValue={item.name}
+                                onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
+                                className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
+                              />
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleInsertSection(item.name, 'before')}
+                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                  title="Insert Section Before"
+                                >
+                                  <ChevronUp size={12} />
+                                </button>
+                                <button
+                                  onClick={() => handleInsertSection(item.name, 'after')}
+                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                  title="Insert Section After"
+                                >
+                                  <ChevronDown size={12} />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteSection(item.name)}
+                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
+                                  title="Delete Section"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    const globalIndex = item.index;
+                    const rowData: any = { _index: globalIndex };
+                    allHeaders.forEach(h => {
+                      const colIdx = masterColumnOrder.indexOf(h);
+                      rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
+                    });
+                    rowData.section = gridData.get(`${globalIndex}:section`);
+
+                    return (
+                      <GridRow
+                        key={globalIndex}
+                        row={rowData}
+                        globalIndex={globalIndex}
+                        visibleHeaders={visibleHeaders}
+                        activeCell={activeCell}
+                        selection={selection}
+                        cellMetadata={cellMetadata}
+                        cellAlignments={cellAlignments}
+                        columnAlignments={columnAlignments}
+                        isFreezePanes={isFreezePanes}
+                        dragFillRange={dragFillRange}
+                        isSelecting={isSelecting}
+                        handleUpdateCell={handleUpdateCell}
+                        handleKeyDown={handleKeyDown}
+                        setActiveCell={setActiveCell}
+                        setSelection={setSelection}
+                        setIsSelecting={setIsSelecting}
+                        setDragFillRange={setDragFillRange}
+                        onOpenContextMenu={handleOpenContextMenu}
+                        toggleCellAlignment={toggleCellAlignment}
+                        handleDragFillStart={handleDragFillStart}
+                        removeTableRow={removeTableRow}
+                        setViewingMedia={setViewingMedia}
+                        removeCellMetadata={removeCellMetadata}
+                        evaluateFormula={evaluateFormula}
+                        rowHeights={rowHeights}
+                        startRowResizing={startRowResizing}
+                        handleOpenDropdown={handleOpenDropdown}
+                        onMeasuredHeight={onMeasuredHeight}
+                        masterColumnOrder={masterColumnOrder}
+                        zoom={zoom}
+                        onLocalEditing={handleLocalEditing}
+                      />
+                    );
+                  })}
+                  <tr style={{ height: '20px' }} className="border-none">
+                    <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showBackToTop && (
+            <button
+              onClick={scrollToTop}
+              className="fixed bottom-10 right-10 p-3 bg-accent text-accent-foreground rounded-full shadow-2xl hover:opacity-90 transition-all z-50 animate-in fade-in zoom-in duration-300 group"
+              title="Back to Top"
+            >
+              <ArrowUp size={20} className="group-hover:-translate-y-1 transition-transform" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  } catch (e) {
+    return (
+      <div className="p-12 border-2 border-dashed border-red-500/20 rounded-xl bg-red-500/5 flex flex-col items-center justify-center text-center">
+        <div className="p-3 bg-red-500/10 rounded-full text-red-500 mb-4">
+          <Code size={24} />
+        </div>
+        <h3 className="text-red-500 font-bold mb-2">JSON Syntax Error</h3>
+        <p className="text-sm text-red-500/70 mb-6 max-w-sm">
+          {e instanceof Error ? e.message : "We encountered an error while parsing your data."}
+          <br />
+          <span className="opacity-70 mt-2 block">Check for missing commas, brackets, or quotes in the code view.</span>
+        </p>
+        <button
+          onClick={() => setViewMode('code')}
+          className="px-6 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:opacity-90 transition-all shadow-sm"
+        >
+          Switch to JSON Code to Fix
+        </button>
+      </div>
+    );
+  }
 };

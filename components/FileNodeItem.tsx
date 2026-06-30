@@ -19,7 +19,7 @@ const highlightMatch = (text: string, query: string) => {
   const parts = text.split(new RegExp(`(${query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
   return (
     <>
-      {parts.map((part, index) => 
+      {parts.map((part, index) =>
         part.toLowerCase() === query.toLowerCase() ? (
           <mark key={index} className="bg-accent/25 text-accent rounded-sm px-0.5 font-bold">{part}</mark>
         ) : (
@@ -30,8 +30,8 @@ const highlightMatch = (text: string, query: string) => {
   );
 };
 
-const FileNodeItem = React.memo(({ 
-  node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm, comparisonIds, onToggleCompare 
+const FileNodeItem = React.memo(({
+  node, onDelete, onRename, onAdd, onSelect, selectedId, searchTerm, comparisonIds, onToggleCompare
 }: Props) => {
   const [isOpen, setIsOpen] = useState(false);
   const isFolder = node.type === 'folder';
@@ -46,18 +46,17 @@ const FileNodeItem = React.memo(({
 
   return (
     <div className="select-none">
-      <div 
-        className={`flex items-center group py-1 px-1.5 rounded-md cursor-pointer ${
-          selectedId === node.id ? 'bg-accent/10 text-accent shadow-sm' : 'hover:bg-muted/10 text-muted hover:text-foreground'
-        }`}
+      <div
+        className={`flex items-center group py-1 px-1.5 rounded-md cursor-pointer ${selectedId === node.id ? 'bg-accent/10 text-accent shadow-sm' : 'hover:bg-muted/10 text-muted hover:text-foreground'
+          }`}
       >
         <div className="flex items-center flex-1 min-w-0" onClick={handleClick}>
           {isFolder ? (
             <span className="mr-1.5 text-muted/60 group-hover:text-foreground">
-              {isOpen ? <ChevronDown size={14} strokeWidth={2.5}/> : <ChevronRight size={14} strokeWidth={2.5}/>}
+              {isOpen ? <ChevronDown size={14} strokeWidth={2.5} /> : <ChevronRight size={14} strokeWidth={2.5} />}
             </span>
           ) : <span className="w-5" />}
-          
+
           {isFolder ? (
             <Folder size={15} className={`${selectedId === node.id ? 'text-accent' : 'text-accent/60'} mr-2 fill-current opacity-80`} />
           ) : (
@@ -65,26 +64,26 @@ const FileNodeItem = React.memo(({
           )}
           <span className="text-xs font-semibold truncate">{highlightMatch(node.name, searchTerm || '')}</span>
         </div>
-        
+
         <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity gap-0.5">
           {isFolder && (
-            <button 
-              onClick={(e) => { e.stopPropagation(); onAdd('file', node.id); }} 
+            <button
+              onClick={(e) => { e.stopPropagation(); onAdd('file', node.id); }}
               className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent"
               title="New File"
             >
               <Plus size={14} />
             </button>
           )}
-          <button 
-            onClick={(e) => { e.stopPropagation(); onRename(node.id); }} 
+          <button
+            onClick={(e) => { e.stopPropagation(); onRename(node.id); }}
             className="p-1 hover:bg-card hover:shadow-sm rounded text-muted hover:text-accent"
             title="Rename"
           >
             <Edit2 size={14} />
           </button>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onDelete(node.id); }} 
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(node.id); }}
             className="p-1 text-muted hover:text-red-500 hover:bg-card hover:shadow-sm rounded"
             title="Delete"
           >
@@ -96,11 +95,11 @@ const FileNodeItem = React.memo(({
       {isFolder && (isOpen || isSearching) && (
         <div className="ml-3.5 pl-2 border-l border-border mt-0.5 space-y-0.5">
           {node.children?.map(child => (
-            <FileNodeItem 
-              key={child.id} 
-              node={child} 
-              onDelete={onDelete} 
-              onRename={onRename} 
+            <FileNodeItem
+              key={child.id}
+              node={child}
+              onDelete={onDelete}
+              onRename={onRename}
               onAdd={onAdd}
               onSelect={onSelect}
               selectedId={selectedId}

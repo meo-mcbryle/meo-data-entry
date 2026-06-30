@@ -41,3 +41,5 @@ self.onmessage = (e: MessageEvent) => {
   }
   self.postMessage(results);
 };
+
+export {};

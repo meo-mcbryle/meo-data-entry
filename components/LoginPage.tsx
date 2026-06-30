@@ -9,12 +9,14 @@ export const LoginPage = React.memo(() => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setInfo(null);
 
     if (lockoutUntil && Date.now() < lockoutUntil) {
       setError(`Too many attempts. Please try again in ${Math.ceil((lockoutUntil - Date.now()) / 1000)} seconds.`);
@@ -38,7 +40,7 @@ export const LoginPage = React.memo(() => {
   };
 
   return (
-    <div className="relative min-h-screen w-full flex items-center justify-center bg-background overflow-hidden select-none transition-colors duration-300">
+    <div className="relative min-h-screen w-full flex items-center justify-center bg-background overflow-hidden transition-colors duration-300">
       {/* High-Tech Mechanical Blueprint Background */}
       <MechanicalBlueprint />
 
@@ -101,7 +103,7 @@ export const LoginPage = React.memo(() => {
               <label className="text-[11px] font-semibold font-mono text-muted uppercase tracking-widest">Password</label>
               <button 
                 type="button" 
-                onClick={() => alert("Password reset must be initiated via administrator portal.")}
+                onClick={() => { setInfo("Password reset must be initiated via administrator portal."); setError(null); }}
                 className="text-[10px] font-mono text-accent hover:text-accent-foreground/80 hover:underline transition-colors uppercase tracking-wider cursor-pointer"
               >
                 Forgot Password?
@@ -122,6 +124,12 @@ export const LoginPage = React.memo(() => {
               <div className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-accent scale-x-0 group-focus-within/field:scale-x-100 transition-transform duration-350 origin-center" />
             </div>
           </div>
+
+          {info && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 dark:text-amber-400 text-xs font-mono font-medium animate-pulse">
+              INFO // {info}
+            </div>
+          )}
 
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 dark:text-red-400 text-xs font-mono font-medium animate-pulse">

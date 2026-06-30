@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { buildTree, FileNode, findNodeById } from '@/lib/tree-utils';
 import { TrashNode } from '@/lib/types';
 import type { User } from '@supabase/supabase-js';
+import { LocalDB, db } from '@/lib/local-db';
 
 export function useFileExplorer(
   user: User | null,
@@ -17,35 +18,104 @@ export function useFileExplorer(
 
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('nodes')
-      .select('id, name, type, parent_id, created_at, size_bytes, is_deleted, deleted_at, deleted_by')
-      .order('name');
     
-    if (error) {
-      console.error('Error fetching files:', error.message);
-    } else if (data) {
-      setTree(buildTree(data.filter((n: any) => !n.is_deleted) as FileNode[]));
-      setDeletedNodes(
-        data
-          .filter((n: any) => n.is_deleted)
-          .sort((a: any, b: any) => new Date(b.deleted_at || 0).getTime() - new Date(a.deleted_at || 0).getTime()) as TrashNode[]
-      );
+    // 1. Instantly load files from local IndexedDB cache
+    try {
+      const localNodes = await LocalDB.getNodes();
+      if (localNodes.length > 0) {
+        setTree(buildTree(localNodes.filter((n: any) => !n.is_deleted) as FileNode[]));
+        setDeletedNodes(
+          localNodes
+            .filter((n: any) => n.is_deleted)
+            .sort((a: any, b: any) => new Date(b.deleted_at || 0).getTime() - new Date(a.deleted_at || 0).getTime()) as TrashNode[]
+        );
+      }
+    } catch (err) {
+      console.error("Dexie local load failed:", err);
     }
-    setIsLoading(false);
+
+    // 2. Fetch remote updates to synchronize
+    try {
+      const { data, error } = await supabase
+        .from('nodes')
+        .select('id, name, type, parent_id, created_at, size_bytes, is_deleted, deleted_at, deleted_by')
+        .order('name');
+      
+      if (error) {
+        console.warn('Supabase fetch failed, relying on offline registry:', error.message);
+      } else if (data) {
+        // Overlay online data into Dexie (excluding items currently pending in local sync queue)
+        const queue = await LocalDB.getSyncQueue();
+        const unsyncedIds = new Set(queue.map(item => item.record_id));
+
+        for (const n of data) {
+          if (!unsyncedIds.has(n.id)) {
+            // Keep existing local hash if we already have one cache
+            const existing = await LocalDB.getNode(n.id);
+            await LocalDB.saveNode({
+              ...existing,
+              id: n.id,
+              name: n.name,
+              type: n.type,
+              parent_id: n.parent_id,
+              created_at: n.created_at,
+              size_bytes: n.size_bytes,
+              is_deleted: n.is_deleted,
+              deleted_at: n.deleted_at,
+              deleted_by: n.deleted_by,
+              updated_at: new Date().toISOString(),
+              version: existing?.version || 1,
+              last_synced_hash: existing?.last_synced_hash || ''
+            }, true); // bypassSyncQueue = true
+          }
+        }
+
+        // Re-read local DB to display unified listings
+        const refreshedNodes = await LocalDB.getNodes();
+        setTree(buildTree(refreshedNodes.filter((n: any) => !n.is_deleted) as FileNode[]));
+        setDeletedNodes(
+          refreshedNodes
+            .filter((n: any) => n.is_deleted)
+            .sort((a: any, b: any) => new Date(b.deleted_at || 0).getTime() - new Date(a.deleted_at || 0).getTime()) as TrashNode[]
+        );
+      }
+    } catch (e) {
+      console.error('Remote fetch sync failed:', e);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const addItem = useCallback(async (type: 'file' | 'folder', parentId: string | null = null) => {
     const name = window.prompt(`Enter ${type} name:`);
     if (!name) return;
 
-    const { data, error } = await supabase.from('nodes').insert([{ name, type, parent_id: parentId }]).select().single();
-    if (error) {
-      alert(`Failed to create ${type}: ${error.message}`);
-      return;
+    const id = crypto.randomUUID();
+    const newNode = {
+      id,
+      name,
+      type,
+      parent_id: parentId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      version: 1,
+      is_deleted: false
+    };
+
+    // Save locally & queue sync
+    await LocalDB.insertNode(newNode);
+
+    try {
+      const { error } = await supabase.from('nodes').insert([newNode]);
+      if (!error) {
+        // Clear sync queue item if successfully pushed
+        await db.sync_queue.where({ record_id: id }).delete();
+      }
+    } catch (e) {
+      console.log('Mutation cached offline');
     }
     
-    if (data) await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', data.id, { name });
+    await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', id, { name });
     fetchFiles();
   }, [logAction, fetchFiles]);
 
@@ -54,11 +124,24 @@ export function useFileExplorer(
     const name = window.prompt('Enter new name:', node?.name);
     if (!name) return;
 
-    const { error } = await supabase.from('nodes').update({ name }).eq('id', id);
-    if (error) {
-      alert(`Failed to rename: ${error.message}`);
-      return;
+    const local = await LocalDB.getNode(id);
+    if (!local) return;
+
+    local.name = name;
+    local.updated_at = new Date().toISOString();
+    local.version += 1;
+
+    await LocalDB.saveNode(local);
+
+    try {
+      const { error } = await supabase.from('nodes').update({ name, updated_at: local.updated_at, version: local.version }).eq('id', id);
+      if (!error) {
+        await db.sync_queue.where({ record_id: id }).delete();
+      }
+    } catch (e) {
+      console.log('Mutation cached offline');
     }
+    
     await logAction('RENAMED', id, { old_name: node?.name, new_name: name });
     fetchFiles();
   }, [tree, logAction, fetchFiles]);
@@ -66,30 +149,63 @@ export function useFileExplorer(
   const handleDelete = useCallback(async (id: string) => {
     if (!user) return;
     if (!window.confirm('Move this item to Trash?')) return;
-    const { error } = await supabase.from('nodes').update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: user.email }).eq('id', id);
-    if (error) {
-      alert(`Failed to delete: ${error.message}`);
-      return;
+
+    await LocalDB.deleteNode(id, user.email);
+
+    try {
+      const { error } = await supabase.from('nodes').update({ is_deleted: true, deleted_at: new Date().toISOString(), deleted_by: user.email }).eq('id', id);
+      if (!error) {
+        await db.sync_queue.where({ record_id: id }).delete();
+      }
+    } catch (e) {
+      console.log('Mutation cached offline');
     }
+
     await logAction('MOVED_TO_TRASH', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
   }, [user, tree, logAction, selectedId, fetchFiles]);
 
   const handleRestore = useCallback(async (id: string) => {
-    const { error } = await supabase.from('nodes').update({ is_deleted: false, deleted_at: null, deleted_by: null }).eq('id', id);
-    if (error) {
-      alert(`Failed to restore: ${error.message}`);
-      return;
+    const local = await LocalDB.getNode(id);
+    if (!local) return;
+
+    local.is_deleted = false;
+    local.deleted_at = null;
+    local.deleted_by = null;
+    local.updated_at = new Date().toISOString();
+    local.version += 1;
+
+    await LocalDB.saveNode(local);
+
+    try {
+      const { error } = await supabase.from('nodes').update({ is_deleted: false, deleted_at: null, deleted_by: null, updated_at: local.updated_at, version: local.version }).eq('id', id);
+      if (!error) {
+        await db.sync_queue.where({ record_id: id }).delete();
+      }
+    } catch (e) {
+      console.log('Mutation cached offline');
     }
+
     await logAction('RESTORED', id);
     fetchFiles();
   }, [logAction, fetchFiles]);
 
   const handlePermanentDelete = useCallback(async (id: string) => {
     if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
-    const { error } = await supabase.from('nodes').delete().eq('id', id);
-    if (!error) fetchFiles();
+    
+    await LocalDB.hardDeleteNode(id);
+
+    try {
+      const { error } = await supabase.from('nodes').delete().eq('id', id);
+      if (!error) {
+        await db.sync_queue.where({ record_id: id }).delete();
+      }
+    } catch (e) {
+      console.log('Mutation cached offline');
+    }
+
+    fetchFiles();
   }, [fetchFiles]);
 
   const handleShare = useCallback(() => {
