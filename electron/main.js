@@ -2,6 +2,7 @@ const { app, BrowserWindow, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 
@@ -72,6 +73,12 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  // Check for updates automatically in production packaged app
+  if (app.isPackaged) {
+    autoUpdater.logger = console;
+    autoUpdater.checkForUpdatesAndNotify();
+  }
 });
 
 app.on('window-all-closed', () => {

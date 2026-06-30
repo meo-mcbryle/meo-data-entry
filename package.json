@@ -11,7 +11,9 @@
     "electron:dev": "node electron/dev.js",
     "electron:build": "next build && electron-builder"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
   "devDependencies": {
     "@next/eslint-plugin-next": "16.2.7",
     "@supabase/supabase-js": "^2.105.1",
@@ -34,6 +36,13 @@
   "build": {
     "appId": "com.meo.dataentry",
     "productName": "MEO Data Entry",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "meo-mcbryle",
+        "repo": "meo-data-entry"
+      }
+    ],
     "directories": {
       "output": "dist"
     },
