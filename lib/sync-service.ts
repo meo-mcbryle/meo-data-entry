@@ -24,6 +24,43 @@ const cleanPayload = (payload: any) => {
 };
 
 export const SyncService = {
+  // Pulls latest remote nodes metadata and updates the local IndexedDB cache
+  async pullRemoteUpdates(): Promise<void> {
+    const { data: remoteNodes, error } = await supabase
+      .from('nodes')
+      .select('id, name, type, parent_id, created_at, size_bytes, is_deleted, deleted_at, deleted_by');
+
+    if (error) {
+      throw new Error(`Failed to fetch latest remote nodes: ${error.message}`);
+    }
+
+    if (remoteNodes) {
+      const queue = await LocalDB.getSyncQueue();
+      const unsyncedIds = new Set(queue.map(item => item.record_id));
+
+      for (const remote of remoteNodes) {
+        if (!unsyncedIds.has(remote.id)) {
+          const existing = await LocalDB.getNode(remote.id);
+          await LocalDB.saveNode({
+            ...existing,
+            id: remote.id,
+            name: remote.name,
+            type: remote.type,
+            parent_id: remote.parent_id,
+            created_at: remote.created_at,
+            size_bytes: remote.size_bytes,
+            is_deleted: remote.is_deleted,
+            deleted_at: remote.deleted_at,
+            deleted_by: remote.deleted_by,
+            updated_at: new Date().toISOString(),
+            version: existing?.version || 1,
+            last_synced_hash: existing?.last_synced_hash || ''
+          }, true); // bypassSyncQueue = true
+        }
+      }
+    }
+  },
+
   // Checks local vs remote and returns conflicts
   async checkSyncState(): Promise<{ conflicts: SyncConflict[]; queueLength: number }> {
     const queue = await LocalDB.getSyncQueue();

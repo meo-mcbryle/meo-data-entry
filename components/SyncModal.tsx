@@ -22,9 +22,16 @@ export const SyncModal = ({ isOpen, onClose, onSyncCompleted }: SyncModalProps) 
     setChecking(true);
     setSyncError(null);
     try {
+      // 1. Pull remote updates first to synchronize the local DB with any remote modifications (e.g. renames)
+      await SyncService.pullRemoteUpdates();
+
+      // 2. Scan conflicts and queue length
       const { conflicts: items, queueLength: len } = await SyncService.checkSyncState();
       setConflicts(items);
       setQueueLength(len);
+
+      // 3. Inform parent component that the local database has been updated
+      onSyncCompleted();
     } catch (e: any) {
       setSyncError(`Sync check failed: ${e.message}`);
     } finally {
