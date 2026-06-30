@@ -21,6 +21,7 @@ import { NavigationSidebar } from '@/components/NavigationSidebar';
 import { DropdownMenu } from '@/components/DropdownMenu';
 import { MediaPreviewModal } from '@/components/MediaPreviewModal';
 import { SyncModal } from '@/components/SyncModal';
+import { CustomDialog } from '@/components/CustomDialog';
 import { GRID_THEME } from '@/lib/constants';
 import {
   Clock, User, HardDrive, Folder, Save, Code, Table as TableIcon, Trash2,
@@ -121,7 +122,13 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
     handleRestore,
     handlePermanentDelete,
     handleShare,
-    activeNode
+    activeNode,
+    explorerDialog,
+    setExplorerDialog,
+    confirmAdd,
+    confirmRename,
+    confirmDelete,
+    confirmPermanentDelete
   } = useFileExplorer(user, logAction);
 
   // 3. Spreadsheet Operations Hook
@@ -612,6 +619,29 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           isOpen={isSyncModalOpen}
           onClose={() => setIsSyncModalOpen(false)}
           onSyncCompleted={() => fetchFiles()}
+        />
+
+        {/* Custom Dialog for Explorer actions */}
+        <CustomDialog
+          isOpen={!!explorerDialog}
+          type={explorerDialog?.type.startsWith('prompt') ? 'prompt' : 'confirm'}
+          title={explorerDialog?.title || ''}
+          message={explorerDialog?.message || ''}
+          defaultValue={explorerDialog?.defaultValue}
+          isDestructive={explorerDialog?.type === 'confirm-delete' || explorerDialog?.type === 'confirm-permanent-delete'}
+          onConfirm={(val) => {
+            if (!explorerDialog) return;
+            if (explorerDialog.type === 'confirm-delete') {
+              confirmDelete(explorerDialog.id);
+            } else if (explorerDialog.type === 'confirm-permanent-delete') {
+              confirmPermanentDelete(explorerDialog.id);
+            } else if (explorerDialog.type === 'prompt-rename') {
+              confirmRename(explorerDialog.id, val);
+            } else if (explorerDialog.type === 'prompt-add') {
+              confirmAdd(explorerDialog.nodeType || 'file', val, explorerDialog.id || null);
+            }
+          }}
+          onCancel={() => setExplorerDialog(null)}
         />
       </div>
     </main>

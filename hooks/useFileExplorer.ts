@@ -15,6 +15,14 @@ export function useFileExplorer(
   const [deletedNodes, setDeletedNodes] = useState<TrashNode[]>([]);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
+  const [explorerDialog, setExplorerDialog] = useState<{
+    type: 'confirm-delete' | 'confirm-permanent-delete' | 'prompt-rename' | 'prompt-add';
+    id: string;
+    nodeType?: 'file' | 'folder';
+    title: string;
+    message: string;
+    defaultValue?: string;
+  } | null>(null);
 
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
@@ -87,7 +95,38 @@ export function useFileExplorer(
   }, []);
 
   const addItem = useCallback(async (type: 'file' | 'folder', parentId: string | null = null) => {
-    const name = window.prompt(`Enter ${type} name:`);
+    setExplorerDialog({
+      type: 'prompt-add',
+      id: parentId || '',
+      nodeType: type,
+      title: `New ${type === 'file' ? 'File' : 'Folder'}`,
+      message: `Enter ${type} name:`,
+      defaultValue: '',
+    });
+  }, []);
+
+  const handleRename = useCallback(async (id: string) => {
+    const node = findNodeById(tree, id);
+    setExplorerDialog({
+      type: 'prompt-rename',
+      id,
+      title: 'Rename Item',
+      message: 'Enter new name:',
+      defaultValue: node?.name || '',
+    });
+  }, [tree]);
+
+  const handleDelete = useCallback(async (id: string) => {
+    const node = findNodeById(tree, id);
+    setExplorerDialog({
+      type: 'confirm-delete',
+      id,
+      title: 'Move to Trash',
+      message: `Move "${node?.name || 'this item'}" to Trash?`,
+    });
+  }, [tree]);
+
+  const confirmAdd = useCallback(async (type: 'file' | 'folder', name: string, parentId: string | null) => {
     if (!name) return;
 
     const id = crypto.randomUUID();
@@ -95,20 +134,18 @@ export function useFileExplorer(
       id,
       name,
       type,
-      parent_id: parentId,
+      parent_id: parentId || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       version: 1,
       is_deleted: false
     };
 
-    // Save locally & queue sync
     await LocalDB.insertNode(newNode);
 
     try {
       const { error } = await supabase.from('nodes').insert([newNode]);
       if (!error) {
-        // Clear sync queue item if successfully pushed
         await db.sync_queue.where({ record_id: id }).delete();
       }
     } catch (e) {
@@ -117,12 +154,12 @@ export function useFileExplorer(
     
     await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', id, { name });
     fetchFiles();
+    setExplorerDialog(null);
   }, [logAction, fetchFiles]);
 
-  const handleRename = useCallback(async (id: string) => {
-    const node = findNodeById(tree, id);
-    const name = window.prompt('Enter new name:', node?.name);
+  const confirmRename = useCallback(async (id: string, name: string) => {
     if (!name) return;
+    const node = findNodeById(tree, id);
 
     const local = await LocalDB.getNode(id);
     if (!local) return;
@@ -144,11 +181,11 @@ export function useFileExplorer(
     
     await logAction('RENAMED', id, { old_name: node?.name, new_name: name });
     fetchFiles();
+    setExplorerDialog(null);
   }, [tree, logAction, fetchFiles]);
 
-  const handleDelete = useCallback(async (id: string) => {
+  const confirmDelete = useCallback(async (id: string) => {
     if (!user) return;
-    if (!window.confirm('Move this item to Trash?')) return;
 
     await LocalDB.deleteNode(id, user.email);
 
@@ -164,6 +201,7 @@ export function useFileExplorer(
     await logAction('MOVED_TO_TRASH', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
     fetchFiles();
+    setExplorerDialog(null);
   }, [user, tree, logAction, selectedId, fetchFiles]);
 
   const handleRestore = useCallback(async (id: string) => {
@@ -192,8 +230,16 @@ export function useFileExplorer(
   }, [logAction, fetchFiles]);
 
   const handlePermanentDelete = useCallback(async (id: string) => {
-    if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
-    
+    const node = deletedNodes.find(n => n.id === id);
+    setExplorerDialog({
+      type: 'confirm-permanent-delete',
+      id,
+      title: 'Permanently Delete',
+      message: `Permanently delete "${node?.name || 'this item'}"? This cannot be undone.`,
+    });
+  }, [deletedNodes]);
+
+  const confirmPermanentDelete = useCallback(async (id: string) => {
     await LocalDB.hardDeleteNode(id);
 
     try {
@@ -206,6 +252,7 @@ export function useFileExplorer(
     }
 
     fetchFiles();
+    setExplorerDialog(null);
   }, [fetchFiles]);
 
   const handleShare = useCallback(() => {
@@ -240,6 +287,12 @@ export function useFileExplorer(
     handleRestore,
     handlePermanentDelete,
     handleShare,
-    activeNode
+    activeNode,
+    explorerDialog,
+    setExplorerDialog,
+    confirmAdd,
+    confirmRename,
+    confirmDelete,
+    confirmPermanentDelete
   };
 }
