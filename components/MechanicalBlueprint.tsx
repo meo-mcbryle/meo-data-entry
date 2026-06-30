@@ -34,7 +34,7 @@ interface TracePulse {
 
 export const MechanicalBlueprint: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [fps, setFps] = useState(60);
+  const fpsRef = useRef(60);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -568,7 +568,7 @@ export const MechanicalBlueprint: React.FC = () => {
         `ENCRYPTION: AES_256_GCM // SHIELD: ON`,
         `PORTAL.STATE: ESTABLISHING_HANDSHAKE`,
         `TELEMETRY_LOGS: ACTIVE // PIPE_OK`,
-        `FRAME.RENDER: CANVAS2D // FPS: ${fps}`
+        `FRAME.RENDER: CANVAS2D // FPS: ${fpsRef.current}`
       ];
 
       metricsR.forEach((metric, idx) => {
@@ -653,7 +653,7 @@ export const MechanicalBlueprint: React.FC = () => {
       // FPS tracking
       frameCount++;
       if (timestamp - lastTime >= 1000) {
-        setFps(Math.round((frameCount * 1000) / (timestamp - lastTime)));
+        fpsRef.current = Math.round((frameCount * 1000) / (timestamp - lastTime));
         frameCount = 0;
         lastTime = timestamp;
       }
@@ -725,7 +725,7 @@ export const MechanicalBlueprint: React.FC = () => {
       window.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
-  }, [fps]);
+  }, []);
 
   return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block z-0 pointer-events-none" />;
 };
