@@ -4,7 +4,7 @@ import {
   ChevronRight as ChevronRightIcon, Plus, RefreshCcw, HardDrive,
   Minimize2, Maximize2, Table as TableIcon, X, AlignLeft, AlignCenter,
   AlignRight, EyeOff, FolderPlus, Trash2, Calendar, Image as ImageIcon,
-  Paperclip, FileText, Code, ArrowUp, Loader2
+  Paperclip, FileText, Code, ArrowUp, Loader2, Copy, Clipboard
 } from 'lucide-react';
 import { toA1Key, getExcelColumnLabel } from '@/lib/excel-utils';
 import { GRID_THEME, FONT_FAMILIES, DATE_FORMATS, NUMBER_FORMATS } from '@/lib/constants';
@@ -118,7 +118,9 @@ export const TableEditor = ({
     formulaBarRef,
     setCellType,
     setSelectionAlignment,
-    insertMedia
+    insertMedia,
+    handleCopyCells,
+    handlePasteCells
   } = spreadsheet;
   const [rowFilter, setRowFilter] = useState<string>('');
   const [newColName, setNewColName] = useState<string>('');
@@ -147,6 +149,28 @@ export const TableEditor = ({
   const handleLocalEditing = useCallback((val: string) => {
     setEditingValue(val);
   }, []);
+
+  // Delete key: clear the active cell's content when it's selected but NOT actively being edited in an input/textarea
+  useEffect(() => {
+    const handleDeleteKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!activeCell) return;
+
+      // Don't intercept if user is typing inside a cell editor input/textarea
+      const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
+      // Don't intercept if user is typing in a search/filter input
+      const el = document.activeElement as HTMLElement;
+      if (el?.closest('[data-no-delete-intercept]')) return;
+
+      e.preventDefault();
+      handleUpdateCell(activeCell.row, activeCell.col, '');
+    };
+
+    window.addEventListener('keydown', handleDeleteKey);
+    return () => window.removeEventListener('keydown', handleDeleteKey);
+  }, [activeCell, handleUpdateCell]);
 
   const DEFAULT_ROW_HEIGHT = 30;
 
@@ -691,6 +715,26 @@ export const TableEditor = ({
               </>
             ) : (
               <>
+                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Clipboard</div>
+                <button
+                  onClick={() => {
+                    handleCopyCells(selection, contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Copy size={13} className="text-accent" /> Copy
+                </button>
+                <button
+                  onClick={() => {
+                    handlePasteCells(contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
+                    setContextMenu(null);
+                  }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                >
+                  <Clipboard size={13} className="text-accent" /> Paste
+                </button>
+                <div className="h-px bg-border/50 my-1 mx-2"></div>
                 <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Selection Actions</div>
                 <button
                   onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}

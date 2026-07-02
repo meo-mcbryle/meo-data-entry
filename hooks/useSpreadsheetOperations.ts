@@ -98,6 +98,9 @@ export function useSpreadsheetOperations({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLTextAreaElement>(null);
 
+  // Internal clipboard: stores grid rows × cols of copied cell values
+  const clipboardRef = useRef<{ rows: number[]; cols: string[]; values: Map<string, any> } | null>(null);
+
   // Auto-expand formula bar height based on content
   useEffect(() => {
     if (formulaBarRef.current) {
@@ -1537,6 +1540,110 @@ export function useSpreadsheetOperations({
     setContextMenu({ x, y, row, col, type, sectionName });
   }, []);
 
+  // ─── Copy / Paste ────────────────────────────────────────────────────────
+  const handleCopyCells = useCallback(async (
+    sel: { startRow: number; endRow: number; startCol: string; endCol: string } | null,
+    cell: { row: number; col: string } | null,
+    headers: string[]
+  ) => {
+    const current = stateRef.current;
+
+    // Determine the range to copy
+    let rowMin: number, rowMax: number, colMin: number, colMax: number;
+    if (sel) {
+      rowMin = Math.min(sel.startRow, sel.endRow);
+      rowMax = Math.max(sel.startRow, sel.endRow);
+      colMin = Math.min(headers.indexOf(sel.startCol), headers.indexOf(sel.endCol));
+      colMax = Math.max(headers.indexOf(sel.startCol), headers.indexOf(sel.endCol));
+    } else if (cell) {
+      rowMin = rowMax = cell.row;
+      colMin = colMax = headers.indexOf(cell.col);
+    } else {
+      return;
+    }
+
+    const rows: number[] = [];
+    for (let r = rowMin; r <= rowMax; r++) rows.push(r);
+    const cols: string[] = [];
+    for (let c = colMin; c <= colMax; c++) cols.push(headers[c]);
+
+    // Snapshot values into internal clipboard
+    const values = new Map<string, any>();
+    rows.forEach(r => {
+      cols.forEach(col => {
+        const colIdx = current.masterColumnOrder.indexOf(col);
+        if (colIdx === -1) return;
+        const key = toA1Key(r, colIdx);
+        const val = current.gridData.get(key);
+        if (val !== undefined && val !== '') values.set(`${r}:${col}`, val);
+      });
+    });
+    clipboardRef.current = { rows, cols, values };
+
+    // Also write TSV to system clipboard for interop
+    try {
+      const tsv = rows.map(r =>
+        cols.map(col => {
+          const colIdx = current.masterColumnOrder.indexOf(col);
+          const key = colIdx !== -1 ? toA1Key(r, colIdx) : '';
+          return String(current.gridData.get(key) ?? '');
+        }).join('\t')
+      ).join('\n');
+      await navigator.clipboard.writeText(tsv);
+    } catch {
+      // Clipboard API not available — internal clipboard still works
+    }
+  }, []);
+
+  const handlePasteCells = useCallback(async (
+    targetCell: { row: number; col: string } | null,
+    headers: string[]
+  ) => {
+    if (!targetCell) return;
+    const current = stateRef.current;
+
+    const applyPaste = (rows: string[][], targetRow: number, targetColIdx: number) => {
+      saveStateToHistory();
+      setGridData(prev => {
+        const next = new Map(prev);
+        rows.forEach((rowVals, ri) => {
+          rowVals.forEach((val, ci) => {
+            const rIdx = targetRow + ri;
+            const cIdx = targetColIdx + ci;
+            const col = headers[cIdx];
+            if (!col) return;
+            const masterIdx = current.masterColumnOrder.indexOf(col);
+            if (masterIdx === -1) return;
+            const key = toA1Key(rIdx, masterIdx);
+            next.set(key, val);
+          });
+        });
+        return next;
+      });
+    };
+
+    const targetColIdx = headers.indexOf(targetCell.col);
+    if (targetColIdx === -1) return;
+
+    // Prefer internal clipboard (preserves types & structure)
+    if (clipboardRef.current) {
+      const { rows, cols, values } = clipboardRef.current;
+      const matrix = rows.map(r => cols.map(col => String(values.get(`${r}:${col}`) ?? '')));
+      applyPaste(matrix, targetCell.row, targetColIdx);
+      return;
+    }
+
+    // Fallback: read TSV from system clipboard
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const matrix = text.split('\n').map(row => row.split('\t'));
+      applyPaste(matrix, targetCell.row, targetColIdx);
+    } catch {
+      // Clipboard read permission denied — nothing to do
+    }
+  }, [saveStateToHistory, setGridData]);
+
   return {
     // Grid states
     gridData,
@@ -1632,6 +1739,8 @@ export function useSpreadsheetOperations({
     handleSave,
     handleResetWidths,
     fileInputRef,
-    formulaBarRef
+    formulaBarRef,
+    handleCopyCells,
+    handlePasteCells
   };
 }
