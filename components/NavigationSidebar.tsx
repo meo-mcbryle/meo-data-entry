@@ -5,6 +5,7 @@ import {
 import { FileNode } from '@/lib/tree-utils';
 import { ThemeToggle } from './ThemeToggle';
 import { GRID_THEME } from '@/lib/constants';
+import { UpdateModal } from './UpdateModal';
 
 interface NavigationSidebarProps {
   isExplorerVisible: boolean;
@@ -34,6 +35,27 @@ export const NavigationSidebar = ({
   activeNode
 }: NavigationSidebarProps) => {
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  // Fetch app version from Electron main process (only available in Electron env)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI) {
+      window.electronAPI.getVersion().then(setAppVersion).catch(() => {});
+    }
+  }, []);
+
+  // Listen for update status events
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI?.onUpdateStatus) return;
+    const cleanup = window.electronAPI.onUpdateStatus((data) => {
+      if (data.status === 'available') setUpdateAvailable(true);
+      if (data.status === 'downloaded') setUpdateAvailable(true);
+      if (data.status === 'not-available') setUpdateAvailable(false);
+    });
+    return cleanup;
+  }, []);
 
   // Load preferences from local storage on mount
   useEffect(() => {
@@ -152,6 +174,23 @@ export const NavigationSidebar = ({
           <ThemeToggle />
 
           <div className="h-px w-6 bg-border self-center" />
+
+          {appVersion && (
+            <button
+              onClick={() => setShowUpdateModal(true)}
+              className="relative group flex flex-col items-center"
+              title={updateAvailable ? 'Update available — click to open' : `MEO Data Entry v${appVersion}`}
+            >
+              <span className="text-[9px] font-mono text-muted/40 group-hover:text-muted/70 text-center leading-none select-none transition-colors">
+                v{appVersion}
+              </span>
+              {updateAvailable && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-violet-500 shadow-[0_0_6px_2px_rgba(139,92,246,0.6)] animate-pulse" />
+              )}
+            </button>
+          )}
+
+          <UpdateModal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} />
 
           <button
             onClick={handleLogout}
