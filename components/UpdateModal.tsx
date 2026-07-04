@@ -1,5 +1,6 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import {
   Download, RefreshCw, Zap, X, CheckCircle2, AlertTriangle,
   ArrowDownCircle, Loader2, Shield
@@ -43,10 +44,25 @@ function formatSpeed(bps?: number): string {
   return `${formatBytes(bps)}/s`;
 }
 
+/** Mirrors the html element's .dark class onto the portal wrapper so Tailwind tokens resolve. */
+function useThemeClass() {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const el = document.documentElement;
+    const update = () => setIsDark(el.classList.contains('dark'));
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark ? 'dark' : '';
+}
+
 export const UpdateModal = ({ isOpen, onClose }: UpdateModalProps) => {
   const [status, setStatus] = useState<UpdateStatus>('idle');
   const [info, setInfo] = useState<UpdateInfo>({});
   const cleanupRef = useRef<(() => void) | null>(null);
+  const themeClass = useThemeClass();
 
   // Register IPC listener on mount
   useEffect(() => {
@@ -109,64 +125,53 @@ export const UpdateModal = ({ isOpen, onClose }: UpdateModalProps) => {
 
   const progress = info.percent ?? 0;
 
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center"
-      style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
+  const modal = (
+    // Portal wrapper inherits the current theme class so all Tailwind tokens resolve
+    <div className={themeClass}>
       <div
-        className="relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-2xl"
-        style={{
-          background: 'linear-gradient(135deg, var(--surface, #1a1a2e) 0%, var(--surface2, #16213e) 100%)',
-          border: '1px solid rgba(255,255,255,0.08)',
-        }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       >
-        {/* Top accent bar */}
-        <div
-          className="h-[3px] w-full"
-          style={{ background: 'linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4)' }}
-        />
+        <div className="relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-2xl bg-card border border-border">
+          {/* Top accent bar */}
+          <div className="h-[3px] w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500" />
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 pt-5 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600">
+                <Shield size={18} className="text-white" />
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Software Update</h2>
+                <p className="text-[11px] text-muted">MEO Data Entry</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-border transition-colors"
             >
-              <Shield size={18} className="text-white" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">Software Update</h2>
-              <p className="text-[11px] text-muted">MEO Data Entry</p>
-            </div>
+              <X size={16} />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            <X size={16} />
-          </button>
-        </div>
 
-        {/* Body */}
-        <div className="px-6 pb-6 flex flex-col gap-5">
-          {/* Status Area */}
-          <StatusDisplay status={status} info={info} progress={progress} />
-
-          {/* Action Buttons */}
-          <ActionButtons
-            status={status}
-            onCheck={handleCheck}
-            onDownload={handleDownload}
-            onInstall={handleInstall}
-            onClose={onClose}
-          />
+          {/* Body */}
+          <div className="px-6 pb-6 flex flex-col gap-5">
+            <StatusDisplay status={status} info={info} progress={progress} />
+            <ActionButtons
+              status={status}
+              onCheck={handleCheck}
+              onDownload={handleDownload}
+              onInstall={handleInstall}
+              onClose={onClose}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
+
+  return ReactDOM.createPortal(modal, document.body);
 };
 
 // ─── Status Display ───────────────────────────────────────────────────────────
@@ -192,9 +197,8 @@ function StatusDisplay({ status, info, progress }: {
 function IdleState() {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-        style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)' }}>
-        <RefreshCw size={24} className="text-indigo-400" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20">
+        <RefreshCw size={24} className="text-indigo-500" />
       </div>
       <p className="text-sm text-muted text-center">Ready to check for available updates.</p>
     </div>
@@ -204,9 +208,8 @@ function IdleState() {
 function CheckingState() {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-        style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)' }}>
-        <Loader2 size={24} className="text-indigo-400 animate-spin" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20">
+        <Loader2 size={24} className="text-indigo-500 animate-spin" />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium text-foreground">Checking for updates…</p>
@@ -219,9 +222,8 @@ function CheckingState() {
 function UpToDateState() {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-        style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.2)' }}>
-        <CheckCircle2 size={24} className="text-emerald-400" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20">
+        <CheckCircle2 size={24} className="text-emerald-500" />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium text-foreground">You're up to date!</p>
@@ -235,9 +237,8 @@ function AvailableState({ info }: { info: UpdateInfo }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.25)' }}>
-          <ArrowDownCircle size={22} className="text-violet-400" />
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-violet-500/10 border border-violet-500/20">
+          <ArrowDownCircle size={22} className="text-violet-500" />
         </div>
         <div>
           <p className="text-sm font-semibold text-foreground">
@@ -254,10 +255,7 @@ function AvailableState({ info }: { info: UpdateInfo }) {
         </div>
       </div>
       {info.releaseNotes && (
-        <div
-          className="rounded-xl p-3 text-[11px] text-muted leading-relaxed max-h-24 overflow-y-auto"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
-        >
+        <div className="rounded-xl p-3 text-[11px] text-muted leading-relaxed max-h-24 overflow-y-auto bg-border/40 border border-border">
           {info.releaseNotes}
         </div>
       )}
@@ -269,14 +267,13 @@ function DownloadingState({ info, progress }: { info: UpdateInfo; progress: numb
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.2)' }}>
-          <Download size={18} className="text-cyan-400" />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-cyan-500/10 border border-cyan-500/20">
+          <Download size={18} className="text-cyan-500" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-medium text-foreground">Downloading update…</p>
-            <span className="text-sm font-bold text-cyan-400 tabular-nums">{progress}%</span>
+            <span className="text-sm font-bold text-cyan-500 tabular-nums">{progress}%</span>
           </div>
           <p className="text-[11px] text-muted truncate">
             {formatBytes(info.transferred)} of {formatBytes(info.total)}
@@ -286,34 +283,16 @@ function DownloadingState({ info, progress }: { info: UpdateInfo; progress: numb
       </div>
 
       {/* Progress bar */}
-      <div className="relative h-2 rounded-full overflow-hidden"
-        style={{ background: 'rgba(255,255,255,0.08)' }}>
-        {/* Animated shimmer */}
-        <div
-          className="absolute inset-0 rounded-full opacity-30"
-          style={{
-            background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',
-            backgroundSize: '200% 100%',
-            animation: 'shimmer 1.5s infinite',
-          }}
-        />
+      <div className="relative h-2 rounded-full overflow-hidden bg-border">
         {/* Fill */}
         <div
-          className="h-full rounded-full transition-all duration-300 ease-out relative"
+          className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-indigo-500 to-cyan-500"
           style={{
             width: `${progress}%`,
-            background: 'linear-gradient(90deg, #6366f1, #06b6d4)',
-            boxShadow: '0 0 12px rgba(99,102,241,0.6)',
+            boxShadow: '0 0 10px rgba(99,102,241,0.5)',
           }}
         />
       </div>
-
-      <style>{`
-        @keyframes shimmer {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -322,9 +301,8 @@ function ReadyToInstallState({ info }: { info: UpdateInfo }) {
   return (
     <div className="flex flex-col items-center gap-3 py-2">
       <div className="relative">
-        <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-          style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.2)' }}>
-          <Zap size={24} className="text-emerald-400" />
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-emerald-500/10 border border-emerald-500/20">
+          <Zap size={24} className="text-emerald-500" />
         </div>
         <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
           <CheckCircle2 size={10} className="text-white" />
@@ -345,9 +323,8 @@ function ReadyToInstallState({ info }: { info: UpdateInfo }) {
 function ErrorState({ info }: { info: UpdateInfo }) {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
-        style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.2)' }}>
-        <AlertTriangle size={24} className="text-red-400" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-red-500/10 border border-red-500/20">
+        <AlertTriangle size={24} className="text-red-500" />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium text-foreground">Update failed</p>
@@ -371,19 +348,15 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
   const btnBase =
     'flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
 
-  const primaryBtn =
-    `${btnBase} text-white shadow-lg hover:shadow-indigo-500/30 hover:brightness-110`;
-
-  const ghostBtn =
-    `${btnBase} text-muted hover:text-foreground hover:bg-white/5`;
+  const primaryBtn = `${btnBase} text-white shadow-lg hover:brightness-110`;
+  const ghostBtn   = `${btnBase} text-muted hover:text-foreground hover:bg-border transition-colors`;
 
   if (status === 'idle' || status === 'not-available' || status === 'error') {
     return (
       <div className="flex gap-2">
         <button
           onClick={onCheck}
-          className={primaryBtn}
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', flex: 1 }}
+          className={`${primaryBtn} bg-gradient-to-r from-indigo-500 to-violet-600 flex-1`}
         >
           <RefreshCw size={15} />
           Check for Updates
@@ -397,8 +370,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
 
   if (status === 'checking') {
     return (
-      <button disabled className={`${primaryBtn} w-full opacity-70`}
-        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+      <button disabled className={`${primaryBtn} w-full opacity-70 bg-gradient-to-r from-indigo-500 to-violet-600`}>
         <Loader2 size={15} className="animate-spin" />
         Checking…
       </button>
@@ -410,8 +382,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
       <div className="flex gap-2">
         <button
           onClick={onDownload}
-          className={primaryBtn}
-          style={{ background: 'linear-gradient(135deg, #6366f1, #06b6d4)', flex: 1 }}
+          className={`${primaryBtn} bg-gradient-to-r from-indigo-500 to-cyan-500 flex-1`}
         >
           <Download size={15} />
           Download Update
@@ -425,8 +396,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
 
   if (status === 'downloading') {
     return (
-      <button disabled className={`${primaryBtn} w-full opacity-70`}
-        style={{ background: 'linear-gradient(135deg, #6366f1, #06b6d4)' }}>
+      <button disabled className={`${primaryBtn} w-full opacity-70 bg-gradient-to-r from-indigo-500 to-cyan-500`}>
         <Loader2 size={15} className="animate-spin" />
         Downloading…
       </button>
@@ -438,8 +408,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
       <div className="flex gap-2">
         <button
           onClick={onInstall}
-          className={primaryBtn}
-          style={{ background: 'linear-gradient(135deg, #10b981, #059669)', flex: 1 }}
+          className={`${primaryBtn} bg-gradient-to-r from-emerald-500 to-green-600 flex-1`}
         >
           <Zap size={15} />
           Restart &amp; Install
