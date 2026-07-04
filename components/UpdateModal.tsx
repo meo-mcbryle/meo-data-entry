@@ -79,13 +79,19 @@ export const UpdateModal = ({ isOpen, onClose }: UpdateModalProps) => {
 
   const handleCheck = async () => {
     if (!window.electronAPI?.checkForUpdates) {
-      setStatus('error');
-      setInfo({ message: 'Update API is not available in this environment.' });
+      // Not in a packaged Electron env — just show up-to-date
+      setStatus('checking');
+      setInfo({});
+      setTimeout(() => setStatus('not-available'), 600);
       return;
     }
     setStatus('checking');
     setInfo({});
-    await window.electronAPI.checkForUpdates();
+    const result = await window.electronAPI.checkForUpdates();
+    // dev-mode: main process skips the real check and returns early
+    if (result?.status === 'dev-mode') {
+      setStatus('not-available');
+    }
   };
 
   const handleDownload = async () => {
