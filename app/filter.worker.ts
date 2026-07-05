@@ -25,11 +25,13 @@ self.onmessage = (e: MessageEvent) => {
   const lowerCaseFilter = rowFilter.toLowerCase();
   const results: number[] = [];
 
+  const colIndices = allHeaders
+    .map((header: string) => masterColumnOrder.indexOf(header))
+    .filter((idx: number) => idx !== -1);
+
   for (let i = 0; i < rowCount; i++) {
     let isMatch = false;
-    for (const header of allHeaders) {
-      const colIdx = masterColumnOrder.indexOf(header);
-      if (colIdx === -1) continue;
+    for (const colIdx of colIndices) {
       const key = toA1Key(i, colIdx);
       const val = gridData.get(key);
       if (val !== undefined && String(val).toLowerCase().includes(lowerCaseFilter)) {

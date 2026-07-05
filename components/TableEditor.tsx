@@ -195,6 +195,10 @@ export const TableEditor = ({
   }, []);
 
   useEffect(() => {
+    if (!rowFilter) {
+      setFilteredRowIndices(Array.from({ length: rowCount }, (_, i) => i));
+      return;
+    }
     if (filterWorkerRef.current) {
       filterWorkerRef.current.postMessage({
         rowCount,

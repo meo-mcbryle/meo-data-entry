@@ -27,6 +27,13 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
     if (initialValue !== localValue) setLocalValue(initialValue ?? '');
   }, [initialValue, type]);
 
+  // Cleanup timer on unmount to prevent state updates on unmounted component
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+  }, []);
+
   const handleLocalChange = (val: any) => {
     setLocalValue(val);
     if (onLocalEditing) onLocalEditing(val);

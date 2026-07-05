@@ -15,7 +15,7 @@ interface UseSpreadsheetOperationsOptions {
   activeNode: any;
   selectedId: string | null;
   logAction: (action: string, nodeId: string | null, details?: Record<string, any>) => Promise<void>;
-  fetchFiles: () => Promise<void>;
+  fetchFiles: (silent?: boolean) => Promise<void>;
   isLoadingFile: boolean;
   setIsLoadingFile: React.Dispatch<React.SetStateAction<boolean>>;
   loadProgress: number;
@@ -107,7 +107,7 @@ export function useSpreadsheetOperations({
       formulaBarRef.current.style.height = 'auto';
       formulaBarRef.current.style.height = `${formulaBarRef.current.scrollHeight}px`;
     }
-  }, [activeCell, gridData]);
+  }, [activeCell]);
 
   const allHeaders = useMemo(() => {
     if (columnOrder.length > 0) return columnOrder;
@@ -209,6 +209,7 @@ export function useSpreadsheetOperations({
 
   // Load file content effect
   useEffect(() => {
+    let progressInterval: any = null;
     const loadFileContent = async () => {
       if (!selectedId) {
         setGridData(new Map());
@@ -228,104 +229,109 @@ export function useSpreadsheetOperations({
 
       setIsLoadingFile(true);
       setLoadProgress(0);
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setLoadProgress(prev => (prev < 85 ? prev + Math.ceil((85 - prev) * 0.18) : prev));
       }, 80);
 
-      // 1. Fetch from local Dexie database first
       try {
-        const local = await LocalDB.getNode(selectedId);
-        if (local) {
-          resetHistory();
-          const content = Array.isArray(local.content) ? local.content : [];
-          const ds = local.display_settings || {};
-          
-          const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
-          const master = ds.masterColumnOrder || currentHeaders;
-          
-          setMasterColumnOrder(master);
-          setGridData(dehydrateArrayToMap(content, currentHeaders, master));
-          setRowCount(content.length);
-          
-          setColumnAlignments(ds.columnAlignments || {});
-          setCellAlignments(ds.cellAlignments || {});
-          setColumnOrder(ds.columnOrder || []);
-          setHiddenColumns(ds.hiddenColumns || []);
-          setColumnWidths(ds.columnWidths || {});
-          setCellMetadata(ds.cellMetadata || {});
-          setRowHeights(ds.rowHeights || {});
-          setSelectedYear(ds.selectedYear || '2020');
-          if (pendingActiveCellRef.current) {
-            setActiveCellState(pendingActiveCellRef.current);
-            pendingActiveCellRef.current = null;
-          } else {
-            setActiveCellState(null);
-          }
-        }
-      } catch (err) {
-        console.error("Local load error:", err);
-      }
-
-      // 2. Fetch remote update if online
-      try {
-        const { data, error } = await supabase
-          .from('nodes')
-          .select('content, display_settings')
-          .eq('id', selectedId)
-          .single();
-
-        if (!error && data) {
-          const queue = await LocalDB.getSyncQueue();
-          const isUnsynced = queue.some(item => item.record_id === selectedId);
-
-          if (!isUnsynced) {
-            const currentLocal = await LocalDB.getNode(selectedId);
-            const remoteHash = `${JSON.stringify(data.content || [])}|${JSON.stringify(data.display_settings || {})}`;
-
-            const isLocalContentMissing = !currentLocal || !currentLocal.content;
-
-            if (!currentLocal || currentLocal.last_synced_hash !== remoteHash || isLocalContentMissing) {
-              if (currentLocal) {
-                currentLocal.content = data.content;
-                currentLocal.display_settings = data.display_settings;
-                currentLocal.updated_at = new Date().toISOString();
-                currentLocal.last_synced_hash = remoteHash;
-                await LocalDB.saveNode(currentLocal, true); // bypass queue
-              }
-
-              resetHistory();
-              const content = Array.isArray(data.content) ? data.content : [];
-              const ds = data.display_settings || {};
-              const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
-              const master = ds.masterColumnOrder || currentHeaders;
-              
-              setMasterColumnOrder(master);
-              setGridData(dehydrateArrayToMap(content, currentHeaders, master));
-              setRowCount(content.length);
-              setColumnAlignments(ds.columnAlignments || {});
-              setCellAlignments(ds.cellAlignments || {});
-              setColumnOrder(ds.columnOrder || []);
-              setHiddenColumns(ds.hiddenColumns || []);
-              setColumnWidths(ds.columnWidths || {});
-              setCellMetadata(ds.cellMetadata || {});
-              setRowHeights(ds.rowHeights || {});
-              setSelectedYear(ds.selectedYear || '2020');
+        // 1. Fetch from local Dexie database first
+        try {
+          const local = await LocalDB.getNode(selectedId);
+          if (local) {
+            resetHistory();
+            const content = Array.isArray(local.content) ? local.content : [];
+            const ds = local.display_settings || {};
+            
+            const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+            const master = ds.masterColumnOrder || currentHeaders;
+            
+            setMasterColumnOrder(master);
+            setGridData(dehydrateArrayToMap(content, currentHeaders, master));
+            setRowCount(content.length);
+            
+            setColumnAlignments(ds.columnAlignments || {});
+            setCellAlignments(ds.cellAlignments || {});
+            setColumnOrder(ds.columnOrder || []);
+            setHiddenColumns(ds.hiddenColumns || []);
+            setColumnWidths(ds.columnWidths || {});
+            setCellMetadata(ds.cellMetadata || {});
+            setRowHeights(ds.rowHeights || {});
+            setSelectedYear(ds.selectedYear || '2020');
+            if (pendingActiveCellRef.current) {
+              setActiveCellState(pendingActiveCellRef.current);
+              pendingActiveCellRef.current = null;
+            } else {
+              setActiveCellState(null);
             }
           }
+        } catch (err) {
+          console.error("Local load error:", err);
         }
-      } catch (err) {
-        console.error("Remote file fetch failed, working offline:", err);
-      }
 
-      clearInterval(progressInterval as any);
-      setLoadProgress(100);
-      setTimeout(() => {
-        setIsLoadingFile(false);
-        setTimeout(() => setLoadProgress(0), 400);
-      }, 120);
+        // 2. Fetch remote update if online
+        try {
+          const { data, error } = await supabase
+            .from('nodes')
+            .select('content, display_settings')
+            .eq('id', selectedId)
+            .single();
+
+          if (!error && data) {
+            const queue = await LocalDB.getSyncQueue();
+            const isUnsynced = queue.some(item => item.record_id === selectedId);
+
+            if (!isUnsynced) {
+              const currentLocal = await LocalDB.getNode(selectedId);
+              const remoteHash = `${JSON.stringify(data.content || [])}|${JSON.stringify(data.display_settings || {})}`;
+
+              const isLocalContentMissing = !currentLocal || !currentLocal.content;
+
+              if (!currentLocal || currentLocal.last_synced_hash !== remoteHash || isLocalContentMissing) {
+                if (currentLocal) {
+                  currentLocal.content = data.content;
+                  currentLocal.display_settings = data.display_settings;
+                  currentLocal.updated_at = new Date().toISOString();
+                  currentLocal.last_synced_hash = remoteHash;
+                  await LocalDB.saveNode(currentLocal, true); // bypass queue
+                }
+
+                resetHistory();
+                const content = Array.isArray(data.content) ? data.content : [];
+                const ds = data.display_settings || {};
+                const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
+                const master = ds.masterColumnOrder || currentHeaders;
+                
+                setMasterColumnOrder(master);
+                setGridData(dehydrateArrayToMap(content, currentHeaders, master));
+                setRowCount(content.length);
+                setColumnAlignments(ds.columnAlignments || {});
+                setCellAlignments(ds.cellAlignments || {});
+                setColumnOrder(ds.columnOrder || []);
+                setHiddenColumns(ds.hiddenColumns || []);
+                setColumnWidths(ds.columnWidths || {});
+                setCellMetadata(ds.cellMetadata || {});
+                setRowHeights(ds.rowHeights || {});
+                setSelectedYear(ds.selectedYear || '2020');
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Remote file fetch failed, working offline:", err);
+        }
+      } finally {
+        if (progressInterval) clearInterval(progressInterval);
+        setLoadProgress(100);
+        setTimeout(() => {
+          setIsLoadingFile(false);
+          setTimeout(() => setLoadProgress(0), 400);
+        }, 120);
+      }
     };
 
     loadFileContent();
+    return () => {
+      if (progressInterval) clearInterval(progressInterval);
+    };
   }, [selectedId, setGridData, setRowCount, resetHistory, setMasterColumnOrder, setCellAlignments, setColumnOrder, setCellMetadata, setRowHeights, setIsLoadingFile, setLoadProgress]);
 
   const handleSave = async () => {
@@ -369,7 +375,9 @@ export function useSpreadsheetOperations({
       };
       
       const payloadString = JSON.stringify({ content: contentArray, display_settings });
-      const size_bytes = new Blob([payloadString]).size;
+      const size_bytes = typeof TextEncoder !== 'undefined'
+        ? new TextEncoder().encode(payloadString).byteLength
+        : payloadString.length;
       
       // 1. Save locally to Dexie nodes database
       const local = await LocalDB.getNode(activeNode.id);
@@ -398,7 +406,7 @@ export function useSpreadsheetOperations({
       }
 
       await logAction('CONTENT_UPDATED', activeNode.id);
-      await fetchFiles();
+      await fetchFiles(true);
     } finally {
       setIsSaving(false);
     }
@@ -763,6 +771,32 @@ export function useSpreadsheetOperations({
     const file = e.target.files?.[0];
     if (!file || !pendingMedia || !activeNode) return;
 
+    // Security Check: File Size Limit (50MB)
+    const MAX_FILE_SIZE = 50 * 1024 * 1024;
+    if (file.size > MAX_FILE_SIZE) {
+      alert("Upload failed: File size exceeds the 50MB limit.");
+      if (e.target) e.target.value = '';
+      setPendingMedia(null);
+      return;
+    }
+
+    // Security Check: File Type Whitelist
+    const ALLOWED_TYPES = [
+      'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
+      'application/pdf', 'text/plain',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'video/mp4'
+    ];
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert(`Upload failed: File type "${file.type}" is not allowed.`);
+      if (e.target) e.target.value = '';
+      setPendingMedia(null);
+      return;
+    }
+
     const { row: r, col, type } = pendingMedia;
     const key = toA1Key(r, masterColumnOrder.indexOf(col));
     
@@ -776,7 +810,9 @@ export function useSpreadsheetOperations({
         return;
       }
 
-      const filePath = `${activeNode.id}/${Date.now()}_${file.name}`;
+      // Security Sanitization: Prevent path injection by sanitizing the file name
+      const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `${activeNode.id}/${Date.now()}_${safeFileName}`;
       
       const { error: uploadError } = await supabase.storage
         .from('attachments')

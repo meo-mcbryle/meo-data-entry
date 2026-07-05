@@ -38,10 +38,14 @@ export const SyncService = {
       const queue = await LocalDB.getSyncQueue();
       const unsyncedIds = new Set(queue.map(item => item.record_id));
 
+      const localNodes = await LocalDB.getNodes();
+      const localNodesMap = new Map(localNodes.map(n => [n.id, n]));
+      const nodesToSave: any[] = [];
+
       for (const remote of remoteNodes) {
         if (!unsyncedIds.has(remote.id)) {
-          const existing = await LocalDB.getNode(remote.id);
-          await LocalDB.saveNode({
+          const existing = localNodesMap.get(remote.id);
+          nodesToSave.push({
             ...existing,
             id: remote.id,
             name: remote.name,
@@ -55,8 +59,12 @@ export const SyncService = {
             updated_at: new Date().toISOString(),
             version: existing?.version || 1,
             last_synced_hash: existing?.last_synced_hash || ''
-          }, true); // bypassSyncQueue = true
+          });
         }
+      }
+
+      if (nodesToSave.length > 0) {
+        await LocalDB.saveNodesBulk(nodesToSave, true); // bypassSyncQueue = true
       }
     }
   },
@@ -238,10 +246,12 @@ export const SyncService = {
       const currentQueue = await LocalDB.getSyncQueue();
       const unsyncedIds = new Set(currentQueue.map(item => item.record_id));
 
+      const nodesToSave: any[] = [];
+
       for (const remote of remoteNodes) {
         if (!unsyncedIds.has(remote.id)) {
           const remoteHash = getHash(remote);
-          await LocalDB.saveNode({
+          nodesToSave.push({
             id: remote.id,
             name: remote.name,
             type: remote.type,
@@ -256,8 +266,12 @@ export const SyncService = {
             updated_at: new Date().toISOString(),
             version: 1,
             last_synced_hash: remoteHash
-          }, true); // bypassSyncQueue = true
+          });
         }
+      }
+
+      if (nodesToSave.length > 0) {
+        await LocalDB.saveNodesBulk(nodesToSave, true); // bypassSyncQueue = true
       }
     }
 

@@ -327,6 +327,24 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
 
 DashboardContent.displayName = 'DashboardContent';
 
+const decodeJwt = (token: string) => {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      window.atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+};
+
 let authInitPromise: Promise<{ data: { session: Session | null }; error: any }> | null = null;
 
 const getInitialSession = () => {
@@ -378,6 +396,7 @@ export default function Dashboard() {
 
     const checkAuth = async (currentSession: Session | null, event?: string) => {
       if (event === 'SIGNED_OUT') {
+        authInitPromise = null;
         localStorage.removeItem('meo-offline-session');
         if (isMounted) { setSession(null); setStatus('unauthorized'); }
         return;
@@ -388,9 +407,30 @@ export default function Dashboard() {
         if (cachedSessionStr) {
           try {
             const cachedSession = JSON.parse(cachedSessionStr);
-            if (cachedSession?.user?.app_metadata?.role === 'admin') {
-              if (isMounted) { setSession(cachedSession); setStatus('ready'); }
-              return;
+            const isExpired = cachedSession?.expires_at
+              ? (Date.now() / 1000) > cachedSession.expires_at
+              : true;
+            if (!isExpired && cachedSession?.access_token) {
+              const payload = decodeJwt(cachedSession.access_token);
+              if (payload && payload.app_metadata?.role === 'admin') {
+                const reconstructedSession: Session = {
+                  access_token: cachedSession.access_token,
+                  token_type: 'bearer',
+                  expires_in: cachedSession.expires_at - Math.floor(Date.now() / 1000),
+                  expires_at: cachedSession.expires_at,
+                  refresh_token: '',
+                  user: {
+                    id: payload.sub || '',
+                    email: payload.email || '',
+                    app_metadata: payload.app_metadata || {},
+                    user_metadata: payload.user_metadata || {},
+                    aud: payload.aud || 'authenticated',
+                    created_at: payload.created_at || ''
+                  }
+                };
+                if (isMounted) { setSession(reconstructedSession); setStatus('ready'); }
+                return;
+              }
             }
           } catch (e) {
             console.error('Failed to parse cached offline session:', e);
@@ -408,17 +448,13 @@ export default function Dashboard() {
         } catch (e) {
           console.error('Sign out during unauthorized access check failed', e);
         } finally {
+          authInitPromise = null;
           localStorage.removeItem('meo-offline-session');
           if (isMounted) { setSession(null); setStatus('unauthorized'); }
         }
       } else {
         localStorage.setItem('meo-offline-session', JSON.stringify({
-          user: {
-            id: currentSession.user.id,
-            email: currentSession.user.email,
-            user_metadata: currentSession.user.user_metadata,
-            app_metadata: currentSession.user.app_metadata
-          },
+          access_token: currentSession.access_token,
           expires_at: currentSession.expires_at
         }));
         if (isMounted) { setSession(currentSession); setStatus('ready'); }

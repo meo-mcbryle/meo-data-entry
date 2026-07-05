@@ -24,8 +24,14 @@ export function useGridHistory() {
   const [redoStack, setRedoStack] = useState<GridStateSnapshot[]>([]);
 
   // Optimization: Use a ref to track current state for history snapshots.
-  const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
-  stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
+  const stateRef = useRef({ 
+    gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder,
+    undoStack, redoStack
+  });
+  stateRef.current = { 
+    gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder,
+    undoStack, redoStack
+  };
 
   const saveStateToHistory = useCallback(() => {
     const { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder } = stateRef.current;
@@ -43,6 +49,11 @@ export function useGridHistory() {
   }, []);
 
   const undo = useCallback(() => {
+    const { 
+      gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder,
+      undoStack
+    } = stateRef.current;
+
     if (undoStack.length === 0) return;
     const prevState = undoStack[undoStack.length - 1];
     const currentState: GridStateSnapshot = {
@@ -64,9 +75,14 @@ export function useGridHistory() {
     setRowHeights(prevState.rowHeights);
     setMasterColumnOrder(prevState.masterColumnOrder);
     setColumnOrder(prevState.columnOrder);
-  }, [undoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+  }, []);
 
   const redo = useCallback(() => {
+    const { 
+      gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder,
+      redoStack
+    } = stateRef.current;
+
     if (redoStack.length === 0) return;
     const nextState = redoStack[redoStack.length - 1];
     const currentState: GridStateSnapshot = {
@@ -88,7 +104,7 @@ export function useGridHistory() {
     setRowHeights(nextState.rowHeights);
     setMasterColumnOrder(nextState.masterColumnOrder);
     setColumnOrder(nextState.columnOrder);
-  }, [redoStack, gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder]);
+  }, []);
 
   // Keyboard Shortcuts (Ctrl+Z / Ctrl+Y)
   useEffect(() => {

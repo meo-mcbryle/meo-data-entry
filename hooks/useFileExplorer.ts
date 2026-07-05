@@ -24,8 +24,8 @@ export function useFileExplorer(
     defaultValue?: string;
   } | null>(null);
 
-  const fetchFiles = useCallback(async () => {
-    setIsLoading(true);
+  const fetchFiles = useCallback(async (silent = false) => {
+    if (!silent) setIsLoading(true);
     
     // 1. Instantly load files from local IndexedDB cache
     try {
@@ -56,11 +56,15 @@ export function useFileExplorer(
         const queue = await LocalDB.getSyncQueue();
         const unsyncedIds = new Set(queue.map(item => item.record_id));
 
+        const localNodes = await LocalDB.getNodes();
+        const localNodesMap = new Map(localNodes.map(n => [n.id, n]));
+        const nodesToSave: any[] = [];
+
         for (const n of data) {
           if (!unsyncedIds.has(n.id)) {
-            // Keep existing local hash if we already have one cache
-            const existing = await LocalDB.getNode(n.id);
-            await LocalDB.saveNode({
+            // Keep existing local hash if we already have one cached
+            const existing = localNodesMap.get(n.id);
+            nodesToSave.push({
               ...existing,
               id: n.id,
               name: n.name,
@@ -74,8 +78,12 @@ export function useFileExplorer(
               updated_at: new Date().toISOString(),
               version: existing?.version || 1,
               last_synced_hash: existing?.last_synced_hash || ''
-            }, true); // bypassSyncQueue = true
+            });
           }
+        }
+
+        if (nodesToSave.length > 0) {
+          await LocalDB.saveNodesBulk(nodesToSave, true); // bypassSyncQueue = true
         }
 
         // Re-read local DB to display unified listings
@@ -153,7 +161,7 @@ export function useFileExplorer(
     }
     
     await logAction(type === 'file' ? 'FILE_CREATED' : 'FOLDER_CREATED', id, { name });
-    fetchFiles();
+    fetchFiles(true);
     setExplorerDialog(null);
   }, [logAction, fetchFiles]);
 
@@ -180,7 +188,7 @@ export function useFileExplorer(
     }
     
     await logAction('RENAMED', id, { old_name: node?.name, new_name: name });
-    fetchFiles();
+    fetchFiles(true);
     setExplorerDialog(null);
   }, [tree, logAction, fetchFiles]);
 
@@ -200,7 +208,7 @@ export function useFileExplorer(
 
     await logAction('MOVED_TO_TRASH', id, { name: findNodeById(tree, id)?.name });
     if (selectedId === id) setSelectedId(null);
-    fetchFiles();
+    fetchFiles(true);
     setExplorerDialog(null);
   }, [user, tree, logAction, selectedId, fetchFiles]);
 
@@ -226,7 +234,7 @@ export function useFileExplorer(
     }
 
     await logAction('RESTORED', id);
-    fetchFiles();
+    fetchFiles(true);
   }, [logAction, fetchFiles]);
 
   const handlePermanentDelete = useCallback(async (id: string) => {
@@ -251,7 +259,7 @@ export function useFileExplorer(
       console.log('Mutation cached offline');
     }
 
-    fetchFiles();
+    fetchFiles(true);
     setExplorerDialog(null);
   }, [fetchFiles]);
 

@@ -204,15 +204,18 @@ export const rekeyMetadataRecord = (
   return newObj;
 };
 
+const currencyFormatter = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
+const defaultFormatter = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export const formatNumberDisplay = (value: any, formatId: string = 'decimal'): string => {
   if (value === "" || value === undefined || value === null) return "0.00";
   const num = Number(value);
   if (isNaN(num)) return value;
   switch (formatId) {
-    case 'currency': return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(num);
+    case 'currency': return currencyFormatter.format(num);
     case 'percent': return (num * 100).toFixed(2) + '%';
     case 'integer': return Math.round(num).toLocaleString();
-    default: return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    default: return defaultFormatter.format(num);
   }
 };
 

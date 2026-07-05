@@ -184,6 +184,36 @@ export const LocalDB = {
     await db.sync_queue.delete(id);
   },
 
+  async saveNodesBulk(nodes: LocalNode[], bypassSyncQueue = false): Promise<void> {
+    await db.nodes.bulkPut(nodes);
+    
+    if (!bypassSyncQueue) {
+      const syncItems = nodes.map(node => ({
+        table: 'nodes' as const,
+        operation: 'UPDATE' as const,
+        record_id: node.id,
+        payload: {
+          id: node.id,
+          name: node.name,
+          type: node.type,
+          parent_id: node.parent_id,
+          content: node.content,
+          display_settings: node.display_settings,
+          created_at: node.created_at,
+          size_bytes: node.size_bytes,
+          is_deleted: node.is_deleted,
+          deleted_at: node.deleted_at,
+          deleted_by: node.deleted_by,
+          updated_at: node.updated_at,
+          version: node.version,
+          last_synced_hash: node.last_synced_hash
+        },
+        timestamp: new Date().toISOString()
+      }));
+      await db.sync_queue.bulkAdd(syncItems);
+    }
+  },
+
   async clearDatabase(): Promise<void> {
     await db.nodes.clear();
     await db.sync_queue.clear();
