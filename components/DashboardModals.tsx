@@ -156,6 +156,22 @@ export const DashboardModals = React.memo(({
         }}
         onCancel={() => setExplorerDialog(null)}
       />
+      {/* Custom Dialog for Spreadsheet actions */}
+      <CustomDialog
+        isOpen={!!spreadsheet.spreadsheetDialog}
+        type={spreadsheet.spreadsheetDialog?.type === 'prompt' ? 'prompt' : 'confirm'}
+        title={spreadsheet.spreadsheetDialog?.title || 'System Message'}
+        message={spreadsheet.spreadsheetDialog?.message || ''}
+        defaultValue={spreadsheet.spreadsheetDialog?.defaultValue}
+        confirmText={spreadsheet.spreadsheetDialog?.confirmText || (spreadsheet.spreadsheetDialog?.type === 'alert' ? 'OK' : 'Confirm')}
+        cancelText={spreadsheet.spreadsheetDialog?.type === 'alert' ? '' : 'Cancel'}
+        isDestructive={spreadsheet.spreadsheetDialog?.isDestructive}
+        onConfirm={(val) => {
+          spreadsheet.spreadsheetDialog?.onConfirm(val);
+          spreadsheet.setSpreadsheetDialog(null);
+        }}
+        onCancel={() => spreadsheet.setSpreadsheetDialog(null)}
+      />
     </>
   );
 });

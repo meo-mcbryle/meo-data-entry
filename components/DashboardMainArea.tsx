@@ -148,6 +148,7 @@ export const DashboardMainArea = React.memo(({
           onExitFullscreen={() => setIsFullScreen(false)}
           onSave={spreadsheet.handleSave}
           isSaving={spreadsheet.isSaving}
+          hasUnsavedChanges={spreadsheet.hasUnsavedChanges}
         />
       )}
 

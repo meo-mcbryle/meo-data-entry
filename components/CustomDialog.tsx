@@ -95,13 +95,15 @@ export const CustomDialog = ({
           )}
 
           <div className="flex justify-end gap-2 mt-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 bg-muted/10 hover:bg-muted/20 text-foreground text-xs font-bold rounded-lg active:scale-95 transition-all cursor-pointer"
-            >
-              {cancelText}
-            </button>
+            {cancelText && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 py-2 bg-muted/10 hover:bg-muted/20 text-foreground text-xs font-bold rounded-lg active:scale-95 transition-all cursor-pointer"
+              >
+                {cancelText}
+              </button>
+            )}
             <button
               type="submit"
               className={`px-4 py-2 text-xs font-bold rounded-lg active:scale-95 transition-all cursor-pointer ${

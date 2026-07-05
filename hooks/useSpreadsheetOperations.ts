@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { LocalDB, db } from '@/lib/local-db';
 import { useGridHistory } from '@/hooks/useGridHistory';
-import { 
-  toA1Key, fromA1Key, hydrateMapToArray, 
+import {
+  toA1Key, fromA1Key, hydrateMapToArray,
   dehydrateArrayToMap, rekeySparseMap, rekeyMetadataRecord,
   shiftFormula
 } from '@/lib/excel-utils';
@@ -63,12 +63,22 @@ export function useSpreadsheetOperations({
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [activeCell, setActiveCellState] = useState<{ row: number; col: string } | null>(null);
+  const [lastSavedPayload, setLastSavedPayload] = useState<string>('');
+  const [spreadsheetDialog, setSpreadsheetDialog] = useState<{
+    type: 'confirm' | 'alert' | 'prompt';
+    title: string;
+    message: string;
+    defaultValue?: string;
+    isDestructive?: boolean;
+    confirmText?: string;
+    onConfirm: (val?: string) => void;
+  } | null>(null);
   const pendingActiveCellRef = useRef<{ row: number; col: string } | null>(null);
 
   const setActiveCell = useCallback((
-    valueOrUpdater: 
-      | { row: number; col: string } 
-      | null 
+    valueOrUpdater:
+      | { row: number; col: string }
+      | null
       | ((prev: { row: number; col: string } | null) => { row: number; col: string } | null)
   ) => {
     setActiveCellState(prev => {
@@ -118,6 +128,78 @@ export function useSpreadsheetOperations({
     return allHeaders.filter(header => !hiddenColumns.includes(header) && header !== 'section');
   }, [allHeaders, hiddenColumns]);
 
+  const getCanonicalPayload = useCallback((content: any[], displaySettings: any) => {
+    // Normalize content array to eliminate key discrepancies from null or empty string differences
+    const normalizeContentArray = (arr: any[]): any[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr.map(row => {
+        const next: Record<string, any> = {};
+        Object.keys(row).forEach(key => {
+          const val = row[key];
+          if (val !== undefined && val !== null && val !== '') {
+            next[key] = val;
+          }
+        });
+        return next;
+      });
+    };
+
+    const normalizedContent = normalizeContentArray(content);
+
+    const colMap = new Map<string, number>(
+      ((displaySettings.masterColumnOrder || masterColumnOrder || []) as string[]).map((name: string, i: number) => [name, i])
+    );
+    
+    const normalizeKeys = (metaRecord: Record<string, any> | undefined) => {
+      const next: Record<string, any> = {};
+      if (!metaRecord) return next;
+      Object.keys(metaRecord).forEach(key => {
+        if (key.includes(':') && !key.startsWith('header:') && !key.includes(':section')) {
+          const parts = key.split(':');
+          if (parts.length === 2) {
+            const rowIdx = parseInt(parts[0], 10);
+            const mIdx = colMap.get(parts[1]);
+            if (typeof mIdx === 'number') {
+              const newA1Key = toA1Key(rowIdx, mIdx);
+              next[newA1Key] = metaRecord[key];
+              return;
+            }
+          }
+        }
+        next[key] = metaRecord[key];
+      });
+      return next;
+    };
+
+    const sortedDisplaySettings = {
+      columnAlignments: displaySettings.columnAlignments || {},
+      cellAlignments: normalizeKeys(displaySettings.cellAlignments),
+      hiddenColumns: displaySettings.hiddenColumns || [],
+      selectedYear: displaySettings.selectedYear || '2020',
+      columnOrder: displaySettings.columnOrder || [],
+      columnWidths: displaySettings.columnWidths || {},
+      cellMetadata: normalizeKeys(displaySettings.cellMetadata),
+      rowHeights: displaySettings.rowHeights || {},
+      masterColumnOrder: displaySettings.masterColumnOrder || []
+    };
+
+    const sortObjectKeys = (obj: any): any => {
+      if (obj === null || typeof obj !== 'object') return obj;
+      if (Array.isArray(obj)) return obj.map(sortObjectKeys);
+      const sortedKeys = Object.keys(obj).sort();
+      const next: any = {};
+      sortedKeys.forEach(key => {
+        next[key] = sortObjectKeys(obj[key]);
+      });
+      return next;
+    };
+
+    return JSON.stringify({
+      content: normalizedContent,
+      display_settings: sortObjectKeys(sortedDisplaySettings)
+    });
+  }, [masterColumnOrder]);
+
   // Track cell value before editing starts for atomic undo
   useEffect(() => {
     if (activeCell) {
@@ -156,15 +238,15 @@ export function useSpreadsheetOperations({
     const handleDropdownKeys = (e: KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setDropdownMenu(prev => (prev ? { 
-          ...prev, 
-          highlightIndex: (prev.highlightIndex + 1) % prev.options.length 
+        setDropdownMenu(prev => (prev ? {
+          ...prev,
+          highlightIndex: (prev.highlightIndex + 1) % prev.options.length
         } : null));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setDropdownMenu(prev => (prev ? { 
-          ...prev, 
-          highlightIndex: (prev.highlightIndex - 1 + prev.options.length) % prev.options.length 
+        setDropdownMenu(prev => (prev ? {
+          ...prev,
+          highlightIndex: (prev.highlightIndex - 1 + prev.options.length) % prev.options.length
         } : null));
       } else if (e.key === 'Enter') {
         e.preventDefault();
@@ -194,9 +276,9 @@ export function useSpreadsheetOperations({
     };
     window.addEventListener('click', handleGlobalClick);
     window.addEventListener('scroll', handleGlobalClick, true);
-    return () => { 
-      window.removeEventListener('click', handleGlobalClick); 
-      window.removeEventListener('scroll', handleGlobalClick, true); 
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('scroll', handleGlobalClick, true);
     };
   }, []);
 
@@ -224,6 +306,7 @@ export function useSpreadsheetOperations({
         setRowHeights({});
         setActiveCell(null);
         setSelectedYear('2020');
+        setLastSavedPayload('');
         return;
       }
 
@@ -241,14 +324,15 @@ export function useSpreadsheetOperations({
             resetHistory();
             const content = Array.isArray(local.content) ? local.content : [];
             const ds = local.display_settings || {};
-            
+
             const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
             const master = ds.masterColumnOrder || currentHeaders;
-            
+
             setMasterColumnOrder(master);
-            setGridData(dehydrateArrayToMap(content, currentHeaders, master));
+            const initialGridMap = dehydrateArrayToMap(content, currentHeaders, master);
+            setGridData(initialGridMap);
             setRowCount(content.length);
-            
+
             setColumnAlignments(ds.columnAlignments || {});
             setCellAlignments(ds.cellAlignments || {});
             setColumnOrder(ds.columnOrder || []);
@@ -257,6 +341,20 @@ export function useSpreadsheetOperations({
             setCellMetadata(ds.cellMetadata || {});
             setRowHeights(ds.rowHeights || {});
             setSelectedYear(ds.selectedYear || '2020');
+
+            const initialContentArray = hydrateMapToArray(initialGridMap, content.length, currentHeaders, master);
+            const resolvedDisplaySettings = {
+              columnAlignments: ds.columnAlignments || {},
+              cellAlignments: ds.cellAlignments || {},
+              hiddenColumns: ds.hiddenColumns || [],
+              selectedYear: ds.selectedYear || '2020',
+              columnOrder: ds.columnOrder || [],
+              columnWidths: ds.columnWidths || {},
+              cellMetadata: ds.cellMetadata || {},
+              rowHeights: ds.rowHeights || {},
+              masterColumnOrder: master
+            };
+            setLastSavedPayload(getCanonicalPayload(initialContentArray, resolvedDisplaySettings));
             if (pendingActiveCellRef.current) {
               setActiveCellState(pendingActiveCellRef.current);
               pendingActiveCellRef.current = null;
@@ -300,9 +398,10 @@ export function useSpreadsheetOperations({
                 const ds = data.display_settings || {};
                 const currentHeaders = ds.columnOrder?.length ? ds.columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
                 const master = ds.masterColumnOrder || currentHeaders;
-                
+
                 setMasterColumnOrder(master);
-                setGridData(dehydrateArrayToMap(content, currentHeaders, master));
+                const initialGridMap = dehydrateArrayToMap(content, currentHeaders, master);
+                setGridData(initialGridMap);
                 setRowCount(content.length);
                 setColumnAlignments(ds.columnAlignments || {});
                 setCellAlignments(ds.cellAlignments || {});
@@ -312,6 +411,20 @@ export function useSpreadsheetOperations({
                 setCellMetadata(ds.cellMetadata || {});
                 setRowHeights(ds.rowHeights || {});
                 setSelectedYear(ds.selectedYear || '2020');
+
+                const initialContentArray = hydrateMapToArray(initialGridMap, content.length, currentHeaders, master);
+                const resolvedDisplaySettings = {
+                  columnAlignments: ds.columnAlignments || {},
+                  cellAlignments: ds.cellAlignments || {},
+                  hiddenColumns: ds.hiddenColumns || [],
+                  selectedYear: ds.selectedYear || '2020',
+                  columnOrder: ds.columnOrder || [],
+                  columnWidths: ds.columnWidths || {},
+                  cellMetadata: ds.cellMetadata || {},
+                  rowHeights: ds.rowHeights || {},
+                  masterColumnOrder: master
+                };
+                setLastSavedPayload(getCanonicalPayload(initialContentArray, resolvedDisplaySettings));
               }
             }
           }
@@ -336,7 +449,7 @@ export function useSpreadsheetOperations({
 
   const handleSave = async () => {
     if (!activeNode || activeNode.type !== 'file') return;
-    
+
     setIsSaving(true);
     try {
       const colMap = new Map(masterColumnOrder.map((name, i) => [name, i]));
@@ -362,23 +475,23 @@ export function useSpreadsheetOperations({
       };
 
       const contentArray = hydrateMapToArray(gridData, rowCount, allHeaders, masterColumnOrder);
-      const display_settings = { 
-        columnAlignments, 
-        cellAlignments: normalizeKeys(cellAlignments), 
-        hiddenColumns, 
-        selectedYear, 
-        columnOrder, 
-        columnWidths, 
-        cellMetadata: normalizeKeys(cellMetadata), 
-        rowHeights, 
-        masterColumnOrder 
+      const display_settings = {
+        columnAlignments,
+        cellAlignments: normalizeKeys(cellAlignments),
+        hiddenColumns,
+        selectedYear,
+        columnOrder,
+        columnWidths,
+        cellMetadata: normalizeKeys(cellMetadata),
+        rowHeights,
+        masterColumnOrder
       };
-      
+
       const payloadString = JSON.stringify({ content: contentArray, display_settings });
       const size_bytes = typeof TextEncoder !== 'undefined'
         ? new TextEncoder().encode(payloadString).byteLength
         : payloadString.length;
-      
+
       // 1. Save locally to Dexie nodes database
       const local = await LocalDB.getNode(activeNode.id);
       if (local) {
@@ -396,7 +509,7 @@ export function useSpreadsheetOperations({
           .from('nodes')
           .update({ content: contentArray, display_settings, size_bytes })
           .eq('id', activeNode.id);
-        
+
         if (!error) {
           // Successfully synced online, remove the update from sync queue
           await db.sync_queue.where({ record_id: activeNode.id }).delete();
@@ -407,14 +520,89 @@ export function useSpreadsheetOperations({
 
       await logAction('CONTENT_UPDATED', activeNode.id);
       await fetchFiles(true);
+      setLastSavedPayload(getCanonicalPayload(contentArray, display_settings));
     } finally {
       setIsSaving(false);
     }
   };
 
+  const currentPayload = useMemo(() => {
+    if (!activeNode || activeNode.type !== 'file') return '';
+    return getCanonicalPayload(
+      hydrateMapToArray(gridData, rowCount, allHeaders, masterColumnOrder),
+      {
+        columnAlignments,
+        cellAlignments,
+        hiddenColumns,
+        selectedYear,
+        columnOrder,
+        columnWidths,
+        cellMetadata,
+        rowHeights,
+        masterColumnOrder
+      }
+    );
+  }, [
+    activeNode?.id,
+    gridData,
+    rowCount,
+    allHeaders,
+    masterColumnOrder,
+    columnAlignments,
+    cellAlignments,
+    hiddenColumns,
+    selectedYear,
+    columnOrder,
+    columnWidths,
+    cellMetadata,
+    rowHeights,
+    getCanonicalPayload
+  ]);
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!activeNode || activeNode.type !== 'file') return false;
+    return currentPayload !== lastSavedPayload;
+  }, [currentPayload, lastSavedPayload, activeNode]);
+
+  // Prevent accidental reload or close
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Ctrl+S keyboard shortcut to save
+  useEffect(() => {
+    const handleKeyDownShortcut = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (activeNode && activeNode.type === 'file' && !isSaving && hasUnsavedChanges) {
+          handleSave();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDownShortcut);
+    return () => window.removeEventListener('keydown', handleKeyDownShortcut);
+  }, [activeNode, isSaving, hasUnsavedChanges, handleSave]);
+
+  // Debug log to inspect payload mismatches
+  useEffect(() => {
+    if (activeNode && activeNode.type === 'file' && currentPayload !== lastSavedPayload) {
+      console.log("hasUnsavedChanges MISMATCH DETECTED:", activeNode.name);
+      console.log("Current:", currentPayload);
+      console.log("Saved:", lastSavedPayload);
+    }
+  }, [currentPayload, lastSavedPayload, activeNode]);
+
   const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
-    
+
     const colIdx = masterColumnOrder.indexOf(header);
     setCellAlignments(prev => {
       const next = { ...prev };
@@ -444,16 +632,27 @@ export function useSpreadsheetOperations({
       finalNewKey = `_UNTITLED_${i}`;
     }
 
-    saveStateToHistory();
     if (finalNewKey.toLowerCase() === 'section') {
-      alert("'section' is a reserved column name used for categorization.");
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Reserved Name',
+        message: "'section' is a reserved column name used for categorization.",
+        onConfirm: () => {}
+      });
       return;
     }
 
     if (allHeaders.includes(finalNewKey)) {
-      alert(`A column named "${finalNewKey}" already exists.`);
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Duplicate Column',
+        message: `A column named "${finalNewKey}" already exists.`,
+        onConfirm: () => {}
+      });
       return;
     }
+
+    saveStateToHistory();
 
     setColumnOrder(prev => {
       const currentOrder = prev.length > 0 ? prev : allHeaders;
@@ -512,12 +711,22 @@ export function useSpreadsheetOperations({
     }
 
     if (colName.toLowerCase() === 'section') {
-      alert("'section' is a reserved column name used for categorization.");
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Reserved Name',
+        message: "'section' is a reserved column name used for categorization.",
+        onConfirm: () => {}
+      });
       return;
     }
 
     if (allHeaders.includes(colName)) {
-      alert(`A column named "${colName}" already exists.`);
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Duplicate Column',
+        message: `A column named "${colName}" already exists.`,
+        onConfirm: () => {}
+      });
       return;
     }
 
@@ -530,25 +739,33 @@ export function useSpreadsheetOperations({
   }, [allHeaders, saveStateToHistory, setColumnOrder, setMasterColumnOrder]);
 
   const handleDeleteColumn = useCallback((keyToDelete: string) => {
-    if (!window.confirm(`Are you sure you want to delete the column "${keyToDelete}"?`)) return;
-    saveStateToHistory();
-    
-    const colIdx = masterColumnOrder.indexOf(keyToDelete);
-    if (colIdx === -1) return;
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Delete Column',
+      message: `Are you sure you want to delete the column "${keyToDelete}"?`,
+      isDestructive: true,
+      confirmText: 'Delete',
+      onConfirm: () => {
+        saveStateToHistory();
 
-    const oldOrder = [...masterColumnOrder];
-    const newOrder = masterColumnOrder.filter(col => col !== keyToDelete);
+        const colIdx = masterColumnOrder.indexOf(keyToDelete);
+        if (colIdx === -1) return;
 
-    setGridData(prev => rekeySparseMap(prev, oldOrder, newOrder));
-    setCellMetadata(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
-    setCellAlignments(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
+        const oldOrder = [...masterColumnOrder];
+        const newOrder = masterColumnOrder.filter(col => col !== keyToDelete);
 
-    setMasterColumnOrder(newOrder);
-    setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
-    setSelection(null);
-    
-    setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
-    setColumnWidths(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
+        setGridData(prev => rekeySparseMap(prev, oldOrder, newOrder));
+        setCellMetadata(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
+        setCellAlignments(prev => rekeyMetadataRecord(prev, oldOrder, newOrder));
+
+        setMasterColumnOrder(newOrder);
+        setColumnOrder(prev => prev.filter(col => col !== keyToDelete));
+        setSelection(null);
+
+        setColumnAlignments(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
+        setColumnWidths(prev => { const n = { ...prev }; delete n[keyToDelete]; return n; });
+      }
+    });
   }, [masterColumnOrder, saveStateToHistory, setGridData, setCellMetadata, setCellAlignments, setMasterColumnOrder, setColumnOrder]);
 
   const handleInsertColumn = useCallback((relativeCol: string, position: 'before' | 'after') => {
@@ -559,7 +776,12 @@ export function useSpreadsheetOperations({
     const colName = `_UNTITLED_${i}`;
 
     if (colName.toLowerCase() === 'section') {
-      alert("'section' is a reserved column name used for categorization.");
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Reserved Name',
+        message: "'section' is a reserved column name used for categorization.",
+        onConfirm: () => {}
+      });
       return;
     }
 
@@ -611,7 +833,7 @@ export function useSpreadsheetOperations({
 
         const { r, ci, isS } = info;
         const nk = r < insertIndex ? key : isS ? `${r + 1}:section` : toA1Key(r + 1, ci);
-        
+
         const val = { ...prev[key] };
         if (val.mergedIn) {
           const h = transform(val.mergedIn) as { r: number; ci: number; isS: boolean } | null;
@@ -632,13 +854,13 @@ export function useSpreadsheetOperations({
       });
       return next;
     });
-    
+
     setGridData(prev => {
       const next = new Map();
       prev.forEach((val, key) => {
         const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0], 10), colIndex: -1 } : null) as { row: number; colIndex: number } | null;
         if (!coords) { next.set(key, val); return; }
-        
+
         const { row, colIndex } = coords;
         const isSection = key.includes(':section');
 
@@ -653,62 +875,78 @@ export function useSpreadsheetOperations({
   }, [gridData, saveStateToHistory, setCellMetadata, setCellAlignments, setRowHeights, setGridData, setRowCount]);
 
   const handleClearRow = useCallback((index: number) => {
-    if (!window.confirm("Clear all data in this row?")) return;
-    saveStateToHistory();
-    
-    setGridData(prev => {
-      const next = new Map(prev);
-      allHeaders.forEach(h => {
-        const colIdx = masterColumnOrder.indexOf(h);
-        if (colIdx !== -1) next.delete(toA1Key(index, colIdx));
-      });
-      next.set(`${index}:section`, prev.get(`${index}:section`));
-      return next;
-    });
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Clear Row',
+      message: 'Clear all data in this row?',
+      isDestructive: true,
+      confirmText: 'Clear',
+      onConfirm: () => {
+        saveStateToHistory();
 
-    const clearRowMeta = (prev: Record<string, any>) => {
-      const next = { ...prev };
-      Object.keys(next).forEach(key => {
-        const coords = fromA1Key(key);
-        if (coords && coords.row === index) delete next[key];
-      });
-      return next;
-    };
-    
-    setCellMetadata(clearRowMeta);
-    setCellAlignments(clearRowMeta);
-    setContextMenu(null);
+        setGridData(prev => {
+          const next = new Map(prev);
+          allHeaders.forEach(h => {
+            const colIdx = masterColumnOrder.indexOf(h);
+            if (colIdx !== -1) next.delete(toA1Key(index, colIdx));
+          });
+          next.set(`${index}:section`, prev.get(`${index}:section`));
+          return next;
+        });
+
+        const clearRowMeta = (prev: Record<string, any>) => {
+          const next = { ...prev };
+          Object.keys(next).forEach(key => {
+            const coords = fromA1Key(key);
+            if (coords && coords.row === index) delete next[key];
+          });
+          return next;
+        };
+
+        setCellMetadata(clearRowMeta);
+        setCellAlignments(clearRowMeta);
+        setContextMenu(null);
+      }
+    });
   }, [allHeaders, masterColumnOrder, saveStateToHistory, setGridData, setCellMetadata, setCellAlignments]);
 
   const handleClearColumn = useCallback((colName: string) => {
-    if (!window.confirm(`Clear all data and formatting in column "${colName}"?`)) return;
-    saveStateToHistory();
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Clear Column',
+      message: `Clear all data and formatting in column "${colName}"?`,
+      isDestructive: true,
+      confirmText: 'Clear',
+      onConfirm: () => {
+        saveStateToHistory();
 
-    setGridData(prev => {
-      const next = new Map(prev);
-      const colIdx = masterColumnOrder.indexOf(colName);
-      if (colIdx !== -1) {
-        for (let r = 0; r < rowCount; r++) next.delete(toA1Key(r, colIdx));
+        setGridData(prev => {
+          const next = new Map(prev);
+          const colIdx = masterColumnOrder.indexOf(colName);
+          if (colIdx !== -1) {
+            for (let r = 0; r < rowCount; r++) next.delete(toA1Key(r, colIdx));
+          }
+          return next;
+        });
+
+        const clearColMeta = (prev: Record<string, any>) => {
+          const next: Record<string, any> = {};
+          const targetColIdx = masterColumnOrder.indexOf(colName);
+          Object.keys(prev).forEach(key => {
+            if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+
+            const coords = fromA1Key(key);
+            if (coords && coords.colIndex === targetColIdx) return;
+            next[key] = prev[key];
+          });
+          return next;
+        };
+
+        setCellMetadata(clearColMeta);
+        setCellAlignments(clearColMeta);
+        setContextMenu(null);
       }
-      return next;
     });
-
-    const clearColMeta = (prev: Record<string, any>) => {
-      const next: Record<string, any> = {};
-      const targetColIdx = masterColumnOrder.indexOf(colName);
-      Object.keys(prev).forEach(key => {
-        if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-        
-        const coords = fromA1Key(key);
-        if (coords && coords.colIndex === targetColIdx) return;
-        next[key] = prev[key];
-      });
-      return next;
-    };
-    
-    setCellMetadata(clearColMeta);
-    setCellAlignments(clearColMeta);
-    setContextMenu(null);
   }, [masterColumnOrder, rowCount, saveStateToHistory, setGridData, setCellMetadata, setCellAlignments]);
 
   const setCellType = useCallback((row: number, col: string, type: string, format: string = 'long') => {
@@ -719,7 +957,7 @@ export function useSpreadsheetOperations({
         const next: Record<string, any> = {};
         const localVisibleHeaders = allHeaders.filter(h => !hiddenColumns.includes(h) && h !== 'section');
 
-        const isPartofSelection = selection && 
+        const isPartofSelection = selection &&
           row >= Math.min(selection.startRow, selection.endRow) &&
           row <= Math.max(selection.startRow, selection.endRow) &&
           (() => {
@@ -769,7 +1007,12 @@ export function useSpreadsheetOperations({
     // Security Check: File Size Limit (50MB)
     const MAX_FILE_SIZE = 50 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
-      alert("Upload failed: File size exceeds the 50MB limit.");
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Upload Failed',
+        message: "File size exceeds the 50MB limit.",
+        onConfirm: () => {}
+      });
       if (e.target) e.target.value = '';
       setPendingMedia(null);
       return;
@@ -786,7 +1029,12 @@ export function useSpreadsheetOperations({
       'video/mp4'
     ];
     if (!ALLOWED_TYPES.includes(file.type)) {
-      alert(`Upload failed: File type "${file.type}" is not allowed.`);
+      setSpreadsheetDialog({
+        type: 'alert',
+        title: 'Upload Failed',
+        message: `File type "${file.type}" is not allowed.`,
+        onConfirm: () => {}
+      });
       if (e.target) e.target.value = '';
       setPendingMedia(null);
       return;
@@ -794,21 +1042,26 @@ export function useSpreadsheetOperations({
 
     const { row: r, col, type } = pendingMedia;
     const key = toA1Key(r, masterColumnOrder.indexOf(col));
-    
+
     setIsSaving(true);
     try {
       const existing = cellMetadata[key] || {};
       const currentAttachments = existing.attachments || [];
-      
+
       if (currentAttachments.length >= 10) {
-        alert("Maximum limit of 10 attachments reached for this cell.");
+        setSpreadsheetDialog({
+          type: 'alert',
+          title: 'Attachment Limit',
+          message: "Maximum limit of 10 attachments reached for this cell.",
+          onConfirm: () => {}
+        });
         return;
       }
 
       // Security Sanitization: Prevent path injection by sanitizing the file name
       const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const filePath = `${activeNode.id}/${Date.now()}_${safeFileName}`;
-      
+
       // Save local attachment cache to Dexie immediately
       await LocalDB.saveAttachment({
         path: filePath,
@@ -834,7 +1087,7 @@ export function useSpreadsheetOperations({
             const { data } = supabase.storage
               .from('attachments')
               .getPublicUrl(filePath);
-            
+
             publicUrl = data.publicUrl;
             isOffline = false;
 
@@ -856,22 +1109,22 @@ export function useSpreadsheetOperations({
 
       const newAttachments = [
         ...currentAttachments,
-        { 
-          type, 
-          name: file.name, 
-          url: isOffline ? filePath : publicUrl, 
+        {
+          type,
+          name: file.name,
+          url: isOffline ? filePath : publicUrl,
           path: filePath,
           size: file.size,
           contentType: file.type,
           isOffline
-        } 
+        }
       ];
 
       setCellMetadata(prev => ({
         ...prev,
-        [key]: { 
-          ...existing, 
-          type: 'media', 
+        [key]: {
+          ...existing,
+          type: 'media',
           attachments: newAttachments
         }
       }));
@@ -879,9 +1132,19 @@ export function useSpreadsheetOperations({
       setViewingMedia({ attachments: newAttachments, row: r, col });
     } catch (err: any) {
       if (err.message?.includes('violates row-level security policy')) {
-        alert('Upload failed: Security Policy Error. Please ensure Storage RLS policies are configured in Supabase.');
+        setSpreadsheetDialog({
+          type: 'alert',
+          title: 'Upload Failed',
+          message: 'Security Policy Error. Please ensure Storage RLS policies are configured in Supabase.',
+          onConfirm: () => {}
+        });
       } else {
-        alert('Upload failed: ' + err.message);
+        setSpreadsheetDialog({
+          type: 'alert',
+          title: 'Upload Failed',
+          message: err.message,
+          onConfirm: () => {}
+        });
       }
     } finally {
       setIsSaving(false);
@@ -891,41 +1154,55 @@ export function useSpreadsheetOperations({
   };
 
   const removeCellMetadata = useCallback((row: number, col: string) => {
-    if (!window.confirm("Are you sure you want to remove all attachments and formatting from this cell?")) return;
-    const key = toA1Key(row, masterColumnOrder.indexOf(col));
-
-    setCellMetadata(prev => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Clear Cell Formatting',
+      message: "Are you sure you want to remove all attachments and formatting from this cell?",
+      isDestructive: true,
+      confirmText: 'Clear',
+      onConfirm: () => {
+        const key = toA1Key(row, masterColumnOrder.indexOf(col));
+        setCellMetadata(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setContextMenu(null);
+      }
     });
-    setContextMenu(null);
   }, [masterColumnOrder, setCellMetadata]);
 
   const deleteAttachment = useCallback((row: number, col: string, index: number) => {
-    if (!window.confirm("Are you sure you want to remove this attachment?")) return;
-    const key = toA1Key(row, masterColumnOrder.indexOf(col));
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Delete Attachment',
+      message: "Are you sure you want to remove this attachment?",
+      isDestructive: true,
+      confirmText: 'Delete',
+      onConfirm: () => {
+        const key = toA1Key(row, masterColumnOrder.indexOf(col));
+        const existing = cellMetadata[key];
+        if (!existing || !existing.attachments) return;
 
-    const existing = cellMetadata[key];
-    if (!existing || !existing.attachments) return;
+        setCellMetadata(prev => {
+          const innerExisting = prev[key];
+          const newAttachments = innerExisting.attachments.filter((_: any, i: number) => i !== index);
 
-    setCellMetadata(prev => {
-      const innerExisting = prev[key];
-      const newAttachments = innerExisting.attachments.filter((_: any, i: number) => i !== index);
+          if (newAttachments.length === 0) {
+            const next = { ...prev };
+            delete next[key];
+            setViewingMedia(null);
+            return next;
+          }
 
-      if (newAttachments.length === 0) {
-        const next = { ...prev };
-        delete next[key];
-        setViewingMedia(null);
-        return next;
+          const updated = {
+            ...prev,
+            [key]: { ...innerExisting, attachments: newAttachments }
+          };
+          setViewingMedia({ attachments: newAttachments, row, col });
+          return updated;
+        });
       }
-
-      const updated = {
-        ...prev,
-        [key]: { ...innerExisting, attachments: newAttachments }
-      };
-      setViewingMedia({ attachments: newAttachments, row, col });
-      return updated;
     });
   }, [cellMetadata, masterColumnOrder, setCellMetadata]);
 
@@ -933,7 +1210,7 @@ export function useSpreadsheetOperations({
     if (!selection) return;
     saveStateToHistory();
     const { startRow, endRow, startCol, endCol } = selection;
-    
+
     const isHeaderSelection = startRow === -1 || isHeaderMerge;
 
     const startColIdx = localVisibleHeaders.indexOf(startCol);
@@ -950,40 +1227,46 @@ export function useSpreadsheetOperations({
 
     if (rowSpan === 1 && colSpan === 1) return;
 
-    if (!window.confirm(`Merge ${isHeaderSelection ? colSpan : rowSpan * colSpan} ${isHeaderSelection ? 'headers' : 'cells'}?`)) return;
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Merge Cells',
+      message: `Merge ${isHeaderSelection ? colSpan : rowSpan * colSpan} ${isHeaderSelection ? 'headers' : 'cells'}?`,
+      confirmText: 'Merge',
+      onConfirm: () => {
+        const hostCol = localVisibleHeaders[minColIdx];
+        const hostMasterIdx = masterColumnOrder.indexOf(hostCol);
+        const hostKey = isHeaderSelection ? `header:${hostCol}` : toA1Key(minRow, hostMasterIdx);
+        const newMetadata = { ...cellMetadata };
 
-    const hostCol = localVisibleHeaders[minColIdx];
-    const hostMasterIdx = masterColumnOrder.indexOf(hostCol);
-    const hostKey = isHeaderSelection ? `header:${hostCol}` : toA1Key(minRow, hostMasterIdx);
-    const newMetadata = { ...cellMetadata };
-
-    for (let r = minRow; r <= maxRow; r++) {
-      for (let c = minColIdx; c <= maxColIdx; c++) {
-        const mIdx = masterColumnOrder.indexOf(localVisibleHeaders[c]);
-        const key = isHeaderSelection ? `header:${localVisibleHeaders[c]}` : toA1Key(r, mIdx);
-        const m = { ...newMetadata[key] };
-        delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
-        newMetadata[key] = m;
-      }
-    }
-
-    newMetadata[hostKey] = { 
-      ...newMetadata[hostKey], 
-      colSpan,
-      ...(isHeaderSelection ? {} : { rowSpan })
-    };
-    
-    for (let r = minRow; r <= maxRow; r++) {
-      for (let c = minColIdx; c <= maxColIdx; c++) {
-        const mIdx = masterColumnOrder.indexOf(localVisibleHeaders[c]);
-        const currentKey = isHeaderSelection ? `header:${localVisibleHeaders[c]}` : toA1Key(r, mIdx);
-        if (currentKey !== hostKey) {
-          newMetadata[currentKey] = { ...newMetadata[currentKey], mergedIn: hostKey };
+        for (let r = minRow; r <= maxRow; r++) {
+          for (let c = minColIdx; c <= maxColIdx; c++) {
+            const mIdx = masterColumnOrder.indexOf(localVisibleHeaders[c]);
+            const key = isHeaderSelection ? `header:${localVisibleHeaders[c]}` : toA1Key(r, mIdx);
+            const m = { ...newMetadata[key] };
+            delete m.rowSpan; delete m.colSpan; delete m.mergedIn;
+            newMetadata[key] = m;
+          }
         }
+
+        newMetadata[hostKey] = {
+          ...newMetadata[hostKey],
+          colSpan,
+          ...(isHeaderSelection ? {} : { rowSpan })
+        };
+
+        for (let r = minRow; r <= maxRow; r++) {
+          for (let c = minColIdx; c <= maxColIdx; c++) {
+            const mIdx = masterColumnOrder.indexOf(localVisibleHeaders[c]);
+            const currentKey = isHeaderSelection ? `header:${localVisibleHeaders[c]}` : toA1Key(r, mIdx);
+            if (currentKey !== hostKey) {
+              newMetadata[currentKey] = { ...newMetadata[currentKey], mergedIn: hostKey };
+            }
+          }
+        }
+        setCellMetadata(newMetadata);
+        setSelection(null);
       }
-    }
-    setCellMetadata(newMetadata);
-    setSelection(null);
+    });
   }, [selection, cellMetadata, masterColumnOrder, saveStateToHistory, setCellMetadata]);
 
   const handleUnmergeCells = useCallback((row: number, col: string, localVisibleHeaders: string[]) => {
@@ -995,7 +1278,7 @@ export function useSpreadsheetOperations({
     const newMetadata = { ...cellMetadata };
     const { rowSpan = 1, colSpan = 1 } = meta;
     const colIdx = localVisibleHeaders.indexOf(col);
-    
+
     const startR = isHeader ? -1 : row;
     const endR = isHeader ? -1 : row + rowSpan - 1;
 
@@ -1015,13 +1298,13 @@ export function useSpreadsheetOperations({
   const applyDragFill = useCallback((range: { startRow: number; endRow: number; col: string }) => {
     const { startRow, endRow, col } = range;
     const { gridData: currentGrid, cellMetadata: currentMeta, masterColumnOrder: currentMaster } = stateRef.current;
-    
+
     saveStateToHistory();
     if (startRow === endRow) return;
 
     const colIdx = currentMaster.indexOf(col);
     if (colIdx === -1) return;
-    
+
     const sourceValue = currentGrid.get(toA1Key(startRow, colIdx));
     const sourceMeta = currentMeta[toA1Key(startRow, colIdx)];
 
@@ -1034,7 +1317,7 @@ export function useSpreadsheetOperations({
     for (let i = min; i <= max; i++) {
       if (i === startRow) continue;
       const rowOffset = i - startRow;
-      
+
       const valueToApply = shiftFormula(sourceValue, rowOffset);
       if (valueToApply !== undefined) nextMap.set(toA1Key(i, colIdx), valueToApply);
 
@@ -1068,74 +1351,82 @@ export function useSpreadsheetOperations({
   }, [applyDragFill]);
 
   const removeTableRow = useCallback((index: number) => {
-    if (!window.confirm("Are you sure you want to delete this row?")) return;
-    saveStateToHistory();
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Delete Row',
+      message: "Are you sure you want to delete this row?",
+      isDestructive: true,
+      confirmText: 'Delete',
+      onConfirm: () => {
+        saveStateToHistory();
 
-    try {
-      setGridData(prev => {
-        const next = new Map();
-        prev.forEach((val, key) => {
-          const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0], 10), colIndex: -1 } : null);
-          if (!coords) { next.set(key, val); return; }
-          
-          const { row, colIndex } = coords;
-          const isSection = key.includes(':section');
-          
-          if (row < index) next.set(key, val);
-          else if (row > index) next.set(isSection ? `${row - 1}:section` : toA1Key(row - 1, colIndex), val);
-        });
-        return next;
-      });
-      setRowCount(prev => prev - 1);
+        try {
+          setGridData(prev => {
+            const next = new Map();
+            prev.forEach((val, key) => {
+              const coords = fromA1Key(key) || (key.includes(':section') ? { row: parseInt(key.split(':')[0], 10), colIndex: -1 } : null);
+              if (!coords) { next.set(key, val); return; }
 
-      const shiftMetadata = (prev: Record<string, any>) => {
-        const next: Record<string, any> = {};
-        const transform = (k: string) => {
-          const c = fromA1Key(k);
-          if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0], 10), ci: -1, isS: true } : null;
-          return { r: c.row, ci: c.colIndex, isS: false };
-        };
+              const { row, colIndex } = coords;
+              const isSection = key.includes(':section');
 
-        Object.keys(prev).forEach(key => {
-          if (key.startsWith('header:')) { next[key] = prev[key]; return; }
-          const info = transform(key) as { r: number; ci: number; isS: boolean } | null;
-          if (!info) { next[key] = prev[key]; return; }
+              if (row < index) next.set(key, val);
+              else if (row > index) next.set(isSection ? `${row - 1}:section` : toA1Key(row - 1, colIndex), val);
+            });
+            return next;
+          });
+          setRowCount(prev => prev - 1);
 
-          const { r, ci, isS } = info;
-          if (r < index) next[key] = prev[key];
-          else if (r > index) {
-            const nk = isS ? `${r - 1}:section` : toA1Key(r - 1, ci);
-            const val = { ...prev[key] };
-            if (val.mergedIn) {
-              const h = transform(val.mergedIn) as { r: number; ci: number; isS: boolean } | null;
-              if (h && !h.isS && h.r > index) val.mergedIn = toA1Key(h.r - 1, h.ci);
-            }
-            next[nk] = val;
-          }
-        });
-        return next;
-      };
-      setCellMetadata(shiftMetadata);
-      setCellAlignments(shiftMetadata);
-      setRowHeights(prev => {
-        const next: Record<string, number> = {};
-        Object.keys(prev).forEach(k => {
-          const r = parseInt(k, 10);
-          if (r < index) next[k] = prev[k];
-          else if (r > index) next[String(r - 1)] = prev[k];
-        });
-        return next;
-      });
-    } catch (e) {
-      console.error("Failed to remove row");
-    }
+          const shiftMetadata = (prev: Record<string, any>) => {
+            const next: Record<string, any> = {};
+            const transform = (k: string) => {
+              const c = fromA1Key(k);
+              if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0], 10), ci: -1, isS: true } : null;
+              return { r: c.row, ci: c.colIndex, isS: false };
+            };
+
+            Object.keys(prev).forEach(key => {
+              if (key.startsWith('header:')) { next[key] = prev[key]; return; }
+              const info = transform(key) as { r: number; ci: number; isS: boolean } | null;
+              if (!info) { next[key] = prev[key]; return; }
+
+              const { r, ci, isS } = info;
+              if (r < index) next[key] = prev[key];
+              else if (r > index) {
+                const nk = isS ? `${r - 1}:section` : toA1Key(r - 1, ci);
+                const val = { ...prev[key] };
+                if (val.mergedIn) {
+                  const h = transform(val.mergedIn) as { r: number; ci: number; isS: boolean } | null;
+                  if (h && !h.isS && h.r > index) val.mergedIn = toA1Key(h.r - 1, h.ci);
+                }
+                next[nk] = val;
+              }
+            });
+            return next;
+          };
+          setCellMetadata(shiftMetadata);
+          setCellAlignments(shiftMetadata);
+          setRowHeights(prev => {
+            const next: Record<string, number> = {};
+            Object.keys(prev).forEach(k => {
+              const r = parseInt(k, 10);
+              if (r < index) next[k] = prev[k];
+              else if (r > index) next[String(r - 1)] = prev[k];
+            });
+            return next;
+          });
+        } catch (e) {
+          console.error("Failed to remove row");
+        }
+      }
+    });
   }, [saveStateToHistory, setGridData, setRowCount, setCellMetadata, setCellAlignments, setRowHeights]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent, rowIndex: number, colIndex: number, headers: string[]) => {
     const navKeys = ['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
     if (navKeys.includes(e.key)) {
       e.preventDefault();
-      
+
       let nextRow = rowIndex;
       let nextColIdx = colIndex;
 
@@ -1169,7 +1460,7 @@ export function useSpreadsheetOperations({
       if (nextRow >= 0 && nextRow < rowCount) {
         const nextHeader = headers[nextColIdx];
         setActiveCell({ row: nextRow, col: nextHeader });
-        
+
         setTimeout(() => {
           const nextInput = document.querySelector(`[data-row="${nextRow}"][data-col="${nextHeader}"]`) as HTMLElement;
           if (nextInput) {
@@ -1186,7 +1477,7 @@ export function useSpreadsheetOperations({
       const next = { ...prev };
       const localVisibleHeaders = allHeaders.filter(h => !hiddenColumns.includes(h) && h !== 'section');
 
-      const isPartofSelection = selection && 
+      const isPartofSelection = selection &&
         row >= Math.min(selection.startRow, selection.endRow) &&
         row <= Math.max(selection.startRow, selection.endRow) &&
         (() => {
@@ -1227,12 +1518,12 @@ export function useSpreadsheetOperations({
       const targetKey = toA1Key(rowIndex, masterColumnOrder.indexOf(header));
       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
       const currentAlign = prev[targetKey] || columnAlignments[header] || defaultAlign;
-      
+
       const nextMap: Record<string, 'left' | 'center' | 'right'> = { left: 'center', center: 'right', right: 'left' };
       const nextAlign = nextMap[currentAlign];
 
-      const isTargetInSelection = selection && 
-        rowIndex >= Math.min(selection.startRow, selection.endRow) && 
+      const isTargetInSelection = selection &&
+        rowIndex >= Math.min(selection.startRow, selection.endRow) &&
         rowIndex <= Math.max(selection.startRow, selection.endRow) &&
         (() => {
           const startColIdx = visibleHeaders.indexOf(selection.startCol);
@@ -1291,7 +1582,7 @@ export function useSpreadsheetOperations({
   }, [selection, visibleHeaders, masterColumnOrder, saveStateToHistory, setCellAlignments]);
 
   const toggleColumnVisibility = useCallback((key: string) => {
-    setHiddenColumns(prev => 
+    setHiddenColumns(prev =>
       (prev.includes(key) ? prev.filter(col => col !== key) : [...prev, key])
     );
     setSelection(null);
@@ -1299,7 +1590,7 @@ export function useSpreadsheetOperations({
 
   const handleRenameSectionBlock = useCallback((startIndex: number, oldName: string, newName: string) => {
     if (!newName || oldName === newName) return;
-    
+
     saveStateToHistory();
     setGridData(prev => {
       const next = new Map(prev);
@@ -1339,7 +1630,7 @@ export function useSpreadsheetOperations({
       for (let r = 0; r < rowCount; r++) {
         if (gridData.get(`${r}:section`) === relativeSectionName) {
           if (position === 'before') { targetRow = r; break; }
-          targetRow = r; 
+          targetRow = r;
         }
       }
     }
@@ -1352,7 +1643,7 @@ export function useSpreadsheetOperations({
 
     const shiftMetadata = (prev: Record<string, any>) => {
       const next: Record<string, any> = {};
-      
+
       const transform = (k: string) => {
         const c = fromA1Key(k);
         if (!c) return k.includes(':section') ? { r: parseInt(k.split(':')[0], 10), ci: -1, isS: true } : null;
@@ -1366,7 +1657,7 @@ export function useSpreadsheetOperations({
 
         const { r, ci, isS } = info;
         const nk = r < insertionIndex ? key : isS ? `${r + 1}:section` : toA1Key(r + 1, ci);
-        
+
         const val = { ...prev[key] };
         if (val.mergedIn) {
           const h = transform(val.mergedIn) as { r: number; ci: number; isS: boolean } | null;
@@ -1405,7 +1696,7 @@ export function useSpreadsheetOperations({
           next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), val);
         }
       });
-      
+
       next.set(`${insertionIndex}:section`, sectionName);
       return next;
     });
@@ -1415,7 +1706,7 @@ export function useSpreadsheetOperations({
   const handleDeleteSection = useCallback((sectionName: string) => {
     if (!window.confirm(`Are you sure you want to remove the section header "${sectionName}"? The rows belonging to this section will be kept in the grid.`)) return;
     saveStateToHistory();
-    
+
     setGridData(prev => {
       const next = new Map(prev);
       const currentCount = stateRef.current.rowCount;
@@ -1441,14 +1732,14 @@ export function useSpreadsheetOperations({
     next.set(toA1Key(3, 0), "a.");
     next.set(toA1Key(3, 1), 0);
     next.set("3:section", "Work B");
-    
+
     setGridData(next);
     setRowCount(4);
   }, [setMasterColumnOrder, setColumnOrder, setGridData, setRowCount]);
 
   const exportToCSV = useCallback(() => {
     if (rowCount === 0) return;
-    
+
     const headers = allHeaders;
     const csvContent = [
       headers.join(','),
@@ -1473,9 +1764,15 @@ export function useSpreadsheetOperations({
   }, [rowCount, allHeaders, masterColumnOrder, gridData, activeNode]);
 
   const handleResetWidths = useCallback(() => {
-    if (window.confirm('Reset all column widths? This will allow columns to auto-fit based on their content.')) {
-      setColumnWidths({});
-    }
+    setSpreadsheetDialog({
+      type: 'confirm',
+      title: 'Reset Column Widths',
+      message: 'Reset all column widths? This will allow columns to auto-fit based on their content.',
+      confirmText: 'Reset',
+      onConfirm: () => {
+        setColumnWidths({});
+      }
+    });
   }, []);
 
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
@@ -1518,7 +1815,7 @@ export function useSpreadsheetOperations({
     e.stopPropagation();
     const container = (e.currentTarget as HTMLElement).closest('div');
     const rect = container ? container.getBoundingClientRect() : (e.currentTarget as HTMLElement).getBoundingClientRect();
-    
+
     setDropdownMenu({
       x: rect.left,
       y: rect.bottom + 4,
@@ -1546,15 +1843,15 @@ export function useSpreadsheetOperations({
       if (!current) return;
       const delta = moveEvent.pageX - current.startX;
       const newWidth = Math.max(80, current.startWidth + delta);
-      
+
       const startColIdx = visibleHeaders.indexOf(selection?.startCol || "");
       const endColIdx = visibleHeaders.indexOf(selection?.endCol || "");
       const currentColIdx = visibleHeaders.indexOf(current.header);
-      
-      const isPartofSelection = selection && 
-        (selection.startRow === 0 || selection.startRow === -1) && 
+
+      const isPartofSelection = selection &&
+        (selection.startRow === 0 || selection.startRow === -1) &&
         selection.endRow === rowCount - 1 &&
-        currentColIdx >= Math.min(startColIdx, endColIdx) && 
+        currentColIdx >= Math.min(startColIdx, endColIdx) &&
         currentColIdx <= Math.max(startColIdx, endColIdx);
 
       if (isPartofSelection && selection) {
@@ -1590,20 +1887,20 @@ export function useSpreadsheetOperations({
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string = "", row?: number, sectionName?: string) => {
     e.preventDefault();
     const menuWidth = 192;
-    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 380)); 
-    
+    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 380));
+
     const winW = window.innerWidth;
     const winH = window.innerHeight;
-    
+
     let x = e.clientX;
     let y = e.clientY;
-    
+
     if (x + menuWidth > winW) x = winW - menuWidth - 12;
     if (y + menuHeight > winH) y = winH - menuHeight - 12;
-    
+
     x = Math.max(12, x);
     y = Math.max(12, y);
-    
+
     setContextMenu({ x, y, row, col, type, sectionName });
   }, []);
 
@@ -1733,7 +2030,7 @@ export function useSpreadsheetOperations({
     undoStack,
     redoStack,
     resetHistory,
-    
+
     // Spreadsheet extra states
     columnAlignments,
     setColumnAlignments,
@@ -1760,11 +2057,14 @@ export function useSpreadsheetOperations({
     selectedYear,
     setSelectedYear,
     isSaving,
-    
+    hasUnsavedChanges,
+    spreadsheetDialog,
+    setSpreadsheetDialog,
+
     // Memoized headers
     allHeaders,
     visibleHeaders,
-    
+
     // Handlers
     handleUpdateCell,
     handleRenameColumn,

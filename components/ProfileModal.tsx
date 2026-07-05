@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, User, Image as ImageIcon, Loader2, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { CustomDialog } from './CustomDialog';
 
 interface ProfileModalProps {
   user: any;
@@ -21,6 +22,12 @@ export const ProfileModal = ({
   const [profileEmail, setProfileEmail] = useState(user?.email || '');
   const [profilePassword, setProfilePassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [dialogInfo, setDialogInfo] = useState<{
+    title: string;
+    message: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync profile state when opening modal
@@ -62,7 +69,12 @@ export const ProfileModal = ({
         if (oldPath) await supabase.storage.from('attachments').remove([oldPath]);
       }
     } catch (err: any) {
-      alert('Error uploading avatar: ' + err.message);
+      setDialogInfo({
+        title: "Avatar Upload Failed",
+        message: 'Error uploading avatar: ' + err.message,
+        isDestructive: true,
+        onConfirm: () => {}
+      });
     } finally {
       setIsUpdatingProfile(false);
     }
@@ -82,12 +94,25 @@ export const ProfileModal = ({
       if (error) throw error;
 
       if (profileEmail !== user?.email) {
-        alert("Profile updated. A confirmation link has been sent to your new email address.");
+        setDialogInfo({
+          title: "Confirmation Sent",
+          message: "Profile updated. A confirmation link has been sent to your new email address.",
+          onConfirm: () => {
+            setShowProfileModal(false);
+            setProfilePassword('');
+          }
+        });
+      } else {
+        setShowProfileModal(false);
+        setProfilePassword('');
       }
-      setShowProfileModal(false);
-      setProfilePassword('');
     } catch (err: any) {
-      alert(err.message);
+      setDialogInfo({
+        title: "Error Updating Profile",
+        message: err.message,
+        isDestructive: true,
+        onConfirm: () => {}
+      });
     }
     setIsUpdatingProfile(false);
   };
@@ -138,46 +163,67 @@ export const ProfileModal = ({
                 className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
               />
             </div>
+
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">Email Address</label>
               <input 
                 type="email" 
                 value={profileEmail} 
                 onChange={(e) => setProfileEmail(e.target.value)} 
-                placeholder="admin@labason.gov.ph"
+                placeholder="juan.delacruz@labason.gov.ph"
                 className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
               />
             </div>
+
             <div className="space-y-1.5">
-              <label className="text-[10px] font-black text-muted uppercase tracking-widest ml-1">New Password</label>
+              <div className="flex justify-between items-center ml-1">
+                <label className="text-[10px] font-black text-muted uppercase tracking-widest">New Password</label>
+                <span className="text-[9px] text-muted font-mono uppercase">Optional</span>
+              </div>
               <input 
                 type="password" 
                 value={profilePassword} 
                 onChange={(e) => setProfilePassword(e.target.value)} 
-                placeholder="Leave blank to keep current"
+                placeholder="••••••••" 
                 className="w-full px-4 py-2.5 bg-muted/5 border border-border rounded-xl outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-all text-sm font-medium"
               />
             </div>
           </div>
 
-          <div className="pt-4 flex gap-3">
+          <div className="flex justify-end gap-2.5 pt-2">
             <button 
+              disabled={isUpdatingProfile} 
               onClick={() => setShowProfileModal(false)}
-              className="flex-1 py-3 border border-border text-foreground rounded-xl font-bold text-xs hover:bg-muted/10 transition-all uppercase tracking-widest"
+              className="px-4 py-2 bg-muted/10 hover:bg-muted/15 text-muted hover:text-foreground text-xs font-bold rounded-lg transition-all active:scale-95 cursor-pointer"
             >
               Cancel
             </button>
             <button 
+              disabled={isUpdatingProfile} 
               onClick={handleUpdateProfile}
-              disabled={isUpdatingProfile}
-              className="flex-1 py-3 bg-accent text-accent-foreground rounded-xl font-bold text-xs shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2 uppercase tracking-widest"
+              className="px-4 py-2 bg-accent text-accent-foreground text-xs font-bold rounded-lg transition-all active:scale-95 shadow-md flex items-center gap-1.5 cursor-pointer"
             >
-              {isUpdatingProfile ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-              Update Profile
+              {isUpdatingProfile ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+              <span>Save Profile Changes</span>
             </button>
           </div>
         </div>
       </div>
+
+      <CustomDialog
+        isOpen={dialogInfo !== null}
+        type="confirm"
+        title={dialogInfo?.title || 'System Message'}
+        message={dialogInfo?.message || ''}
+        confirmText="OK"
+        cancelText=""
+        isDestructive={dialogInfo?.isDestructive}
+        onConfirm={() => {
+          dialogInfo?.onConfirm();
+          setDialogInfo(null);
+        }}
+        onCancel={() => setDialogInfo(null)}
+      />
     </div>
   );
 };

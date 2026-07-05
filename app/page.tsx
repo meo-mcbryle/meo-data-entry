@@ -17,6 +17,7 @@ import { DashboardMainArea } from '@/components/DashboardMainArea';
 import { DashboardModals } from '@/components/DashboardModals';
 import { GRID_THEME } from '@/lib/constants';
 import { Folder, PanelLeftOpen } from 'lucide-react';
+import { CustomDialog } from '@/components/CustomDialog';
 
 import { useAuditLogs } from '@/hooks/useAuditLogs';
 import { useFileExplorer } from '@/hooks/useFileExplorer';
@@ -28,6 +29,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs' | 'trash'>('table');
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);
   const [isSystemOnline, setIsSystemOnline] = useState(typeof window !== 'undefined' ? navigator.onLine : true);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
@@ -112,11 +114,33 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
 
   const searchParams = useSearchParams();
 
+  // Intercept file selection changes to warn about unsaved changes
+  const handleSelectId = useCallback((id: string | null) => {
+    if (id === selectedId) return;
+    if (spreadsheet.hasUnsavedChanges) {
+      setPendingSelectId(id);
+    } else {
+      setSelectedId(id);
+    }
+  }, [selectedId, spreadsheet.hasUnsavedChanges, setSelectedId]);
+
+  const handleShareCustom = useCallback(() => {
+    if (!selectedId) return;
+    const url = `${window.location.origin}/?id=${selectedId}`;
+    navigator.clipboard.writeText(url);
+    spreadsheet.setSpreadsheetDialog({
+      type: 'alert',
+      title: 'Link Copied',
+      message: 'Shareable link copied to clipboard!',
+      onConfirm: () => {}
+    });
+  }, [selectedId, spreadsheet.setSpreadsheetDialog]);
+
   // Sync URL share link to selected file
   useEffect(() => {
     const urlId = searchParams.get('id');
-    if (urlId) setSelectedId(urlId);
-  }, [searchParams, setSelectedId]);
+    if (urlId) handleSelectId(urlId);
+  }, [searchParams, handleSelectId]);
 
   // Fetch logs or files when view changes
   useEffect(() => {
@@ -192,7 +216,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             setViewMode={setViewMode}
             setShowGlobalSearch={setShowGlobalSearch}
             selectedId={selectedId}
-            setSelectedId={setSelectedId}
+            setSelectedId={handleSelectId}
             setShowProfileModal={setShowProfileModal}
             profileAvatar={profileAvatar}
             handleLogout={handleLogout}
@@ -203,7 +227,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           <ProjectExplorer
             tree={tree}
             selectedId={selectedId}
-            setSelectedId={setSelectedId}
+            setSelectedId={handleSelectId}
             addItem={addItem}
             handleRename={handleRename}
             handleDelete={handleDelete}
@@ -242,9 +266,10 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
                 setIsFullScreen={setIsFullScreen}
                 selectedId={selectedId}
                 comparisonIds={comparisonIds}
-                handleShare={handleShare}
+                handleShare={handleShareCustom}
                 handleSave={spreadsheet.handleSave}
                 isSaving={spreadsheet.isSaving}
+                hasUnsavedChanges={spreadsheet.hasUnsavedChanges}
               />
             )}
 
@@ -308,7 +333,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           setProfileAvatar={setProfileAvatar}
           showGlobalSearch={showGlobalSearch}
           setShowGlobalSearch={setShowGlobalSearch}
-          setSelectedId={setSelectedId}
+          setSelectedId={handleSelectId}
           setViewMode={setViewMode}
           isSyncModalOpen={isSyncModalOpen}
           setIsSyncModalOpen={setIsSyncModalOpen}
@@ -319,6 +344,23 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
           confirmPermanentDelete={confirmPermanentDelete}
           confirmRename={(id, name) => { if (name) confirmRename(id, name); }}
           confirmAdd={(nodeType, name, parentId) => { if (name) confirmAdd(nodeType, name, parentId); }}
+        />
+
+        <CustomDialog
+          isOpen={pendingSelectId !== null}
+          type="confirm"
+          title="Unsaved Changes"
+          message="You have unsaved changes in the current file. Do you want to discard them and open the other file?"
+          confirmText="Discard Changes"
+          cancelText="Keep Editing"
+          isDestructive={true}
+          onConfirm={() => {
+            setSelectedId(pendingSelectId);
+            setPendingSelectId(null);
+          }}
+          onCancel={() => {
+            setPendingSelectId(null);
+          }}
         />
       </div>
     </main>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Wifi, RefreshCw, AlertTriangle, CheckCircle2, Loader2, ArrowRight, Server, Laptop } from 'lucide-react';
 import { SyncService, type SyncConflict } from '@/lib/sync-service';
+import { CustomDialog } from './CustomDialog';
 
 interface SyncModalProps {
   isOpen: boolean;
@@ -16,6 +17,11 @@ export const SyncModal = ({ isOpen, onClose, onSyncCompleted }: SyncModalProps) 
   const [checking, setChecking] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [dialogInfo, setDialogInfo] = useState<{
+    title: string;
+    message: string;
+    isDestructive?: boolean;
+  } | null>(null);
 
   // Check sync state on open
   const checkState = async () => {
@@ -54,13 +60,21 @@ export const SyncModal = ({ isOpen, onClose, onSyncCompleted }: SyncModalProps) 
       setConflicts(prev => prev.filter(c => c.nodeId !== nodeId));
       setQueueLength(prev => resolution === 'use_server' ? prev - 1 : prev);
     } catch (e: any) {
-      alert(`Resolution failed: ${e.message}`);
+      setDialogInfo({
+        title: "Resolution Failed",
+        message: `Resolution failed: ${e.message}`,
+        isDestructive: true
+      });
     }
   };
 
   const handleSyncAll = async () => {
     if (conflicts.length > 0) {
-      alert('Please resolve all data conflicts before running synchronization.');
+      setDialogInfo({
+        title: "Conflicts Pending",
+        message: "Please resolve all data conflicts before running synchronization.",
+        isDestructive: true
+      });
       return;
     }
     
@@ -240,6 +254,18 @@ export const SyncModal = ({ isOpen, onClose, onSyncCompleted }: SyncModalProps) 
           </button>
         </div>
       </div>
+
+      <CustomDialog
+        isOpen={dialogInfo !== null}
+        type="confirm"
+        title={dialogInfo?.title || 'Sync Message'}
+        message={dialogInfo?.message || ''}
+        confirmText="OK"
+        cancelText=""
+        isDestructive={dialogInfo?.isDestructive}
+        onConfirm={() => setDialogInfo(null)}
+        onCancel={() => setDialogInfo(null)}
+      />
     </div>
   );
 };
