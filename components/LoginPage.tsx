@@ -67,7 +67,7 @@ export const LoginPage = React.memo(() => {
         <div className="flex flex-col items-center mb-8">
           <div className="p-2.5 bg-card/90 dark:bg-zinc-900/60 rounded-2xl mb-4 border border-border/80 shadow-md backdrop-blur-sm">
             <img 
-              src="https://www.labason.gov.ph/images/headers/200_pixels_LGU_LOGO.png" 
+              src="/logo.png" 
               alt="LGU Labason Logo" 
               className="w-14 h-14 object-contain brightness-90 dark:brightness-95 contrast-105"
             />

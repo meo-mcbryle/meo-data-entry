@@ -167,8 +167,79 @@ export const SyncService = {
     }
   },
 
+  // Synchronizes all offline attachments to Supabase Storage
+  async syncAttachments(): Promise<void> {
+    const unsynced = await LocalDB.getUnsyncedAttachments();
+    for (const att of unsynced) {
+      try {
+        // 1. Upload to Supabase Storage
+        const { error: uploadError } = await supabase.storage
+          .from('attachments')
+          .upload(att.path, att.blob, {
+            contentType: att.contentType,
+            upsert: true
+          });
+
+        if (uploadError) throw uploadError;
+
+        // 2. Get remote public URL
+        const { data } = supabase.storage
+          .from('attachments')
+          .getPublicUrl(att.path);
+        
+        const publicUrl = data.publicUrl;
+
+        // 3. Mark as synced in Dexie
+        att.synced = 1;
+        await LocalDB.saveAttachment(att);
+
+        // 4. Update local node metadata references
+        const localNodes = await LocalDB.getNodes();
+        for (const node of localNodes) {
+          if (node.type === 'file' && node.display_settings?.cellMetadata) {
+            let nodeChanged = false;
+            const cellMetadata = { ...node.display_settings.cellMetadata };
+
+            Object.keys(cellMetadata).forEach(key => {
+              const cell = cellMetadata[key];
+              if (cell.attachments) {
+                cell.attachments = cell.attachments.map((a: any) => {
+                  if (a.path === att.path && a.isOffline) {
+                    nodeChanged = true;
+                    return {
+                      ...a,
+                      url: publicUrl,
+                      isOffline: false
+                    };
+                  }
+                  return a;
+                });
+              }
+            });
+
+            if (nodeChanged) {
+              node.display_settings = {
+                ...node.display_settings,
+                cellMetadata
+              };
+              node.updated_at = new Date().toISOString();
+              // Save local node and update sync queue item so when the sync replays,
+              // it contains the synced public URL payload
+              await LocalDB.saveNode(node);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to sync attachment at ${att.path}:`, err);
+      }
+    }
+  },
+
   // Performs the sync execution
   async performSync(onProgress?: (progress: number) => void): Promise<void> {
+    // Sync attachments first so the queue contains remote URLs when read
+    await this.syncAttachments();
+
     const queue = await LocalDB.getSyncQueue();
     const totalItems = queue.length;
     let completedItems = 0;

@@ -35,10 +35,21 @@ export interface LocalAuditLog {
   created_at: string;
 }
 
+export interface LocalAttachment {
+  path: string;
+  blob: Blob;
+  synced: number; // 0 = unsynced, 1 = synced
+  name: string;
+  type: 'image' | 'file';
+  size: number;
+  contentType: string;
+}
+
 class MEODexieDatabase extends Dexie {
   nodes!: Table<LocalNode, string>;
   sync_queue!: Table<SyncQueueItem, number>;
   audit_logs!: Table<LocalAuditLog, string>;
+  attachments!: Table<LocalAttachment, string>;
 
   constructor() {
     super('MEODexieDatabase');
@@ -48,6 +59,13 @@ class MEODexieDatabase extends Dexie {
       nodes: 'id, parent_id, name, type, is_deleted, updated_at',
       sync_queue: '++id, table, operation, record_id, timestamp',
       audit_logs: 'id, node_id, action, created_at'
+    });
+
+    this.version(2).stores({
+      nodes: 'id, parent_id, name, type, is_deleted, updated_at',
+      sync_queue: '++id, table, operation, record_id, timestamp',
+      audit_logs: 'id, node_id, action, created_at',
+      attachments: 'path, synced'
     });
   }
 }
@@ -218,6 +236,24 @@ export const LocalDB = {
     await db.nodes.clear();
     await db.sync_queue.clear();
     await db.audit_logs.clear();
+    await db.attachments.clear();
+  },
+
+  // Attachment Mutations
+  async getAttachment(path: string): Promise<LocalAttachment | undefined> {
+    return await db.attachments.get(path);
+  },
+
+  async saveAttachment(attachment: LocalAttachment): Promise<void> {
+    await db.attachments.put(attachment);
+  },
+
+  async deleteAttachment(path: string): Promise<void> {
+    await db.attachments.delete(path);
+  },
+
+  async getUnsyncedAttachments(): Promise<LocalAttachment[]> {
+    return await db.attachments.where({ synced: 0 }).toArray();
   }
 };
 

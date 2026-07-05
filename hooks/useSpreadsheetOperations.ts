@@ -754,11 +754,6 @@ export function useSpreadsheetOperations({
   }, [allHeaders, hiddenColumns, selection, masterColumnOrder, saveStateToHistory, setCellMetadata]);
 
   const insertMedia = useCallback((row: number, col: string, mediaType: 'image' | 'file') => {
-    if (typeof window !== 'undefined' && !navigator.onLine) {
-      alert("Offline Mode: Binary attachments require an internet connection to upload to remote storage.");
-      setContextMenu(null);
-      return;
-    }
     setPendingMedia({ row, col, type: mediaType });
     setContextMenu(null);
     setTimeout(() => {
@@ -814,25 +809,61 @@ export function useSpreadsheetOperations({
       const safeFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const filePath = `${activeNode.id}/${Date.now()}_${safeFileName}`;
       
-      const { error: uploadError } = await supabase.storage
-        .from('attachments')
-        .upload(filePath, file);
+      // Save local attachment cache to Dexie immediately
+      await LocalDB.saveAttachment({
+        path: filePath,
+        blob: file,
+        synced: 0,
+        name: file.name,
+        type,
+        size: file.size,
+        contentType: file.type
+      });
 
-      if (uploadError) throw uploadError;
+      let publicUrl = '';
+      let isOffline = true;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('attachments')
-        .getPublicUrl(filePath);
+      // If online, attempt to upload to Supabase Storage
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from('attachments')
+            .upload(filePath, file);
+
+          if (!uploadError) {
+            const { data } = supabase.storage
+              .from('attachments')
+              .getPublicUrl(filePath);
+            
+            publicUrl = data.publicUrl;
+            isOffline = false;
+
+            // Mark as synced in Dexie
+            await LocalDB.saveAttachment({
+              path: filePath,
+              blob: file,
+              synced: 1,
+              name: file.name,
+              type,
+              size: file.size,
+              contentType: file.type
+            });
+          }
+        } catch (uploadErr) {
+          console.warn("Failed to upload attachment online, keeping offline stage:", uploadErr);
+        }
+      }
 
       const newAttachments = [
         ...currentAttachments,
         { 
           type, 
           name: file.name, 
-          url: publicUrl, 
+          url: isOffline ? filePath : publicUrl, 
           path: filePath,
           size: file.size,
-          contentType: file.type
+          contentType: file.type,
+          isOffline
         } 
       ];
 

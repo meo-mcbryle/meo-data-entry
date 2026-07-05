@@ -6,6 +6,9 @@ interface Attachment {
   url: string;
   name: string;
   size?: number;
+  contentType?: string;
+  path?: string;
+  isOffline?: boolean;
 }
 
 interface MediaPreviewModalProps {
@@ -87,6 +90,7 @@ export const MediaPreviewModal = ({
   formatSize
 }: MediaPreviewModalProps) => {
   const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
+  const [resolvedUrls, setResolvedUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -97,6 +101,62 @@ export const MediaPreviewModal = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!viewingMedia) return;
+
+    let active = true;
+    const urls: Record<string, string> = {};
+    const objectUrlsToClean: string[] = [];
+
+    const resolve = async () => {
+      const { LocalDB } = await import('@/lib/local-db');
+      for (const att of viewingMedia.attachments) {
+        if (att.path) {
+          const local = await LocalDB.getAttachment(att.path);
+          if (local && local.blob) {
+            const objUrl = URL.createObjectURL(local.blob);
+            urls[att.path] = objUrl;
+            objectUrlsToClean.push(objUrl);
+            continue;
+          }
+        }
+        
+        if (att.url) {
+          urls[att.path || att.url] = att.url;
+
+          // Cache remote attachment in the background
+          if (typeof window !== 'undefined' && navigator.onLine && att.path && !att.url.startsWith('blob:') && att.url.startsWith('http')) {
+            fetch(att.url)
+              .then(res => res.blob())
+              .then(async (blob) => {
+                const { LocalDB: DB } = await import('@/lib/local-db');
+                await DB.saveAttachment({
+                  path: att.path!,
+                  blob,
+                  synced: 1,
+                  name: att.name,
+                  type: att.type,
+                  size: att.size || blob.size,
+                  contentType: att.contentType || blob.type
+                });
+              })
+              .catch(err => console.warn('Failed to background cache attachment:', err));
+          }
+        }
+      }
+      if (active) {
+        setResolvedUrls(urls);
+      }
+    };
+
+    resolve();
+
+    return () => {
+      active = false;
+      objectUrlsToClean.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [viewingMedia]);
 
   if (!viewingMedia) return null;
 
@@ -174,19 +234,20 @@ export const MediaPreviewModal = ({
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                       {viewingMedia.attachments.map((img: any, idx: number) => {
                         if (img.type !== 'image') return null;
+                        const displayUrl = resolvedUrls[img.path || img.url] || img.url;
                         return (
                           <div key={idx} className="group relative bg-card/40 hover:bg-card/75 p-2 rounded-xl border border-border/60 hover:border-accent/40 shadow-sm hover:shadow-md transition-all duration-200">
                             <div className="relative aspect-video rounded-lg bg-background/50 overflow-hidden border border-border/30">
-                              <ImageWithLoader src={img.url} alt={img.name} className="w-full h-full object-contain" />
+                              <ImageWithLoader src={displayUrl} alt={img.name} className="w-full h-full object-contain" />
                               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center gap-2">
                                 <button 
-                                  onClick={() => setLightboxImage({ url: img.url, name: img.name })}
+                                  onClick={() => setLightboxImage({ url: displayUrl, name: img.name })}
                                   className="px-2.5 py-1.5 bg-accent text-accent-foreground text-[10px] font-bold rounded-lg hover:bg-accent/90 active:scale-95 transition-all shadow-md cursor-pointer uppercase tracking-wider"
                                 >
                                   View
                                 </button>
                                 <a 
-                                  href={img.url} 
+                                  href={displayUrl} 
                                   download={img.name}
                                   className="p-1.5 bg-muted/20 text-foreground border border-border/80 rounded-lg hover:bg-accent hover:text-accent-foreground transition-all shadow-sm flex items-center justify-center"
                                   title="Download Image"
@@ -224,6 +285,7 @@ export const MediaPreviewModal = ({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {viewingMedia.attachments.map((file: any, idx: number) => {
                         if (file.type !== 'file') return null;
+                        const displayUrl = resolvedUrls[file.path || file.url] || file.url;
                         return (
                           <div key={idx} className="flex items-center gap-3 bg-card/45 border border-border/60 rounded-xl p-3 shadow-sm hover:border-accent/40 hover:bg-card/75 transition-all duration-200 group">
                             <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-500 flex items-center justify-center shrink-0">
@@ -235,7 +297,7 @@ export const MediaPreviewModal = ({
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <a 
-                                href={file.url} 
+                                href={displayUrl} 
                                 download={file.name} 
                                 className="p-2 bg-muted/15 border border-border/40 text-foreground rounded-lg hover:bg-accent hover:text-accent-foreground transition-all flex items-center justify-center" 
                                 title="Download File"
