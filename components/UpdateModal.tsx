@@ -129,18 +129,18 @@ export const UpdateModal = ({ isOpen, onClose }: UpdateModalProps) => {
     // Portal wrapper inherits the current theme class so all Tailwind tokens resolve
     <div className={themeClass}>
       <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-background/70 backdrop-blur-sm"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       >
-        <div className="relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-2xl bg-card border border-border">
+        <div className="relative w-full max-w-md mx-4 rounded-2xl overflow-hidden shadow-2xl bg-card border border-border animate-in zoom-in-95 duration-200">
           {/* Top accent bar */}
-          <div className="h-[3px] w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500" />
+          <div className="h-[3px] w-full bg-gradient-to-r from-transparent via-accent to-transparent" />
 
           {/* Header */}
           <div className="flex items-center justify-between px-6 pt-5 pb-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600">
-                <Shield size={18} className="text-white" />
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-accent/15 border border-accent/25">
+                <Shield size={18} className="text-accent" />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Software Update</h2>
@@ -197,8 +197,8 @@ function StatusDisplay({ status, info, progress }: {
 function IdleState() {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20">
-        <RefreshCw size={24} className="text-indigo-500" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-accent/10 border border-accent/20">
+        <RefreshCw size={24} className="text-accent" />
       </div>
       <p className="text-sm text-muted text-center">Ready to check for available updates.</p>
     </div>
@@ -208,8 +208,8 @@ function IdleState() {
 function CheckingState() {
   return (
     <div className="flex flex-col items-center gap-3 py-4">
-      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20">
-        <Loader2 size={24} className="text-indigo-500 animate-spin" />
+      <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-accent/10 border border-accent/20">
+        <Loader2 size={24} className="text-accent animate-spin" />
       </div>
       <div className="text-center">
         <p className="text-sm font-medium text-foreground">Checking for updates…</p>
@@ -237,8 +237,8 @@ function AvailableState({ info }: { info: UpdateInfo }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-4">
-        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-violet-500/10 border border-violet-500/20">
-          <ArrowDownCircle size={22} className="text-violet-500" />
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 bg-accent/10 border border-accent/20">
+          <ArrowDownCircle size={22} className="text-accent" />
         </div>
         <div>
           <p className="text-sm font-semibold text-foreground">
@@ -248,7 +248,7 @@ function AvailableState({ info }: { info: UpdateInfo }) {
             A new version of MEO Data Entry is ready to download.
           </p>
           {info.releaseDate && (
-            <p className="text-[10px] text-muted/60 mt-1">
+            <p className="text-[10px] text-muted mt-1">
               Released: {new Date(info.releaseDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
             </p>
           )}
@@ -267,13 +267,13 @@ function DownloadingState({ info, progress }: { info: UpdateInfo; progress: numb
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-cyan-500/10 border border-cyan-500/20">
-          <Download size={18} className="text-cyan-500" />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-accent/10 border border-accent/20">
+          <Download size={18} className="text-accent" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
             <p className="text-sm font-medium text-foreground">Downloading update…</p>
-            <span className="text-sm font-bold text-cyan-500 tabular-nums">{progress}%</span>
+            <span className="text-sm font-bold text-accent tabular-nums">{progress}%</span>
           </div>
           <p className="text-[11px] text-muted truncate">
             {formatBytes(info.transferred)} of {formatBytes(info.total)}
@@ -286,11 +286,8 @@ function DownloadingState({ info, progress }: { info: UpdateInfo; progress: numb
       <div className="relative h-2 rounded-full overflow-hidden bg-border">
         {/* Fill */}
         <div
-          className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-indigo-500 to-cyan-500"
-          style={{
-            width: `${progress}%`,
-            boxShadow: '0 0 10px rgba(99,102,241,0.5)',
-          }}
+          className="h-full rounded-full transition-all duration-300 ease-out bg-accent"
+          style={{ width: `${progress}%` }}
         />
       </div>
     </div>
@@ -348,7 +345,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
   const btnBase =
     'flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
 
-  const primaryBtn = `${btnBase} text-white shadow-lg hover:brightness-110`;
+  const primaryBtn = `${btnBase} bg-accent text-accent-foreground shadow-lg hover:opacity-90`;
   const ghostBtn   = `${btnBase} text-muted hover:text-foreground hover:bg-border transition-colors`;
 
   if (status === 'idle' || status === 'not-available' || status === 'error') {
@@ -356,7 +353,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
       <div className="flex gap-2">
         <button
           onClick={onCheck}
-          className={`${primaryBtn} bg-gradient-to-r from-indigo-500 to-violet-600 flex-1`}
+          className={`${primaryBtn} flex-1`}
         >
           <RefreshCw size={15} />
           Check for Updates
@@ -370,7 +367,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
 
   if (status === 'checking') {
     return (
-      <button disabled className={`${primaryBtn} w-full opacity-70 bg-gradient-to-r from-indigo-500 to-violet-600`}>
+      <button disabled className={`${primaryBtn} w-full opacity-70`}>
         <Loader2 size={15} className="animate-spin" />
         Checking…
       </button>
@@ -382,7 +379,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
       <div className="flex gap-2">
         <button
           onClick={onDownload}
-          className={`${primaryBtn} bg-gradient-to-r from-indigo-500 to-cyan-500 flex-1`}
+          className={`${primaryBtn} flex-1`}
         >
           <Download size={15} />
           Download Update
@@ -396,7 +393,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
 
   if (status === 'downloading') {
     return (
-      <button disabled className={`${primaryBtn} w-full opacity-70 bg-gradient-to-r from-indigo-500 to-cyan-500`}>
+      <button disabled className={`${primaryBtn} w-full opacity-70`}>
         <Loader2 size={15} className="animate-spin" />
         Downloading…
       </button>
@@ -408,7 +405,7 @@ function ActionButtons({ status, onCheck, onDownload, onInstall, onClose }: {
       <div className="flex gap-2">
         <button
           onClick={onInstall}
-          className={`${primaryBtn} bg-gradient-to-r from-emerald-500 to-green-600 flex-1`}
+          className={`${btnBase} bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg flex-1`}
         >
           <Zap size={15} />
           Restart &amp; Install
