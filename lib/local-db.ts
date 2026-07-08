@@ -53,7 +53,7 @@ class MEODexieDatabase extends Dexie {
 
   constructor() {
     super('MEODexieDatabase');
-    
+
     // Schema definitions. Only index columns we need to search or filter on.
     this.version(1).stores({
       nodes: 'id, parent_id, name, type, is_deleted, updated_at',
@@ -85,7 +85,7 @@ export const LocalDB = {
 
   async saveNode(node: LocalNode, bypassSyncQueue = false): Promise<void> {
     await db.nodes.put(node);
-    
+
     if (!bypassSyncQueue) {
       await this.queueSync('nodes', 'UPDATE', node.id, {
         id: node.id,
@@ -204,7 +204,7 @@ export const LocalDB = {
 
   async saveNodesBulk(nodes: LocalNode[], bypassSyncQueue = false): Promise<void> {
     await db.nodes.bulkPut(nodes);
-    
+
     if (!bypassSyncQueue) {
       const syncItems = nodes.map(node => ({
         table: 'nodes' as const,
