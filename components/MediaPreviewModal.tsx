@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Paperclip, ImageIcon, FileIcon, Download, Trash2, X, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface Attachment {
@@ -158,9 +159,16 @@ export const MediaPreviewModal = ({
     };
   }, [viewingMedia]);
 
-  if (!viewingMedia) return null;
+  const [mounted, setMounted] = useState(false);
 
-  return (
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
+
+  if (!viewingMedia || !mounted) return null;
+
+  return createPortal(
     <>
       <div 
         className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-background/70 backdrop-blur-md antialiased animate-in fade-in duration-300" 
@@ -175,7 +183,7 @@ export const MediaPreviewModal = ({
           <div className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-transparent via-accent to-transparent" />
 
           {/* Header section */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-accent/10 text-accent rounded-xl border border-accent/20 flex items-center justify-center">
                 <Paperclip size={18} />
@@ -188,21 +196,21 @@ export const MediaPreviewModal = ({
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-end sm:self-auto">
               <button 
                 onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'image')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/10 text-green-500 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-green-500/20 active:scale-95 transition-all border border-green-500/20 shadow-sm cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-500/10 text-green-500 text-[9px] sm:text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-green-500/20 active:scale-95 transition-all border border-green-500/20 shadow-sm cursor-pointer"
               >
                 <ImageIcon size={12} /> Add Image
               </button>
               <button 
                 onClick={() => insertMedia(viewingMedia.row, viewingMedia.col, 'file')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 text-amber-500 text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-500/20 active:scale-95 transition-all border border-amber-500/20 shadow-sm cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 text-amber-500 text-[9px] sm:text-[10px] font-black uppercase tracking-wider rounded-lg hover:bg-amber-500/20 active:scale-95 transition-all border border-amber-500/20 shadow-sm cursor-pointer"
               >
                 <Paperclip size={12} /> Add File
               </button>
               
-              <div className="h-5 w-px bg-border/60 mx-1" />
+              <div className="h-5 w-px bg-border/60 mx-0.5 sm:mx-1" />
               
               <button 
                 onClick={() => setViewingMedia(null)} 
@@ -384,6 +392,7 @@ export const MediaPreviewModal = ({
           </div>
         </div>
       )}
-    </>
+    </>,
+    document.body
   );
 };

@@ -152,6 +152,85 @@ export const GridRow = React.memo(({
   const selMinColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.min(startColIdx, endColIdx) : -1;
   const selMaxColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.max(startColIdx, endColIdx) : -1;
 
+  const [editingCol, setEditingCol] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeCell || activeCell.row !== globalIndex) {
+      setEditingCol(null);
+    } else if (activeCell.col !== editingCol) {
+      const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
+      if (!isMobileDevice) {
+        setEditingCol(activeCell.col);
+      }
+    }
+  }, [activeCell, globalIndex, editingCol]);
+
+  const handleCellClick = (header: string) => {
+    const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobileDevice && activeCell?.row === globalIndex && activeCell?.col === header) {
+      setEditingCol(header);
+    } else {
+      setActiveCell({ row: globalIndex, col: header });
+      setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
+    }
+  };
+
+  const handleCellDoubleClick = (header: string) => {
+    setEditingCol(header);
+  };
+
+  const touchTimerRef = useRef<any>(null);
+  const touchStartPosRef = useRef<{ x: number, y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent, header: string) => {
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    
+    // Capture element boundary synchronously before React event pooling recycles it
+    const rect = e.currentTarget.getBoundingClientRect();
+    
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = setTimeout(() => {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch (err) {}
+      }
+      
+      setActiveCell({ row: globalIndex, col: header });
+      setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
+
+      onOpenContextMenu(
+        {
+          preventDefault: () => {},
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2
+        } as any,
+        'cell',
+        header,
+        globalIndex
+      );
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartPosRef.current) return;
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      if (touchTimerRef.current) {
+        clearTimeout(touchTimerRef.current);
+        touchTimerRef.current = null;
+      }
+    }
+  };
+
   // Dynamic Height Measurement: Use ResizeObserver to detect the actual rendered height
   useEffect(() => {
     const el = rowRef.current;
@@ -241,6 +320,9 @@ export const GridRow = React.memo(({
         return (
           <td
             key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
+            onTouchStart={(e) => handleTouchStart(e, header)}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
             onContextMenu={(e) => {
               e.preventDefault();
               const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;
@@ -344,12 +426,12 @@ export const GridRow = React.memo(({
                 </div>
               </div>
             ) : meta.type === 'formula' ? (
-              <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+              <div onClick={() => handleCellClick(header)} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
                 {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${activeCell?.row === globalIndex && activeCell?.col === header ? 'p-0' : 'px-2 py-0.5'}`}>
-                {activeCell?.row === globalIndex && activeCell?.col === header ? (
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${editingCol === header ? 'p-0' : 'px-2 py-0.5'}`}>
+                {editingCol === header ? (
                   <CellEditor
                     initialValue={row[header]}
                     onSync={(val: any) => handleUpdateCell(globalIndex, header, val)}
@@ -359,12 +441,18 @@ export const GridRow = React.memo(({
                     onLocalEditing={onLocalEditing}
                   />
                 ) : (
-                  <div onClick={() => setActiveCell({ row: globalIndex, col: header })} className={`text-sm text-foreground cursor-text w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>{row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}</div>
+                  <div
+                    onClick={() => handleCellClick(header)}
+                    onDoubleClick={() => handleCellDoubleClick(header)}
+                    className={`text-sm text-foreground cursor-text w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
+                  >
+                    {row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}
+                  </div>
                 )}
               </div>
             ) : (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${activeCell?.row === globalIndex && activeCell?.col === header ? 'p-0' : 'px-2 py-0.5'}`}>
-                {activeCell?.row === globalIndex && activeCell?.col === header ? (
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${editingCol === header ? 'p-0' : 'px-2 py-0.5'}`}>
+                {editingCol === header ? (
                   <CellEditor
                     isTextarea
                     initialValue={row[header]}
@@ -376,7 +464,8 @@ export const GridRow = React.memo(({
                   />
                 ) : (
                   <div
-                    onClick={() => setActiveCell({ row: globalIndex, col: header })}
+                    onClick={() => handleCellClick(header)}
+                    onDoubleClick={() => handleCellDoubleClick(header)}
                     className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
                   >
                     {row[header] || <span className="opacity-0">.</span>}

@@ -19,6 +19,7 @@ interface ProjectExplorerProps {
   setViewMode: (mode: any) => void;
   comparisonIds: string[];
   toggleComparisonId: (id: string) => void;
+  isMobileInline?: boolean;
 }
 
 export const ProjectExplorer = ({
@@ -35,7 +36,8 @@ export const ProjectExplorer = ({
   viewMode,
   setViewMode,
   comparisonIds,
-  toggleComparisonId
+  toggleComparisonId,
+  isMobileInline = false
 }: ProjectExplorerProps) => {
   const [explorerSearch, setExplorerSearch] = useState('');
 
@@ -44,7 +46,7 @@ export const ProjectExplorer = ({
       setIsLoadingFile(true);
       setSelectedId(node.id);
     }
-    if (['logs', 'trash', 'compare'].includes(viewMode)) {
+    if (['logs', 'trash', 'compare', 'explorer'].includes(viewMode)) {
       setViewMode('table');
     }
   }, [selectedId, setSelectedId, viewMode, setViewMode, setIsLoadingFile]);
@@ -80,20 +82,24 @@ export const ProjectExplorer = ({
   return (
     <>
       {/* Explorer Drawer Panel */}
-      {isExplorerVisible && (
+      {isExplorerVisible && !isMobileInline && (
         <div
           className="md:hidden fixed inset-0 bg-background/80 backdrop-blur-[2px] z-40"
           onClick={() => setIsExplorerVisible(false)}
         />
       )}
       <aside
-        className={`${GRID_THEME.drawer} ${isExplorerVisible
-            ? 'w-60 p-3 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto'
-            : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 pointer-events-none'
-          } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`}
+        className={
+          isMobileInline
+            ? "w-full h-full flex flex-col p-4 bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg relative overflow-hidden"
+            : `${GRID_THEME.drawer} ${isExplorerVisible
+                ? 'w-60 p-3 opacity-100 translate-x-12 md:translate-x-0 pointer-events-auto'
+                : 'w-0 p-0 opacity-0 -translate-x-full md:translate-x-0 pointer-events-none'
+              } fixed md:relative left-0 top-0 z-50 md:z-auto h-full shadow-2xl md:shadow-none`
+        }
       >
-        <div className="w-[220px] h-full flex flex-col shrink-0">
-          <div className="flex justify-between items-center mb-3 px-1 min-w-55 transition-colors">
+        <div className={`${isMobileInline ? 'w-full' : 'w-[220px]'} h-full flex flex-col shrink-0`}>
+          <div className={`flex justify-between items-center mb-3 px-1 transition-colors ${isMobileInline ? 'w-full' : 'min-w-55'}`}>
             <h1 className="font-black text-muted text-[10px] uppercase tracking-[0.2em]">Project Tree</h1>
             <div className="flex items-center gap-0.5">
               <button onClick={() => addItem('folder')} className="p-1.5 hover:bg-muted/10 rounded-md text-muted transition-colors" title="New Folder">
@@ -104,7 +110,7 @@ export const ProjectExplorer = ({
               </button>
             </div>
           </div>
-          <div className="mb-3 relative group min-w-55">
+          <div className={`mb-3 relative group ${isMobileInline ? 'w-full' : 'min-w-55'}`}>
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted group-focus-within:text-accent" />
             <input
               type="text"
@@ -128,7 +134,7 @@ export const ProjectExplorer = ({
               </button>
             )}
           </div>
-          <div className="overflow-y-auto flex-1 pr-1 custom-scrollbar min-w-55 [contain:content]">
+          <div className={`overflow-y-auto flex-1 pr-1 custom-scrollbar [contain:content] ${isMobileInline ? 'w-full' : 'min-w-55'}`}>
             {isLoading ? (
               <div className="flex justify-center p-4">
                 <Loader2 className="animate-spin text-accent" size={20} />
