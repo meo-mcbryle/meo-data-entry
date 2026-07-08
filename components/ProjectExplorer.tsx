@@ -116,7 +116,7 @@ export const ProjectExplorer = ({
                   setExplorerSearch('');
                 }
               }}
-              className="w-full pl-9 pr-8 py-1 text-xs bg-muted/5 border border-border rounded-md outline-none focus:ring-1 focus:ring-accent focus:bg-card text-foreground"
+              className="w-full pl-9 pr-8 py-1 text-xs bg-white/10 dark:bg-black/20 border border-white/15 dark:border-white/5 rounded-md outline-none focus:border-accent/70 focus:shadow-[0_0_12px_rgba(59,130,246,0.2)] text-foreground transition-all"
             />
             {explorerSearch && (
               <button

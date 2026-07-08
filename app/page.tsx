@@ -213,6 +213,16 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
       {/* Cyber Grid Subtle Overlay */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />
 
+      {/* Glowing Glassmorphic Background Blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Blob 1: Pink/magenta blob in top-left/center area */}
+        <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] rounded-full bg-pink-500/10 dark:bg-pink-600/5 blur-[120px] animate-blob-slow mix-blend-multiply dark:mix-blend-screen" />
+        {/* Blob 2: Blue/cyan blob in bottom-right/center area */}
+        <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] rounded-full bg-blue-500/10 dark:bg-cyan-600/5 blur-[120px] animate-blob-reverse mix-blend-multiply dark:mix-blend-screen" />
+        {/* Blob 3: Purple/violet blob in middle-left area */}
+        <div className="absolute top-[40%] left-[5%] w-[400px] h-[400px] rounded-full bg-purple-500/8 dark:bg-violet-600/5 blur-[120px] animate-blob-slow-alt mix-blend-multiply dark:mix-blend-screen" />
+      </div>
+
       {!isFullScreen && (
         <div className="flex h-full shrink-0 relative z-10">
           {/* Vertical Icon Rail */}
@@ -262,7 +272,11 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
         )}
 
         {activeNode || viewMode === 'logs' || viewMode === 'trash' ? (
-          <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card/25 backdrop-blur-md' : 'bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg'}`}>
+          <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card/25 backdrop-blur-md relative' : 'bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg relative'} transition-all duration-300`}>
+            {/* Ambient top light glow reflection */}
+            {!isFullScreen && (
+              <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rounded-t-xl opacity-75 z-50 pointer-events-none" />
+            )}
             {/* Toolbar Header (hidden in fullscreen — fullscreen uses FullscreenHeader inside DashboardMainArea) */}
             {!isFullScreen && (
               <DashboardHeader
