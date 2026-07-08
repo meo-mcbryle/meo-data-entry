@@ -18,6 +18,7 @@ import { DashboardModals } from '@/components/DashboardModals';
 import { GRID_THEME } from '@/lib/constants';
 import { Folder, PanelLeftOpen } from 'lucide-react';
 import { CustomDialog } from '@/components/CustomDialog';
+import { ParticleConstellation } from '@/components/ParticleConstellation';
 
 import { useAuditLogs } from '@/hooks/useAuditLogs';
 import { useFileExplorer } from '@/hooks/useFileExplorer';
@@ -205,9 +206,15 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   };
 
   return (
-    <main className={`${GRID_THEME.main} relative antialiased`}>
+    <main className={`${GRID_THEME.main} relative antialiased overflow-hidden`}>
+      {/* Background Particle Constellation */}
+      <ParticleConstellation />
+
+      {/* Cyber Grid Subtle Overlay */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />
+
       {!isFullScreen && (
-        <div className="flex h-full shrink-0 relative">
+        <div className="flex h-full shrink-0 relative z-10">
           {/* Vertical Icon Rail */}
           <NavigationSidebar
             isExplorerVisible={isExplorerVisible}
@@ -243,7 +250,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
         </div>
       )}
 
-      <div className={`flex-1 flex flex-col overflow-hidden ${isFullScreen ? 'p-0' : 'p-1 md:p-1.5'}`}>
+      <div className={`flex-1 flex flex-col overflow-hidden relative z-10 ${isFullScreen ? 'p-0' : 'p-1 md:p-1.5'}`}>
         {/* Floating Mobile Toggle Button */}
         {!isFullScreen && !isExplorerVisible && (
           <button
@@ -255,7 +262,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
         )}
 
         {activeNode || viewMode === 'logs' || viewMode === 'trash' ? (
-          <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card' : 'bg-card border border-border rounded-xl shadow-sm'}`}>
+          <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card/25 backdrop-blur-md' : 'bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg'}`}>
             {/* Toolbar Header (hidden in fullscreen — fullscreen uses FullscreenHeader inside DashboardMainArea) */}
             {!isFullScreen && (
               <DashboardHeader

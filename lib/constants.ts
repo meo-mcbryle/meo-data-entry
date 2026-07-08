@@ -3,16 +3,16 @@ import { Moon, Sun } from 'lucide-react';
 export const GRID_THEME = {
   // Main Layout Containers
   main: "flex h-screen bg-background text-foreground transform-gpu",
-  rail: "w-12 bg-card flex flex-col items-center py-4 gap-4 z-[60] border-r border-border",
-  drawer: "bg-card flex flex-col shadow-sm transition-[width,padding,opacity,transform] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border transform-gpu will-change-[width,padding,opacity,transform]",
+  rail: "w-12 bg-card/45 backdrop-blur-lg flex flex-col items-center py-4 gap-4 z-[60] border-r border-border/40",
+  drawer: "bg-card/25 backdrop-blur-lg flex flex-col shadow-sm transition-[width,padding,opacity,transform] duration-300 ease-in-out overflow-hidden whitespace-nowrap border-r border-border/40 transform-gpu will-change-[width,padding,opacity,transform]",
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
 
   // Grid Editor Components
-  editor: "flex flex-col h-full overflow-hidden bg-card",
-  toolbar: "flex items-center justify-between py-1.5 px-2 bg-background border-b border-border gap-2 overflow-x-auto no-scrollbar whitespace-nowrap",
-  formulaBar: "flex items-start gap-2 py-1 px-1.5 bg-card border-b border-border shadow-inner z-20",
-  statusBar: "h-7 bg-background border-t border-border flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",
-  navContainer: "flex bg-muted/10 p-0.5 rounded-md border border-border",
+  editor: "flex flex-col h-full overflow-hidden bg-card/25 backdrop-blur-md",
+  toolbar: "flex items-center justify-between py-1.5 px-2 bg-background/25 backdrop-blur-md border-b border-border/40 gap-2 overflow-x-auto no-scrollbar whitespace-nowrap",
+  formulaBar: "flex items-start gap-2 py-1 px-1.5 bg-card/30 backdrop-blur-sm border-b border-border/40 shadow-inner z-20",
+  statusBar: "h-7 bg-background/25 backdrop-blur-md border-t border-border/40 flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",
+  navContainer: "flex bg-muted/5 p-0.5 rounded-md border border-border/30 backdrop-blur-xs",
 
   // Table Specific Styles
   tableHeader: "bg-muted/10 shadow-[0_1px_0_var(--color-border)]",

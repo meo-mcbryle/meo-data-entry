@@ -14,14 +14,14 @@ export const TrashBin = ({
   handlePermanentDelete
 }: TrashBinProps) => {
   return (
-    <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
-      <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
+    <div className="flex flex-col h-full border border-border/40 rounded-lg bg-card/25 backdrop-blur-md overflow-hidden shadow-sm">
+      <div className="p-3 bg-muted/5 border-b border-border/40 flex justify-between items-center">
         <h3 className="text-xs font-black uppercase tracking-widest text-muted">Trash Bin</h3>
         <p className="text-[10px] text-muted font-bold">{deletedNodes.length} items in trash</p>
       </div>
       <div className="flex-1 overflow-auto">
         <table className="min-w-full border-separate border-spacing-0 text-left">
-          <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
+          <thead className="sticky top-0 bg-card/70 backdrop-blur-sm z-10 shadow-sm">
             <tr>
               <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Name</th>
               <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground">Type</th>

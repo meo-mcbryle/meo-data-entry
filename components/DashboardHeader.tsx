@@ -36,7 +36,7 @@ export const DashboardHeader = React.memo(({
   hasUnsavedChanges = false,
 }: DashboardHeaderProps) => {
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10 overflow-x-auto no-scrollbar">
+    <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 bg-muted/5 backdrop-blur-md overflow-x-auto no-scrollbar relative z-30">
       {/* Left: Breadcrumb + View Tabs */}
       <div className="flex items-center gap-3 shrink-0">
         {viewMode === 'logs' ? (
@@ -89,7 +89,7 @@ export const DashboardHeader = React.memo(({
           <button
             onClick={() => setViewMode('table')}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'table'
-                ? 'bg-card text-accent shadow-sm ring-1 ring-border'
+                ? 'bg-card/75 text-accent shadow-sm ring-1 ring-border/30 backdrop-blur-xs'
                 : 'text-muted hover:text-foreground'
               }`}
           >
@@ -99,7 +99,7 @@ export const DashboardHeader = React.memo(({
             <button
               onClick={() => setViewMode('code')}
               className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'code'
-                  ? 'bg-card text-accent shadow-sm ring-1 ring-border'
+                  ? 'bg-card/75 text-accent shadow-sm ring-1 ring-border/30 backdrop-blur-xs'
                   : 'text-muted hover:text-foreground'
                 }`}
             >
@@ -110,7 +110,7 @@ export const DashboardHeader = React.memo(({
             <button
               onClick={() => setViewMode('compare')}
               className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded ${viewMode === 'compare'
-                  ? 'bg-card text-green-600 shadow-sm ring-1 ring-border'
+                  ? 'bg-card/75 text-green-600 shadow-sm ring-1 ring-border/30 backdrop-blur-xs'
                   : 'text-muted hover:text-foreground'
                 }`}
             >

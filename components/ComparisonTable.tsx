@@ -31,7 +31,7 @@ export const ComparisonTable = ({
 
   if (nodesToCompare.length < 2) {
     return (
-      <div className="p-8 bg-card border border-border rounded-lg shadow-sm h-full flex flex-col">
+      <div className="p-8 bg-card/25 backdrop-blur-md border border-border/40 rounded-lg shadow-sm h-full flex flex-col">
         <div className="mb-6">
           <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
             <Share2 className="text-blue-500" size={20} />
@@ -45,12 +45,12 @@ export const ComparisonTable = ({
             <label 
               key={file.id} 
               className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all hover:border-accent/50 ${
-                comparisonIds.includes(file.id) ? 'bg-blue-500/10 border-blue-500/50 ring-1 ring-blue-500/50' : 'bg-card border-border'
+                comparisonIds.includes(file.id) ? 'bg-blue-500/10 border-blue-500/40 backdrop-blur-xs ring-1 ring-blue-500/30' : 'bg-card/45 backdrop-blur-xs border-border/40'
               }`}
             >
               <input 
                 type="checkbox" 
-                className="w-4 h-4 rounded border-border text-blue-600 focus:ring-blue-500"
+                className="w-4 h-4 rounded border-border/50 text-blue-600 focus:ring-blue-500"
                 checked={comparisonIds.includes(file.id)}
                 onChange={() => toggleComparisonId(file.id)}
               />
@@ -92,13 +92,13 @@ export const ComparisonTable = ({
   const sortedSections = Array.from(sectionMap.keys()).sort();
 
   return (
-    <div className="flex flex-col h-full border border-border rounded-lg bg-card overflow-hidden shadow-sm">
-      <div className="p-3 bg-muted/5 border-b border-border flex justify-between items-center">
+    <div className="flex flex-col h-full border border-border/40 rounded-lg bg-card/25 backdrop-blur-md overflow-hidden shadow-sm">
+      <div className="p-3 bg-muted/5 border-b border-border/40 flex justify-between items-center">
         <h3 className="text-xs font-black uppercase tracking-widest text-muted">Side-by-Side Comparison</h3>
         <div className="flex gap-2">
           <button 
             onClick={() => setComparisonIds([])}
-            className="px-2 py-1 bg-card border border-border text-muted text-[10px] font-bold rounded hover:bg-red-500/10 hover:text-red-500 transition-colors mr-2"
+            className="px-2 py-1 bg-card/45 border border-border/40 text-muted text-[10px] font-bold rounded hover:bg-red-500/10 hover:text-red-500 transition-colors mr-2"
           >
             Clear Selection
           </button>
@@ -109,9 +109,9 @@ export const ComparisonTable = ({
       </div>
       <div className="flex-1 overflow-auto">
         <table className="min-w-full border-separate border-spacing-0 text-left">
-          <thead className="sticky top-0 bg-muted/10 z-10 shadow-sm">
+          <thead className="sticky top-0 bg-card/75 backdrop-blur-sm z-10 shadow-sm">
             <tr>
-              <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground w-72 sticky left-0 bg-muted/10 z-20 shadow-[1px_0_0_0_var(--color-border)]">Title / Item</th>
+              <th className="p-3 text-[11px] font-bold border-r border-b border-border text-foreground w-72 sticky left-0 bg-card/85 backdrop-blur-sm z-20 shadow-[1px_0_0_0_var(--color-border)]">Title / Item</th>
               {nodesToCompare.map(n => (
                 <Fragment key={n!.id}>
                   <th className="p-3 text-[11px] font-bold border-r border-b border-border text-blue-500 text-right">Amount ({n!.name})</th>
