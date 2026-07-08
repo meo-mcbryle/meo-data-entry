@@ -19,6 +19,8 @@ import { GRID_THEME } from '@/lib/constants';
 import { Folder, PanelLeftOpen } from 'lucide-react';
 import { CustomDialog } from '@/components/CustomDialog';
 import { ParticleConstellation } from '@/components/ParticleConstellation';
+import { MechanicalBlueprint } from '@/components/MechanicalBlueprint';
+
 
 import { useAuditLogs } from '@/hooks/useAuditLogs';
 import { useFileExplorer } from '@/hooks/useFileExplorer';
@@ -28,6 +30,7 @@ import { useSpreadsheetOperations } from '@/hooks/useSpreadsheetOperations';
 
 const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const [viewMode, setViewMode] = useState<'code' | 'table' | 'compare' | 'logs' | 'trash'>('table');
+  const [bgStyle, setBgStyle] = useState<'blueprint' | 'particles'>('particles');
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [codeViewContent, setCodeViewContent] = useState<string>('');
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
@@ -207,8 +210,12 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
 
   return (
     <main className={`${GRID_THEME.main} relative antialiased overflow-hidden`}>
-      {/* Background Particle Constellation */}
-      <ParticleConstellation />
+      {/* Background Particle Constellation / Mechanical Blueprint */}
+      {bgStyle === 'particles' ? (
+        <ParticleConstellation />
+      ) : (
+        <MechanicalBlueprint />
+      )}
 
       {/* Cyber Grid Subtle Overlay */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />
@@ -238,6 +245,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             profileAvatar={profileAvatar}
             handleLogout={handleLogout}
             activeNode={activeNode}
+            bgStyle={bgStyle}
+            setBgStyle={setBgStyle}
           />
 
           {/* Explorer Drawer Panel */}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut
+  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut, Layers, Network
 } from 'lucide-react';
 import { FileNode } from '@/lib/tree-utils';
 import { ThemeToggle } from './ThemeToggle';
@@ -19,6 +19,8 @@ interface NavigationSidebarProps {
   profileAvatar: string;
   handleLogout: () => Promise<void>;
   activeNode: FileNode | null;
+  bgStyle: 'blueprint' | 'particles';
+  setBgStyle: (style: 'blueprint' | 'particles') => void;
 }
 
 export const NavigationSidebar = ({
@@ -32,7 +34,9 @@ export const NavigationSidebar = ({
   setShowProfileModal,
   profileAvatar,
   handleLogout,
-  activeNode
+  activeNode,
+  bgStyle,
+  setBgStyle
 }: NavigationSidebarProps) => {
   const [recentNodes, setRecentNodes] = useState<FileNode[]>([]);
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -140,7 +144,7 @@ export const NavigationSidebar = ({
               <History size={14} className="text-muted/40 mb-1" />
               {recentNodes.map(node => (
                 <button
-                  key={`recent-${node.id}`}
+                   key={`recent-${node.id}`}
                   onClick={() => {
                     setSelectedId(node.id);
                     if (['logs', 'trash', 'compare'].includes(viewMode)) setViewMode('table');
@@ -169,6 +173,16 @@ export const NavigationSidebar = ({
             )}
             <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
               Profile Settings
+            </div>
+          </button>
+          <button
+            onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : 'particles')}
+            className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg transition-colors cursor-pointer"
+            aria-label="Toggle Background Style"
+          >
+            {bgStyle === 'particles' ? <Layers size={20} /> : <Network size={20} />}
+            <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
+              {bgStyle === 'particles' ? "Switch to Blueprint" : "Switch to Particles"}
             </div>
           </button>
           <ThemeToggle />
