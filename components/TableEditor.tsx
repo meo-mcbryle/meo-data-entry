@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search, Type, Sigma, History, ZoomOut, ZoomIn, ChevronDown, ChevronUp,
   ChevronRight as ChevronRightIcon, Plus, RefreshCcw, HardDrive,
@@ -555,12 +556,12 @@ export const TableEditor = ({
         <div className="md:hidden flex items-center justify-between py-1.5 px-3 bg-background/25 border-b border-border/40 gap-2 shrink-0">
           <div className="relative flex-1 max-w-[200px]">
             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
-            <input 
-              type="text" 
-              placeholder="Search rows..." 
-              value={rowFilter} 
-              onChange={(e) => setRowFilter(e.target.value)} 
-              className="w-full pl-7 pr-3 py-1 text-xs border border-border rounded-lg outline-none focus:ring-1 focus:ring-accent bg-background text-foreground" 
+            <input
+              type="text"
+              placeholder="Search rows..."
+              value={rowFilter}
+              onChange={(e) => setRowFilter(e.target.value)}
+              className="w-full pl-7 pr-3 py-1 text-xs border border-border rounded-lg outline-none focus:ring-1 focus:ring-accent bg-background text-foreground"
             />
           </div>
 
@@ -609,20 +610,20 @@ export const TableEditor = ({
             <div className="flex flex-col gap-1.5">
               <span className="text-[9px] font-black text-muted uppercase tracking-[0.15em] px-1">Zoom ({Math.round(zoom * 100)}%)</span>
               <div className="flex bg-muted/10 p-1 rounded-xl border border-border/30 items-center justify-between">
-                <button 
-                  onClick={() => setZoom(Math.max(0.5, zoom - 0.1))} 
+                <button
+                  onClick={() => setZoom(Math.max(0.5, zoom - 0.1))}
                   className="p-2 hover:bg-muted/20 rounded-lg text-muted cursor-pointer"
                 >
                   <ZoomOut size={16} />
                 </button>
-                <button 
-                  onClick={() => setZoom(1)} 
+                <button
+                  onClick={() => setZoom(1)}
                   className="text-xs font-black text-accent px-4 py-1.5 bg-card rounded-lg shadow-sm border border-border/20 cursor-pointer"
                 >
                   Reset (100%)
                 </button>
-                <button 
-                  onClick={() => setZoom(Math.min(2, zoom + 0.1))} 
+                <button
+                  onClick={() => setZoom(Math.min(2, zoom + 0.1))}
                   className="p-2 hover:bg-muted/20 rounded-lg text-muted cursor-pointer"
                 >
                   <ZoomIn size={16} />
@@ -638,22 +639,20 @@ export const TableEditor = ({
               <div className="flex gap-2">
                 <button
                   onClick={() => setIsFreezeHeaders(!isFreezeHeaders)}
-                  className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    isFreezeHeaders
+                  className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isFreezeHeaders
                       ? 'bg-accent/10 border-accent text-accent font-black'
                       : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
-                  }`}
+                    }`}
                 >
                   <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} />
                   Freeze Headers
                 </button>
                 <button
                   onClick={() => setIsFreezePanes(!isFreezePanes)}
-                  className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    isFreezePanes
+                  className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isFreezePanes
                       ? 'bg-accent/10 border-accent text-accent font-black'
                       : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
-                  }`}
+                    }`}
                 >
                   <ChevronRightIcon size={14} />
                   Freeze Title
@@ -689,9 +688,9 @@ export const TableEditor = ({
               <div className="flex-1 flex flex-col gap-1.5">
                 <span className="text-[9px] font-black text-muted uppercase tracking-[0.15em] px-1">Active Year</span>
                 <div className="relative bg-muted/5 border border-border/70 rounded-xl px-3 py-1">
-                  <select 
-                    value={selectedYear} 
-                    onChange={(e) => setSelectedYear(e.target.value)} 
+                  <select
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
                     className="w-full bg-transparent border-0 font-bold text-accent text-xs focus:ring-0 cursor-pointer h-8 outline-none dark:bg-card"
                   >
                     <option value="2020">2020</option>
@@ -719,11 +718,10 @@ export const TableEditor = ({
                     <button
                       key={`toggle-col-${header}`}
                       onClick={() => toggleColumnVisibility(header)}
-                      className={`px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold border transition-all cursor-pointer truncate ${
-                        isVisible
+                      className={`px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold border transition-all cursor-pointer truncate ${isVisible
                           ? 'bg-accent/15 border-accent/35 text-accent font-bold'
                           : 'bg-muted/5 border-border/70 text-muted/65 hover:bg-muted/10'
-                      }`}
+                        }`}
                     >
                       {isVisible ? '✓ ' : '✗ '} {header}
                     </button>
@@ -737,25 +735,25 @@ export const TableEditor = ({
             {/* Other actions */}
             <div className="flex flex-col gap-1">
               <span className="text-[9px] font-black text-muted uppercase tracking-[0.15em] px-1">Table Actions</span>
-              <button 
-                onClick={() => { handleAddSection(); setIsToolsSheetOpen(false); }} 
+              <button
+                onClick={() => { handleAddSection(); setIsToolsSheetOpen(false); }}
                 className="w-full text-left px-4 py-3 hover:bg-muted/10 flex items-center gap-3 text-sm font-semibold rounded-xl text-foreground transition-colors cursor-pointer"
               >
-                <Plus size={16} className="text-green-600" /> 
+                <Plus size={16} className="text-green-600" />
                 Add New Section
               </button>
-              <button 
-                onClick={() => { handleResetWidths(); setIsToolsSheetOpen(false); }} 
+              <button
+                onClick={() => { handleResetWidths(); setIsToolsSheetOpen(false); }}
                 className="w-full text-left px-4 py-3 hover:bg-muted/10 flex items-center gap-3 text-sm font-semibold rounded-xl text-foreground transition-colors cursor-pointer"
               >
-                <RefreshCcw size={16} className="text-muted" /> 
+                <RefreshCcw size={16} className="text-muted" />
                 Reset Column Widths
               </button>
-              <button 
-                onClick={() => { exportToCSV(); setIsToolsSheetOpen(false); }} 
+              <button
+                onClick={() => { exportToCSV(); setIsToolsSheetOpen(false); }}
                 className="w-full text-left px-4 py-3 hover:bg-muted/10 flex items-center gap-3 text-sm font-semibold rounded-xl text-foreground transition-colors cursor-pointer"
               >
-                <HardDrive size={16} className="text-accent" /> 
+                <HardDrive size={16} className="text-accent" />
                 Export to CSV File
               </button>
             </div>
@@ -763,7 +761,7 @@ export const TableEditor = ({
         </MobileBottomSheet>
 
         {/* Cell Context Menu */}
-        {contextMenu && !isMobile && (
+        {contextMenu && !isMobile && typeof window !== 'undefined' && createPortal(
           <div
             className="fixed z-[100] bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-48 animate-in fade-in zoom-in-95 duration-150 context-menu-container flex flex-col gap-0.5 p-1"
             style={{ left: contextMenu.x, top: contextMenu.y }}
@@ -819,8 +817,8 @@ export const TableEditor = ({
                           onClick={() => setColumnAlignment(contextMenu.col, a)}
                           title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
                           className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${active
-                              ? 'bg-card text-accent shadow-sm border border-border/20 font-medium'
-                              : 'text-muted-foreground hover:text-foreground'
+                            ? 'bg-card text-accent shadow-sm border border-border/20 font-medium'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                         >
                           <Icon size={12} />
@@ -942,29 +940,244 @@ export const TableEditor = ({
                 </button>
               </>
             ) : (
-              <>
-                <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Clipboard</div>
-                <button
-                  onClick={() => {
-                    handleCopyCells(selection, contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
-                    setContextMenu(null);
-                  }}
-                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
-                >
-                  <Copy size={13} className="text-accent" /> Copy
-                </button>
-                <button
-                  onClick={() => {
-                    handlePasteCells(contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
-                    setContextMenu(null);
-                  }}
-                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
-                >
-                  <Clipboard size={13} className="text-accent" /> Paste
-                </button>
-              </>
+              (() => {
+                const colIdx = masterColumnOrder.indexOf(contextMenu.col);
+                const key = colIdx !== -1 && contextMenu.row !== undefined ? toA1Key(contextMenu.row, colIdx) : '';
+                const meta = cellMetadata[key] || {};
+                const hasAttachments = meta.type === 'media' || (meta.attachments?.length ?? 0) > 0;
+                const selRowSpan = selection ? (Math.abs(selection.startRow - selection.endRow) + 1) : 0;
+                return (
+                  <>
+                    <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}>Clipboard</div>
+                    <button
+                      onClick={() => {
+                        handleCopyCells(selection, contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
+                        setContextMenu(null);
+                      }}
+                      onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <Copy size={13} className="text-accent" /> Copy
+                    </button>
+                    <button
+                      onClick={() => {
+                        handlePasteCells(contextMenu.row !== undefined ? { row: contextMenu.row, col: contextMenu.col } : null, visibleHeaders);
+                        setContextMenu(null);
+                      }}
+                      onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <Clipboard size={13} className="text-accent" /> Paste
+                    </button>
+
+                    <div className="h-px bg-border/50 my-1 mx-2" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}></div>
+                    <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}>Cell Actions</div>
+                    {(selColSpan > 1 || selRowSpan > 1) && (
+                      <button
+                        onClick={() => { handleMergeCells(visibleHeaders); setContextMenu(null); }}
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-bold transition-colors"
+                      >
+                        <TableIcon size={13} className="text-accent" /> Merge Selected Cells
+                      </button>
+                    )}
+                    {(meta.colSpan > 1 || meta.rowSpan > 1) && (
+                      <button
+                        onClick={() => { handleUnmergeCells(contextMenu.row!, contextMenu.col, visibleHeaders); setContextMenu(null); }}
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                      >
+                        <X size={13} className="text-orange-500" /> Unmerge Cell
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date'); setContextMenu(null); }}
+                      onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <Calendar size={13} className="text-accent" /> Insert Calendar Picker
+                    </button>
+
+                    <div className="h-px bg-border/50 my-1 mx-2" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}></div>
+                    <div className="relative group/sub">
+                      <button
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: true, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                      >
+                        <span className="flex items-center gap-2"><Type size={13} className="text-accent" /> Set Cell Font</span>
+                        <ChevronRightIcon size={12} className="text-muted" />
+                      </button>
+                      {contextMenu.showFonts && (
+                        <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                          {FONT_FAMILIES.map(f => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setCellFontFamily(contextMenu.row!, contextMenu.col, f.value); setContextMenu(null); }}
+                              className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors"
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="px-2 py-1 flex items-center justify-between mx-1 gap-2" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}>
+                      <span className="text-[10px] font-bold text-muted-foreground tracking-wider uppercase">Align</span>
+                      <div className="flex bg-muted/20 p-0.5 rounded-md border border-border/30 w-32">
+                        {(['left', 'center', 'right'] as const).map((a) => {
+                          const Icon = a === 'left' ? AlignLeft : a === 'center' ? AlignCenter : AlignRight;
+                          const defaultAlign = (contextMenu.col === "Title / Item" || contextMenu.col === "Amount") ? "right" : "left";
+                          const active = (cellAlignments[key] || defaultAlign) === a;
+                          return (
+                            <button
+                              key={a}
+                              onClick={() => { setSelectionAlignment(a); setContextMenu(null); }}
+                              title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
+                              className={`flex-1 py-1 flex justify-center items-center rounded transition-all ${active
+                                ? 'bg-card text-accent shadow-sm border border-border/20 font-medium'
+                                : 'text-muted-foreground hover:text-foreground'
+                                }`}
+                            >
+                              <Icon size={12} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-border/50 my-1 mx-2" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}></div>
+                    <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}>Formatting</div>
+
+                    {/* Date Formatting Submenu */}
+                    <div className="relative group/sub">
+                      <button
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: true, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                      >
+                        <span className="flex items-center gap-2"><Calendar size={13} className="text-accent" /> Date Formatting</span>
+                        <ChevronRightIcon size={12} className="text-muted" />
+                      </button>
+                      {contextMenu.showFormats && (
+                        <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                          <button
+                            onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'text'); setContextMenu(null); }}
+                            className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors"
+                          >
+                            Default Text
+                          </button>
+                          {DATE_FORMATS.map(f => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'date', f.id); setContextMenu(null); }}
+                              className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors truncate"
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Number Formatting Submenu */}
+                    <div className="relative group/sub">
+                      <button
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: true, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                      >
+                        <span className="flex items-center gap-2"><TableIcon size={13} className="text-green-500" /> Number Formatting</span>
+                        <ChevronRightIcon size={12} className="text-muted" />
+                      </button>
+                      {contextMenu.showNumberFormats && (
+                        <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                          {NUMBER_FORMATS.map(f => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'number', f.id); setContextMenu(null); }}
+                              className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors truncate"
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Formula Formatting Submenu */}
+                    <div className="relative group/sub">
+                      <button
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: true } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center justify-between gap-2.5 text-foreground rounded-md transition-colors"
+                      >
+                        <span className="flex items-center gap-2"><Sigma size={13} className="text-purple-500" /> Formula Formats</span>
+                        <ChevronRightIcon size={12} className="text-muted" />
+                      </button>
+                      {contextMenu.showFormulaFormats && (
+                        <div className={`absolute ${contextMenu.x + 368 > window.innerWidth ? 'right-full mr-1.5' : 'left-full ml-1.5'} top-0 bg-card border border-border/60 shadow-2xl rounded-xl py-1 w-44 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-0.5 p-1`}>
+                          <button
+                            onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula'); setContextMenu(null); }}
+                            className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors"
+                          >
+                            Standard (Sum/Number)
+                          </button>
+                          <div className="h-px bg-border/30 my-0.5 mx-1" />
+                          <span className="text-[8px] font-black text-muted uppercase tracking-widest px-2.5 py-0.5">Date Result Format</span>
+                          {DATE_FORMATS.map(f => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setCellType(contextMenu.row!, contextMenu.col, 'formula', f.id); setContextMenu(null); }}
+                              className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 text-foreground rounded-md transition-colors truncate"
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="h-px bg-border/50 my-1 mx-2" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}></div>
+                    <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5" onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}>Attachments</div>
+                    {hasAttachments && (
+                      <button
+                        onClick={() => {
+                          setViewingMedia({ attachments: meta.attachments || [], row: contextMenu.row!, col: contextMenu.col });
+                          setContextMenu(null);
+                        }}
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md font-bold transition-colors"
+                      >
+                        <Paperclip size={13} className="text-accent" /> View Attachments ({(meta.attachments?.length ?? 0)})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { insertMedia(contextMenu.row!, contextMenu.col, 'image'); setContextMenu(null); }}
+                      onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <ImageIcon size={13} className="text-green-500" /> Insert Image
+                    </button>
+                    <button
+                      onClick={() => { insertMedia(contextMenu.row!, contextMenu.col, 'file'); setContextMenu(null); }}
+                      onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                      className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
+                    >
+                      <Paperclip size={13} className="text-amber-500" /> Attach Document
+                    </button>
+                    {hasAttachments && (
+                      <button
+                        onClick={() => { removeCellMetadata(contextMenu.row!, contextMenu.col); setContextMenu(null); }}
+                        onMouseEnter={() => setContextMenu((prev: any) => prev ? { ...prev, showFonts: false, showFormats: false, showNumberFormats: false, showFormulaFormats: false } : null)}
+                        className="w-full text-left px-2.5 py-1 text-xs hover:bg-red-500/15 text-red-500 flex items-center gap-2.5 rounded-md transition-colors"
+                      >
+                        <Trash2 size={13} /> Remove Attachments
+                      </button>
+                    )}
+                  </>
+                );
+              })()
             )}
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Cell Context Menu (Mobile Bottom Sheet) */}
@@ -1079,7 +1292,7 @@ export const TableEditor = ({
                 {/* Collapsible Format Sections */}
                 <div className="flex flex-col gap-2.5">
                   <span className="text-[9px] font-black text-muted uppercase tracking-[0.15em] px-1 font-mono">Cell Formatting</span>
-                  
+
                   {/* Date format accordion */}
                   <div className="flex flex-col bg-muted/5 border border-border/30 rounded-xl overflow-hidden">
                     <button
@@ -1195,11 +1408,10 @@ export const TableEditor = ({
                               setColumnAlignment(contextMenu.col, a);
                             }}
                             title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
-                            className={`flex-1 py-1.5 flex justify-center items-center rounded-lg transition-all cursor-pointer ${
-                              active
+                            className={`flex-1 py-1.5 flex justify-center items-center rounded-lg transition-all cursor-pointer ${active
                                 ? 'bg-card text-accent shadow-sm border border-border/20 font-bold'
                                 : 'text-muted-foreground hover:text-foreground'
-                            }`}
+                              }`}
                           >
                             <Icon size={14} />
                           </button>
@@ -1440,11 +1652,10 @@ export const TableEditor = ({
                 handleUpdateCell(activeCell.row, activeCell.col, val);
               }
             }}
-            className={`flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 min-w-0 ${
-              isFormulaExpanded 
-                ? 'overflow-y-auto max-h-14 md:max-h-32' 
+            className={`flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 min-w-0 ${isFormulaExpanded
+                ? 'overflow-y-auto max-h-14 md:max-h-32'
                 : 'overflow-hidden h-7 max-h-7 whitespace-nowrap'
-            }`}
+              }`}
           />
           <button
             onClick={() => setIsFormulaExpanded(!isFormulaExpanded)}
@@ -1551,7 +1762,7 @@ export const TableEditor = ({
                             minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
                           }}
                           className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
-                            } ${isInHeaderLabelSelection ? 'bg-accent/30' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-accent/20' : 'bg-muted/10'}` : ""
+                            } ${isInHeaderLabelSelection ? 'bg-[color-mix(in_srgb,var(--accent)_30%,var(--card))]' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))]'}` : ""
                             }`}
                         >
                           {getExcelColumnLabel(idx)}
@@ -1617,9 +1828,9 @@ export const TableEditor = ({
                             width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
                             minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
                           }}
-                          className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-accent/10' : 'text-muted bg-card'
+                          className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))]' : 'text-muted bg-card'
                             } ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
-                            } ${isInHeaderSelection ? 'bg-accent/20 ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
+                            } ${isInHeaderSelection ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))] ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
                         >
                           <div className="flex items-center gap-1">
                             <input

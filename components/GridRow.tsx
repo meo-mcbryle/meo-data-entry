@@ -261,7 +261,7 @@ export const GridRow = React.memo(({
       style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}
     >
       <td
-        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-muted/10 text-muted hover:bg-muted/30 hover:text-foreground'} ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
+        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))] text-muted hover:bg-[color-mix(in_srgb,var(--muted)_30%,var(--card))] hover:text-foreground'} ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
           }`}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -355,7 +355,7 @@ export const GridRow = React.memo(({
               const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
               if (input) input.focus();
             }}
-            className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${isInSelection ? `bg-accent/10 z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-accent/5 ring-1 ring-inset ring-accent/50 z-10' : ''} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'animate-cell-flash' : ''}`}
+            className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${isInSelection ? `bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-[color-mix(in_srgb,var(--accent)_5%,var(--card))] ring-1 ring-inset ring-accent/50 z-10' : ''} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'animate-cell-flash' : ''}`}
             style={{
               fontFamily: meta.fontFamily || 'inherit',
               height: '1px', /* Forces cell to respect content height */

@@ -280,10 +280,10 @@ export function useSpreadsheetOperations({
       setContextMenu(null);
       setDropdownMenu(null);
     };
-    window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('mousedown', handleGlobalClick);
     window.addEventListener('scroll', handleGlobalClick, true);
     return () => {
-      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('mousedown', handleGlobalClick);
       window.removeEventListener('scroll', handleGlobalClick, true);
     };
   }, []);
@@ -1893,7 +1893,7 @@ export function useSpreadsheetOperations({
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string = "", row?: number, sectionName?: string) => {
     e.preventDefault();
     const menuWidth = 192;
-    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 380));
+    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 480));
 
     const winW = window.innerWidth;
     const winH = window.innerHeight;
