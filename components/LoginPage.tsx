@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Mail, Lock, Loader2, LogIn, Layers, Network } from 'lucide-react';
+import { Mail, Lock, Loader2, LogIn, Layers, Network, ArrowDownCircle } from 'lucide-react';
 import { MechanicalBlueprint } from './MechanicalBlueprint';
 import { ParticleConstellation } from './ParticleConstellation';
 import { ThemeToggle } from './ThemeToggle';
 
-export const LoginPage = React.memo(() => {
+interface LoginPageProps {
+  updateAvailable?: boolean;
+  onShowUpdate?: (show: boolean) => void;
+}
+
+export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: LoginPageProps) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,6 +103,16 @@ export const LoginPage = React.memo(() => {
           </div>
           <h1 className="text-xl font-bold tracking-[0.15em] text-foreground uppercase">MEO Data Entry</h1>
           <p className="text-[10px] text-accent dark:text-blue-400 font-mono mt-1.5 uppercase tracking-[0.25em] font-bold">LGU Labason System // SECURE PORTAL</p>
+          {updateAvailable && onShowUpdate && (
+            <button
+              type="button"
+              onClick={() => onShowUpdate(true)}
+              className="mt-4 flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20 active:scale-95 transition-all duration-300 shadow-[0_0_15px_rgba(245,158,11,0.15)] animate-pulse cursor-pointer"
+            >
+              <ArrowDownCircle size={14} className="animate-bounce" />
+              New Version Available // Install
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleAuth} className="space-y-5">

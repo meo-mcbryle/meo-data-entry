@@ -1,11 +1,12 @@
 'use client';
-import React, { useEffect, useCallback, Suspense } from 'react';
+import React, { useEffect, useCallback, Suspense, useState } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { useSearchParams } from 'next/navigation';
 import { ProjectExplorer } from '@/components/ProjectExplorer';
 import { ThemeContext } from '@/components/ThemeToggle';
 import { LoginPage } from '@/components/LoginPage';
 import { NavigationSidebar } from '@/components/NavigationSidebar';
+import { UpdateModal } from '@/components/UpdateModal';
 import { DashboardHeader } from '@/components/DashboardHeader';
 import { DashboardMainArea } from '@/components/DashboardMainArea';
 import { DashboardModals } from '@/components/DashboardModals';
@@ -27,7 +28,15 @@ import { useSystemConnectivity } from '@/hooks/useSystemConnectivity';
 import { useCodeView } from '@/hooks/useCodeView';
 import { useDashboardState } from '@/hooks/useDashboardState';
 
-const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
+const DashboardContent = React.memo(({ 
+  user,
+  updateAvailable,
+  onShowUpdate
+}: { 
+  user: SupabaseUser;
+  updateAvailable: boolean;
+  onShowUpdate: (show: boolean) => void;
+}) => {
   const themeContext = React.useContext(ThemeContext);
 
   // Layout & UI State Hook
@@ -244,6 +253,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             activeNode={activeNode}
             bgStyle={bgStyle}
             setBgStyle={setBgStyle}
+            updateAvailable={updateAvailable}
+            onShowUpdate={onShowUpdate}
           />
 
           {/* Explorer Drawer Panel */}
@@ -486,6 +497,23 @@ DashboardContent.displayName = 'DashboardContent';
 
 export default function Dashboard() {
   const { session, status, theme, toggleTheme } = useAuthSession();
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  // Listen for update status events globally
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI?.onUpdateStatus) return;
+    const cleanup = window.electronAPI.onUpdateStatus((data) => {
+      if (data.status === 'available') setUpdateAvailable(true);
+      if (data.status === 'downloaded') setUpdateAvailable(true);
+      if (data.status === 'not-available') setUpdateAvailable(false);
+    });
+
+    // Proactively check for updates immediately
+    window.electronAPI.checkForUpdates().catch(() => {});
+
+    return cleanup;
+  }, []);
 
   if (status === 'loading') {
     return (
@@ -498,7 +526,8 @@ export default function Dashboard() {
   if (!session || status === 'unauthorized') {
     return (
       <ThemeContext.Provider value={{ theme, toggleTheme }}>
-        <LoginPage />
+        <LoginPage updateAvailable={updateAvailable} onShowUpdate={setShowUpdateModal} />
+        <UpdateModal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} />
       </ThemeContext.Provider>
     );
   }
@@ -506,8 +535,13 @@ export default function Dashboard() {
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme }}>
       <Suspense fallback={<div className="flex h-screen items-center justify-center text-muted font-sans animate-pulse uppercase tracking-widest text-xs font-black">Loading Dashboard...</div>}>
-        <DashboardContent user={session.user} />
+        <DashboardContent 
+          user={session.user} 
+          updateAvailable={updateAvailable}
+          onShowUpdate={setShowUpdateModal}
+        />
       </Suspense>
+      <UpdateModal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} />
     </ThemeContext.Provider>
   );
 }
