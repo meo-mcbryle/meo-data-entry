@@ -268,7 +268,7 @@ export function useSpreadsheetOperations({
   // Dismiss context menu on click elsewhere
   useEffect(() => {
     const handleGlobalClick = (e: any) => {
-      if (e.target instanceof HTMLElement) {
+      if (e.target instanceof Element) {
         if (
           e.target.closest('.dropdown-container') ||
           e.target.closest('.context-menu-container') ||
