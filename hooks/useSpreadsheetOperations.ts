@@ -863,7 +863,12 @@ export function useSpreadsheetOperations({
         const isSection = key.includes(':section');
 
         if (row < insertIndex) next.set(key, val);
-        else next.set(isSection ? `${row + 1}:section` : toA1Key(row + 1, colIndex), val);
+        else {
+          const newVal = (typeof val === 'string' && val.startsWith('='))
+            ? shiftFormula(val, 1, insertIndex)
+            : val;
+          next.set(isSection ? `${row + 1}:section` : toA1Key(row + 1, colIndex), newVal);
+        }
       });
       next.set(`${insertIndex}:section`, section);
       return next;
@@ -1334,10 +1339,16 @@ export function useSpreadsheetOperations({
   const handleDragFillStart = useCallback((e: React.MouseEvent, row: number, col: string) => {
     e.preventDefault();
     e.stopPropagation();
+    if (typeof document !== 'undefined') {
+      document.body.setAttribute('data-drag-fill-active', 'true');
+    }
     setDragFillRange({ startRow: row, endRow: row, col });
 
     const handleMouseUp = () => {
       window.removeEventListener('mouseup', handleMouseUp);
+      if (typeof document !== 'undefined') {
+        document.body.removeAttribute('data-drag-fill-active');
+      }
       setDragFillRange(currentRange => {
         if (currentRange) {
           applyDragFill(currentRange);
@@ -1690,8 +1701,11 @@ export function useSpreadsheetOperations({
         if (r < insertionIndex) {
           next.set(key, val);
         } else {
+          const newVal = (typeof val === 'string' && val.startsWith('='))
+            ? shiftFormula(val, 1, insertionIndex)
+            : val;
           const newIdx = r + 1;
-          next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), val);
+          next.set(isSectionKey ? `${newIdx}:section` : toA1Key(newIdx, colIndex), newVal);
         }
       });
 

@@ -7,9 +7,10 @@ import {
   AlignRight, EyeOff, FolderPlus, Trash2, Calendar, Image as ImageIcon,
   Paperclip, FileText, Code, ArrowUp, Loader2, Copy, Clipboard, Sliders
 } from 'lucide-react';
-import { toA1Key, getExcelColumnLabel } from '@/lib/excel-utils';
+import { toA1Key, getExcelColumnLabel, formatNumberDisplay } from '@/lib/excel-utils';
 import { GRID_THEME, FONT_FAMILIES, DATE_FORMATS, NUMBER_FORMATS } from '@/lib/constants';
 import { GridRow } from './GridRow';
+import { RowSummaryModal } from './RowSummaryModal';
 import { useSpreadsheetOperations } from '@/hooks/useSpreadsheetOperations';
 import { MobileBottomSheet } from './MobileBottomSheet';
 
@@ -70,6 +71,7 @@ export const TableEditor = ({
     hiddenColumns,
     toggleColumnVisibility,
     allHeaders,
+    columnOrder,
     undoStack,
     redoStack,
     undo,
@@ -97,6 +99,7 @@ export const TableEditor = ({
     gridData,
     cellAlignments,
     rowHeights,
+    setRowHeights,
     dragFillRange,
     setDragFillRange,
     isSelecting,
@@ -112,6 +115,7 @@ export const TableEditor = ({
     startRowResizing,
     handleOpenDropdown,
     columnWidths,
+    setColumnWidths,
     startResizing,
     handleRenameSectionBlock,
     handleFileSelect,
@@ -125,10 +129,18 @@ export const TableEditor = ({
     handlePasteCells
   } = spreadsheet;
   const [rowFilter, setRowFilter] = useState<string>('');
+  const [viewingRowSummary, setViewingRowSummary] = useState<number | null>(null);
   const [newColName, setNewColName] = useState<string>('');
   const [scrollTop, setScrollTop] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const scrollRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
 
   const [editingValue, setEditingValue] = useState('');
   const [isToolsSheetOpen, setIsToolsSheetOpen] = useState(false);
@@ -182,26 +194,54 @@ export const TableEditor = ({
     setEditingValue(val);
   }, []);
 
-  // Delete key: clear the active cell's content when it's selected but NOT actively being edited in an input/textarea
+  // Keyboard Shortcuts: Handle edit triggers (Enter, F2, printable keys) and Clear key (Delete, Backspace)
   useEffect(() => {
-    const handleDeleteKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const handleKeyboardEvents = (e: KeyboardEvent) => {
       if (!activeCell) return;
 
-      // Don't intercept if user is typing inside a cell editor input/textarea
+      // Don't intercept if user is typing inside a cell editor input/textarea or any other input
       const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;
+      if (tag === 'input' || tag === 'textarea' || document.activeElement?.getAttribute('contenteditable') === 'true') return;
 
-      // Don't intercept if user is typing in a search/filter input
       const el = document.activeElement as HTMLElement;
       if (el?.closest('[data-no-delete-intercept]')) return;
 
-      e.preventDefault();
-      handleUpdateCell(activeCell.row, activeCell.col, '');
+      // 1. Clear key: Delete/Backspace
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        handleUpdateCell(activeCell.row, activeCell.col, '');
+        return;
+      }
+
+      // 2. F2, Enter, or Printable character keys to start editing
+      const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (e.key === 'Enter' || e.key === 'F2' || isPrintable) {
+        const cellEl = document.querySelector(`div[data-row="${activeCell.row}"][data-col="${activeCell.col}"]`) as HTMLElement;
+        if (cellEl) {
+          e.preventDefault();
+          // Dispatch double click to enter edit mode
+          const dblClickEvent = new MouseEvent('dblclick', { bubbles: true, cancelable: true });
+          cellEl.dispatchEvent(dblClickEvent);
+
+          // If it was a printable key, populate the newly mounted input/textarea
+          if (isPrintable) {
+            setTimeout(() => {
+              const input = document.querySelector(`input[data-row="${activeCell.row}"][data-col="${activeCell.col}"], textarea[data-row="${activeCell.row}"][data-col="${activeCell.col}"]`) as HTMLInputElement | HTMLTextAreaElement;
+              if (input) {
+                input.value = e.key;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.focus();
+                input.setSelectionRange(1, 1);
+              }
+            }, 50);
+          }
+        }
+      }
     };
 
-    window.addEventListener('keydown', handleDeleteKey);
-    return () => window.removeEventListener('keydown', handleDeleteKey);
+    window.addEventListener('keydown', handleKeyboardEvents);
+    return () => window.removeEventListener('keydown', handleKeyboardEvents);
   }, [activeCell, handleUpdateCell]);
 
   const DEFAULT_ROW_HEIGHT = 30;
@@ -346,12 +386,68 @@ export const TableEditor = ({
   // Scroll handler
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    setScrollTop(top);
-    setShowBackToTop(top > 300);
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      setScrollTop(top);
+      setShowBackToTop(top > 300);
+    });
   }, []);
 
   const scrollToTop = () => {
     tableContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAutoFitColumnWidths = () => {
+    if (typeof window === 'undefined') return;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const nextWidths = { ...columnWidths };
+
+    visibleHeaders.forEach(header => {
+      let maxWidth = 100; // minimum width
+
+      // Measure header text (bold 11px Inter)
+      ctx.font = 'bold 11px Inter, sans-serif';
+      const headerText = header.startsWith('_UNTITLED_') ? '' : header;
+      const headerWidth = ctx.measureText(headerText).width + 36; // padding + sorting/arrows
+      if (headerWidth > maxWidth) maxWidth = headerWidth;
+
+      // Measure cell values in this column
+      for (let r = 0; r < rowCount; r++) {
+        const colIdx = masterColumnOrder.indexOf(header);
+        const key = toA1Key(r, colIdx);
+        let val = gridData.get(key) || '';
+        
+        // If it's a formula, evaluate it first
+        if (typeof val === 'string' && val.startsWith('=')) {
+          const rowData: any = { _index: r };
+          allHeaders.forEach(h => {
+            const cIdx = masterColumnOrder.indexOf(h);
+            rowData[h] = cIdx !== -1 ? gridData.get(toA1Key(r, cIdx)) : undefined;
+          });
+          const meta = cellMetadata[key] || {};
+          const result = evaluateFormula(val, rowData, meta.format);
+          val = typeof result === 'number' ? formatNumberDisplay(result, meta.format) : String(result ?? '');
+        } else {
+          const meta = cellMetadata[key] || {};
+          if (meta.type === 'number' || header === 'Amount') {
+            val = val ? formatNumberDisplay(val, meta.format) : '0.00';
+          }
+        }
+
+        const font = cellMetadata[key]?.fontFamily || 'Inter';
+        ctx.font = `14px ${font}, sans-serif`;
+        const textWidth = ctx.measureText(String(val)).width + 24; // padding
+        if (textWidth > maxWidth) maxWidth = textWidth;
+      }
+
+      // Constrain within reasonable boundaries
+      nextWidths[header] = Math.min(600, Math.max(100, Math.ceil(maxWidth)));
+    });
+
+    setColumnWidths(nextWidths);
   };
 
   // Viewport tracking for ResizeObserver
@@ -541,8 +637,11 @@ export const TableEditor = ({
             <button onClick={handleAddSection} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground cursor-pointer">
               <Plus size={14} className="text-green-600" /> Add Section
             </button>
-            <button onClick={handleResetWidths} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground cursor-pointer" title="Reset all columns to auto-width">
-              <RefreshCcw size={14} /> Reset Widths
+            <button onClick={handleAutoFitColumnWidths} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground cursor-pointer" title="Auto-fit all column widths to match cell content">
+              <RefreshCcw size={14} /> AutoFit Columns
+            </button>
+            <button onClick={() => setRowHeights({})} className="flex items-center gap-1 px-2 py-1 bg-card border border-border rounded text-xs font-medium hover:bg-muted/10 shadow-sm text-foreground cursor-pointer" title="Auto-fit all row heights to perfectly match text size">
+              <RefreshCcw size={14} /> AutoFit Rows
             </button>
           </div>
           <div className="flex items-center gap-1.5 shrink-0 ml-4">
@@ -743,11 +842,18 @@ export const TableEditor = ({
                 Add New Section
               </button>
               <button
-                onClick={() => { handleResetWidths(); setIsToolsSheetOpen(false); }}
+                onClick={() => { handleAutoFitColumnWidths(); setIsToolsSheetOpen(false); }}
                 className="w-full text-left px-4 py-3 hover:bg-muted/10 flex items-center gap-3 text-sm font-semibold rounded-xl text-foreground transition-colors cursor-pointer"
               >
                 <RefreshCcw size={16} className="text-muted" />
-                Reset Column Widths
+                AutoFit Columns
+              </button>
+              <button
+                onClick={() => { setRowHeights({}); setIsToolsSheetOpen(false); }}
+                className="w-full text-left px-4 py-3 hover:bg-muted/10 flex items-center gap-3 text-sm font-semibold rounded-xl text-foreground transition-colors cursor-pointer"
+              >
+                <RefreshCcw size={16} className="text-muted" />
+                AutoFit Rows
               </button>
               <button
                 onClick={() => { exportToCSV(); setIsToolsSheetOpen(false); }}
@@ -881,6 +987,12 @@ export const TableEditor = ({
             ) : contextMenu.type === 'row' ? (
               <>
                 <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground tracking-wider uppercase mb-0.5 mt-1">Row Options</div>
+                <button
+                  onClick={() => { setViewingRowSummary(contextMenu.row!); setContextMenu(null); }}
+                  className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors font-bold"
+                >
+                  <FileText size={13} className="text-accent" /> View Row Summary
+                </button>
                 <button
                   onClick={() => handleInsertRow(contextMenu.row!, 'above')}
                   className="w-full text-left px-2.5 py-1 text-xs hover:bg-accent/15 flex items-center gap-2.5 text-foreground rounded-md transition-colors"
@@ -1532,6 +1644,19 @@ export const TableEditor = ({
               title={`Row Options: Row ${contextMenu.row! + 1}`}
             >
               <div className="flex flex-col gap-4 bg-card/50">
+                {/* Summary Action */}
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={() => { setViewingRowSummary(contextMenu.row!); setContextMenu(null); }}
+                    className="w-full text-left px-4 py-3 hover:bg-accent/10 flex items-center gap-3 text-sm font-bold rounded-xl text-foreground transition-colors cursor-pointer"
+                  >
+                    <FileText size={16} className="text-accent" />
+                    <span>View Row Summary</span>
+                  </button>
+                </div>
+
+                <div className="h-px bg-border/50" />
+
                 {/* Row insertion actions */}
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[9px] font-black text-muted uppercase tracking-[0.15em] px-1 font-mono">Row Insertions</span>
@@ -1670,11 +1795,10 @@ export const TableEditor = ({
         {isLoadingFile && (
           <div className="absolute top-0 left-0 right-0 z-50 h-[2px] overflow-hidden bg-border">
             <div
-              className={`h-full bg-accent ${
-                loadProgress === 100
+              className={`h-full bg-accent ${loadProgress === 100
                   ? "w-full transition-[width] duration-300 ease-out"
                   : "animate-progress-trickle"
-              }`}
+                }`}
             />
           </div>
         )}
@@ -1702,6 +1826,19 @@ export const TableEditor = ({
                 zoom: zoom,
               } as any}
             >
+              <colgroup>
+                <col className="w-10 min-w-10" style={{ width: '40px', minWidth: '40px' }} />
+                {visibleHeaders.map((header) => (
+                  <col
+                    key={`col-width-${header}`}
+                    style={{
+                      width: columnWidths[header] ? `${columnWidths[header]}px` : '120px',
+                      minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                    }}
+                  />
+                ))}
+                <col className="min-w-35" style={{ minWidth: '140px' }} />
+              </colgroup>
               <thead className={GRID_THEME.tableHeader}>
                 <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card`}>
                   <th
@@ -1761,8 +1898,8 @@ export const TableEditor = ({
                         }}
                         style={{
                           fontFamily: headerMeta.fontFamily || 'inherit',
-                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                          width: (!headerMeta.colSpan || headerMeta.colSpan === 1) && columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                          minWidth: (!headerMeta.colSpan || headerMeta.colSpan === 1) && columnWidths[header] ? `${columnWidths[header]}px` : (!headerMeta.colSpan || headerMeta.colSpan === 1) ? '120px' : undefined
                         }}
                         className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
                           } ${isInHeaderLabelSelection ? 'bg-[color-mix(in_srgb,var(--accent)_30%,var(--card))]' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))]'}` : ""
@@ -1828,8 +1965,8 @@ export const TableEditor = ({
                           }
                         }}
                         style={{
-                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                          width: (!headerMeta.colSpan || headerMeta.colSpan === 1) && columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                          minWidth: (!headerMeta.colSpan || headerMeta.colSpan === 1) && columnWidths[header] ? `${columnWidths[header]}px` : (!headerMeta.colSpan || headerMeta.colSpan === 1) ? '120px' : undefined
                         }}
                         className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))]' : 'text-muted bg-card'
                           } ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
@@ -1974,6 +2111,16 @@ export const TableEditor = ({
               <ArrowUp size={20} className="group-hover:-translate-y-1 transition-transform" />
             </button>
           )}
+
+          <RowSummaryModal
+            isOpen={viewingRowSummary !== null}
+            onClose={() => setViewingRowSummary(null)}
+            rowIndex={viewingRowSummary}
+            columnOrder={columnOrder && columnOrder.length > 0 ? columnOrder : allHeaders}
+            masterColumnOrder={masterColumnOrder}
+            gridData={gridData}
+            cellMetadata={cellMetadata}
+          />
         </div>
       </div>
     );

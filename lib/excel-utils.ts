@@ -259,11 +259,15 @@ export const formatDateDisplay = (value: any, formatId: string = 'long'): string
  * Helper to shift A1-style cell references in formulas during drag-fill operations.
  * Handles anchored references like $A$1.
  */
-export const shiftFormula = (formula: any, rowOffset: number): any => {
+export const shiftFormula = (formula: any, rowOffset: number, insertIndex?: number): any => {
   if (typeof formula !== 'string' || !formula.startsWith('=')) return formula;
   return formula.replace(/(\$?[A-Z]+)(\$?)(\d+)/gi, (match, col, anchor, row) => {
     if (anchor === '$') return match; // Row is anchored, do not shift
-    const newRow = parseInt(row, 10) + rowOffset;
+    const rowNum = parseInt(row, 10);
+    if (insertIndex !== undefined && (rowNum - 1) < insertIndex) {
+      return match;
+    }
+    const newRow = rowNum + rowOffset;
     return `${col}${anchor}${newRow}`;
   });
 };

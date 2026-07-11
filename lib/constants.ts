@@ -18,7 +18,7 @@ export const GRID_THEME = {
   tableHeader: "bg-muted/10 shadow-[0_1px_0_var(--color-border)]",
   tableHeaderRow: "bg-muted/20 select-none h-5",
   tableIndexCell: "border-r border-b border-border",
-  tableCell: "p-0 border-r border-b border-border bg-card group/cell relative align-middle",
+  tableCell: "p-0 border-r border-b border-border bg-card group/cell relative align-middle select-none",
   tableBodyRow: "hover:bg-muted/5 group relative",
 
   // Inputs and Interactive

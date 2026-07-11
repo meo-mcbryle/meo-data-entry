@@ -9,7 +9,7 @@ import { useTheme } from './ThemeToggle';
  * CellEditor: Optimized uncontrolled-like component for instant typing.
  * Uses local state for characters and debounces the global "push" to gridData.
  */
-export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, type = "text", dataRow, dataCol, onLocalEditing }: any) => {
+export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTextarea, type = "text", dataRow, dataCol, onLocalEditing, onCancel }: any) => {
   const [localValue, setLocalValue] = useState(initialValue ?? '');
   const syncTimerRef = useRef<any>(null);
   const inputRef = useRef<any>(null);
@@ -57,6 +57,18 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
     onSync(localValue); // Immediate sync on exit
   };
 
+  const handleKeyDownLocal = (e: any) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      setLocalValue(initialValue ?? '');
+      onSync(initialValue ?? '');
+      if (onCancel) onCancel();
+      return;
+    }
+    if (onKeyDown) onKeyDown(e);
+  };
+
   useEffect(() => {
     if (isTextarea && textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -75,7 +87,7 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
         autoFocus
         onBlur={handleBlur}
         onChange={(e) => handleLocalChange(e.target.value)}
-        onKeyDown={onKeyDown}
+        onKeyDown={handleKeyDownLocal}
         className={`${className} resize-none overflow-hidden py-0.5 w-full block`}
       />
     );
@@ -92,7 +104,7 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
       autoFocus
       onBlur={handleBlur}
       onChange={(e) => handleLocalChange(e.target.value)}
-      onKeyDown={onKeyDown}
+      onKeyDown={handleKeyDownLocal}
       className={`${className} w-full`}
     />
   );
@@ -151,23 +163,23 @@ export const GridRow = React.memo(({
   const selMaxRow = selection ? Math.max(selection.startRow, selection.endRow) : -1;
   const selMinColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.min(startColIdx, endColIdx) : -1;
   const selMaxColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.max(startColIdx, endColIdx) : -1;
-
   const [editingCol, setEditingCol] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeCell || activeCell.row !== globalIndex) {
-      setEditingCol(null);
+      if (editingCol !== null) setEditingCol(null);
     } else if (activeCell.col !== editingCol) {
-      const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
-      if (!isMobileDevice) {
-        setEditingCol(activeCell.col);
-      }
+      if (editingCol !== null) setEditingCol(null);
     }
   }, [activeCell, globalIndex, editingCol]);
 
-  const handleCellClick = (header: string) => {
-    const isMobileDevice = typeof window !== 'undefined' && window.innerWidth < 768;
-    if (isMobileDevice && activeCell?.row === globalIndex && activeCell?.col === header) {
+  const handleCellClick = (header: string, e: React.MouseEvent) => {
+    const didDrag = typeof document !== 'undefined' && document.body.getAttribute('data-dragged') === 'true';
+    if (didDrag) return;
+
+    const td = e.currentTarget.closest('td');
+    const wasAlreadyActive = td?.getAttribute('data-was-active') === 'true';
+    if (wasAlreadyActive) {
       setEditingCol(header);
     } else {
       setActiveCell({ row: globalIndex, col: header });
@@ -211,10 +223,12 @@ export const GridRow = React.memo(({
     }, 600);
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (header: string) => {
     if (touchTimerRef.current) {
       clearTimeout(touchTimerRef.current);
       touchTimerRef.current = null;
+      setActiveCell({ row: globalIndex, col: header });
+      setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
     }
   };
 
@@ -236,6 +250,12 @@ export const GridRow = React.memo(({
     const el = rowRef.current;
     if (!el) return;
 
+    // Excel-like Optimization: Only observe the row if it's currently active (editing/active interactions)
+    // or if it hasn't been measured yet. This drops active observers from ~70+ to ~0-1.
+    const hasMeasuredHeight = !!rowHeights[String(globalIndex)];
+    const shouldObserve = isRowActive || !hasMeasuredHeight;
+    if (!shouldObserve) return;
+
     const observer = new ResizeObserver(() => {
       /**
        * Fix: Normalize height by zoom factor to prevent infinite enlargement loop.
@@ -252,7 +272,7 @@ export const GridRow = React.memo(({
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [globalIndex, onMeasuredHeight, zoom]); // REMOVED rowHeights to prevent O(N^2) observer cycles
+  }, [globalIndex, onMeasuredHeight, zoom, isRowActive, rowHeights]); // REMOVED rowHeights to prevent O(N^2) observer cycles previously, but safe now with shouldObserve filter
 
   return (
     <tr
@@ -293,6 +313,7 @@ export const GridRow = React.memo(({
         const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header));
         const legacyKey = `${globalIndex}:${header}`;
         const meta: CellMetadata = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
+        const isEditing = editingCol === header;
 
         if (meta.mergedIn) return null;
         const cellAlign = cellAlignments[cellKey] || cellAlignments[legacyKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
@@ -321,7 +342,7 @@ export const GridRow = React.memo(({
           <td
             key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
             onTouchStart={(e) => handleTouchStart(e, header)}
-            onTouchEnd={handleTouchEnd}
+            onTouchEnd={() => handleTouchEnd(header)}
             onTouchMove={handleTouchMove}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -342,15 +363,30 @@ export const GridRow = React.memo(({
             }}
             onMouseDown={(e) => {
               if (e.button === 0) {
+                if (typeof document !== 'undefined') {
+                  document.body.removeAttribute('data-dragged');
+                }
+                const wasAlreadyActive = activeCell?.row === globalIndex && activeCell?.col === header;
+                e.currentTarget.setAttribute('data-was-active', String(wasAlreadyActive));
+
                 setActiveCell({ row: globalIndex, col: header });
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setIsSelecting(true);
               }
             }}
-            onMouseEnter={() => {
-              if (isSelecting) setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null);
-              if (dragFillRange) setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
-            }}
+             onMouseEnter={(e) => {
+               if (e.buttons === 1) {
+                 if (typeof document !== 'undefined') {
+                   document.body.setAttribute('data-dragged', 'true');
+                 }
+                 const isDragFillActive = typeof document !== 'undefined' && document.body.getAttribute('data-drag-fill-active') === 'true';
+                 if (isDragFillActive) {
+                   setDragFillRange(prev => prev ? { ...prev, endRow: globalIndex } : null);
+                 } else {
+                   setSelection((prev: any) => prev ? { ...prev, endRow: globalIndex, endCol: header } : null);
+                 }
+               }
+             }}
             onClick={() => {
               const input = document.querySelector(`[data-row="${globalIndex}"][data-col="${header}"]`) as HTMLElement;
               if (input) input.focus();
@@ -426,12 +462,12 @@ export const GridRow = React.memo(({
                 </div>
               </div>
             ) : meta.type === 'formula' ? (
-              <div onClick={() => handleCellClick(header)} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
+              <div onClick={(e) => handleCellClick(header, e)} className={`w-full px-2 py-1.5 text-sm text-foreground cursor-text min-h-7 flex flex-wrap items-center gap-x-2 wrap-break-word ${activeCell?.row === globalIndex && activeCell?.col === header ? 'bg-accent/10' : 'hover:bg-muted/10'} ${alignClass}`}>
                 {(() => { const result = evaluateFormula(row[header], row, meta.format); return typeof result === 'number' ? formatNumberDisplay(result, meta.format) : result; })()}
               </div>
             ) : (meta.type === 'number' || header === 'Amount') ? (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${editingCol === header ? 'p-0' : 'px-2 py-0.5'}`}>
-                {editingCol === header ? (
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${isEditing ? 'p-0' : 'px-2 py-0.5'}`}>
+                {isEditing ? (
                   <CellEditor
                     initialValue={row[header]}
                     onSync={(val: any) => handleUpdateCell(globalIndex, header, val)}
@@ -439,10 +475,13 @@ export const GridRow = React.memo(({
                     className={`${GRID_THEME.tableInput} flex-1 ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
                     type="number"
                     onLocalEditing={onLocalEditing}
+                    onCancel={() => setEditingCol(null)}
                   />
                 ) : (
                   <div
-                    onClick={() => handleCellClick(header)}
+                    data-row={globalIndex}
+                    data-col={header}
+                    onClick={(e) => handleCellClick(header, e)}
                     onDoubleClick={() => handleCellDoubleClick(header)}
                     className={`text-sm text-foreground cursor-text w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
                   >
@@ -451,8 +490,8 @@ export const GridRow = React.memo(({
                 )}
               </div>
             ) : (
-              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${editingCol === header ? 'p-0' : 'px-2 py-0.5'}`}>
-                {editingCol === header ? (
+              <div className={`flex flex-wrap items-center gap-x-2 ${alignClass} w-full min-h-7 ${isEditing ? 'p-0' : 'px-2 py-0.5'}`}>
+                {isEditing ? (
                   <CellEditor
                     isTextarea
                     initialValue={row[header]}
@@ -461,10 +500,13 @@ export const GridRow = React.memo(({
                     className={`${GRID_THEME.tableInput} flex-1 ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
                     dataRow={globalIndex} dataCol={header}
                     onLocalEditing={onLocalEditing}
+                    onCancel={() => setEditingCol(null)}
                   />
                 ) : (
                   <div
-                    onClick={() => handleCellClick(header)}
+                    data-row={globalIndex}
+                    data-col={header}
+                    onClick={(e) => handleCellClick(header, e)}
                     onDoubleClick={() => handleCellDoubleClick(header)}
                     className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
                   >
@@ -536,12 +578,26 @@ export const GridRow = React.memo(({
   // 6. Check if height specifically for THIS row changed
   if (prev.rowHeights[String(prev.globalIndex)] !== next.rowHeights[String(next.globalIndex)]) return false;
 
-  // 6. Standard UI state checks
+  // 6. Precise dragFillRange Check: Only re-render if this row's relationship to dragFillRange changed
+  const wasInDrag = prev.dragFillRange && prev.dragFillRange.col &&
+    prev.globalIndex >= Math.min(prev.dragFillRange.startRow, prev.dragFillRange.endRow) &&
+    prev.globalIndex <= Math.max(prev.dragFillRange.startRow, prev.dragFillRange.endRow);
+  const isInDrag = next.dragFillRange && next.dragFillRange.col &&
+    next.globalIndex >= Math.min(next.dragFillRange.startRow, next.dragFillRange.endRow) &&
+    next.globalIndex <= Math.max(next.dragFillRange.startRow, next.dragFillRange.endRow);
+
+  if (wasInDrag !== isInDrag) return false;
+
+  if (isInDrag && (
+    prev.dragFillRange?.col !== next.dragFillRange?.col ||
+    prev.dragFillRange?.startRow !== next.dragFillRange?.startRow ||
+    prev.dragFillRange?.endRow !== next.dragFillRange?.endRow
+  )) return false;
+
+  // 7. Standard UI state checks (excluding isSelecting and dragFillRange to prevent global row updates)
   return (
-    prev.isSelecting === next.isSelecting &&
     prev.isFreezePanes === next.isFreezePanes &&
     prev.visibleHeaders === next.visibleHeaders &&
-    prev.dragFillRange === next.dragFillRange &&
     prev.masterColumnOrder === next.masterColumnOrder &&
     prev.zoom === next.zoom
   );

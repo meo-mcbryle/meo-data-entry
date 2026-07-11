@@ -156,7 +156,7 @@ body {
 }
 
 .animate-cell-flash {
-  animation: cell-flash 1.5s ease-out forwards;
+  animation: cell-flash 0.4s ease-out;
 }
 
 /* High-tech button energy pulse hover animation */
