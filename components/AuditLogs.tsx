@@ -66,6 +66,7 @@ export const AuditLogs = ({
                         log.action.includes('CREATED') ? 'bg-green-500/10 text-green-500' :
                         log.action.includes('DELETED') ? 'bg-red-500/10 text-red-500' :
                         log.action.includes('UPDATED') ? 'bg-blue-500/10 text-blue-500' :
+                        log.action.includes('LOGIN') ? 'bg-purple-500/10 text-purple-500' :
                         'bg-muted/20 text-muted'
                       }`}>
                         {log.action}

@@ -27,8 +27,10 @@ export const LoginPage = React.memo(() => {
     }
 
     try {
+      sessionStorage.setItem('meo-auth-login-attempt', 'true');
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
+        sessionStorage.removeItem('meo-auth-login-attempt');
         if (error.status === 429) {
           setLockoutUntil(Date.now() + 60000); // Lock for 60 seconds
         }

@@ -116,6 +116,76 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
     if (urlId) handleSelectId(urlId);
   }, [searchParams, handleSelectId]);
 
+  // Log login action if manual login was attempted
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isLoginAttempt = sessionStorage.getItem('meo-auth-login-attempt');
+      if (isLoginAttempt === 'true') {
+        sessionStorage.removeItem('meo-auth-login-attempt');
+        
+        const logLoginDetails = async () => {
+          const isElectron = 'electronAPI' in window || (navigator.userAgent && navigator.userAgent.includes('Electron'));
+          
+          let ipAddress = 'Unknown';
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+            const ipRes = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const ipData = await ipRes.json();
+            ipAddress = ipData.ip;
+          } catch (e) {
+            console.warn('Failed to retrieve IP address:', e);
+          }
+
+          if (isElectron) {
+            let osUsername = 'Unknown';
+            let osPlatform = 'Unknown';
+            let osType = 'Unknown';
+            
+            if ('electronAPI' in window && (window as any).electronAPI.getSystemInfo) {
+              try {
+                const sysInfo = await (window as any).electronAPI.getSystemInfo();
+                osUsername = sysInfo.osUsername;
+                osPlatform = sysInfo.osPlatform;
+                osType = sysInfo.osType;
+              } catch (e) {
+                console.error('Failed to fetch Electron system details:', e);
+              }
+            }
+
+            logAction('USER_LOGIN', null, {
+              platform: 'Desktop App',
+              os_username: osUsername,
+              operating_system: `${osType} (${osPlatform})`,
+              ip_address: ipAddress
+            });
+          } else {
+            const getBrowserName = () => {
+              const ua = navigator.userAgent || '';
+              if (ua.includes('Firefox')) return 'Firefox';
+              if (ua.includes('SamsungBrowser')) return 'Samsung Browser';
+              if (ua.includes('Opera') || ua.includes('OPR')) return 'Opera';
+              if (ua.includes('Trident')) return 'Internet Explorer';
+              if (ua.includes('Edge') || ua.includes('Edg')) return 'Microsoft Edge';
+              if (ua.includes('Chrome')) return 'Chrome';
+              if (ua.includes('Safari')) return 'Safari';
+              return 'Unknown Browser';
+            };
+
+            logAction('USER_LOGIN', null, {
+              platform: 'Web Dashboard',
+              browser: getBrowserName(),
+              ip_address: ipAddress
+            });
+          }
+        };
+
+        logLoginDetails();
+      }
+    }
+  }, [logAction]);
+
   // Fetch logs or files when view changes
   useEffect(() => {
     if (viewMode === 'logs') fetchAuditLogs();

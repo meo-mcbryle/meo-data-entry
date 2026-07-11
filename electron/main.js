@@ -1,6 +1,7 @@
 const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { pathToFileURL } = require('url');
 const preloadPath = path.join(__dirname, 'preload.js');
 const { autoUpdater } = require('electron-updater');
@@ -92,6 +93,23 @@ function createWindow() {
 
 // IPC: expose app version to renderer
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// IPC: get system info (OS username and OS platform details)
+ipcMain.handle('get-system-info', () => {
+  try {
+    return {
+      osUsername: os.userInfo().username,
+      osPlatform: os.platform(),
+      osType: os.type()
+    };
+  } catch (e) {
+    return {
+      osUsername: 'Unknown',
+      osPlatform: os.platform() || 'Unknown',
+      osType: os.type() || 'Unknown'
+    };
+  }
+});
 
 // IPC: check for updates manually
 ipcMain.handle('check-for-updates', async () => {

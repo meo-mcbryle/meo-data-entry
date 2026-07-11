@@ -2,6 +2,7 @@
 interface Window {
   electronAPI?: {
     getVersion: () => Promise<string>;
+    getSystemInfo: () => Promise<{ osUsername: string; osPlatform: string; osType: string }>;
     checkForUpdates: () => Promise<{ status?: string; success?: boolean; message?: string }>;
     downloadUpdate: () => Promise<{ success: boolean; message?: string }>;
     installUpdate: () => void;
