@@ -106,7 +106,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
       type: 'alert',
       title: 'Link Copied',
       message: 'Shareable link copied to clipboard!',
-      onConfirm: () => {}
+      onConfirm: () => { }
     });
   }, [selectedId, spreadsheet.setSpreadsheetDialog]);
 
@@ -132,8 +132,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
   const mainPaddingClass = isFullScreen
     ? 'p-0'
     : isMobile
-    ? 'p-2 pb-20'
-    : 'p-1 md:p-1.5';
+      ? 'p-2 pb-20'
+      : 'p-1 md:p-1.5';
 
   return (
     <main className={`${GRID_THEME.main} relative antialiased overflow-hidden`}>
@@ -158,7 +158,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
       </div>
 
       {!isFullScreen && !isMobile && (
-        <div className="flex h-full shrink-0 relative z-10">
+        <div className="flex h-full shrink-0 relative z-20">
           {/* Vertical Icon Rail */}
           <NavigationSidebar
             isExplorerVisible={isExplorerVisible}
@@ -206,7 +206,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             bgStyle={bgStyle}
             setBgStyle={setBgStyle}
             theme={themeContext?.theme || 'dark'}
-            toggleTheme={themeContext?.toggleTheme || (() => {})}
+            toggleTheme={themeContext?.toggleTheme || (() => { })}
             handleLogout={handleLogout}
           />
         )}
@@ -221,7 +221,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             handleRename={handleRename}
             handleDelete={handleDelete}
             isExplorerVisible={true}
-            setIsExplorerVisible={() => {}}
+            setIsExplorerVisible={() => { }}
             isLoading={isLoading}
             setIsLoadingFile={setIsLoadingFile}
             viewMode={viewMode}
@@ -235,7 +235,7 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
         {/* Standard Editor Layout (Grid, JSON, Compare, Logs, Trash) */}
         {(!isMobile || (viewMode !== 'settings' && viewMode !== 'explorer')) && (
           activeNode || viewMode === 'logs' || viewMode === 'trash' ? (
-            <div className={`${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card/25 backdrop-blur-md relative' : 'bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg relative'} transition-all duration-300`}>
+            <div className={`container-enter ${GRID_THEME.editorContainer} ${isFullScreen ? 'bg-card/25 backdrop-blur-md relative' : 'bg-card/45 backdrop-blur-lg border border-border/50 rounded-xl shadow-lg relative'} transition-[background-color,backdrop-filter] duration-300`}>
               {/* Ambient top light glow reflection */}
               {!isFullScreen && (
                 <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rounded-t-xl opacity-75 z-50 pointer-events-none" />
@@ -320,29 +320,28 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
         {isMobile && !isFullScreen && (
           <div className="fixed bottom-0 left-0 right-0 h-16 bg-card/85 backdrop-blur-xl border-t border-border/40 flex items-center justify-around z-50 px-4 pb-safe shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden">
             {/* Explorer (Files) Tab */}
-            <button 
-              onClick={() => setViewMode('explorer')} 
+            <button
+              onClick={() => setViewMode('explorer')}
               className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'explorer' ? 'text-accent font-bold animate-pulse' : 'text-muted'}`}
             >
               <Folder size={18} />
               <span className="text-[9px] font-semibold tracking-tighter">Files</span>
             </button>
-            
+
             {/* Sheet (Active Spreadsheet) Tab */}
-            <button 
-              onClick={() => activeNode && setViewMode('table')} 
+            <button
+              onClick={() => activeNode && setViewMode('table')}
               disabled={!activeNode}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${
-                !activeNode ? 'opacity-35 cursor-not-allowed' : ''
-              } ${viewMode === 'table' || viewMode === 'code' || viewMode === 'compare' ? 'text-accent font-bold' : 'text-muted'}`}
+              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${!activeNode ? 'opacity-35 cursor-not-allowed' : ''
+                } ${viewMode === 'table' || viewMode === 'code' || viewMode === 'compare' ? 'text-accent font-bold' : 'text-muted'}`}
             >
               <TableIcon size={18} />
               <span className="text-[9px] font-semibold tracking-tighter">Sheet</span>
             </button>
 
             {/* Logs Tab */}
-            <button 
-              onClick={() => setViewMode('logs')} 
+            <button
+              onClick={() => setViewMode('logs')}
               className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'logs' ? 'text-purple-500 font-bold animate-pulse' : 'text-muted'}`}
             >
               <History size={18} />
@@ -350,8 +349,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             </button>
 
             {/* Trash Tab */}
-            <button 
-              onClick={() => setViewMode('trash')} 
+            <button
+              onClick={() => setViewMode('trash')}
               className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'trash' ? 'text-orange-500 font-bold animate-pulse' : 'text-muted'}`}
             >
               <Trash2 size={18} />
@@ -359,8 +358,8 @@ const DashboardContent = React.memo(({ user }: { user: SupabaseUser }) => {
             </button>
 
             {/* Settings Tab */}
-            <button 
-              onClick={() => setViewMode('settings')} 
+            <button
+              onClick={() => setViewMode('settings')}
               className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'settings' ? 'text-accent font-bold' : 'text-muted'}`}
             >
               <User size={18} />

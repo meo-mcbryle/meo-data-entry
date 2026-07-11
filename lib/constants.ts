@@ -8,7 +8,7 @@ export const GRID_THEME = {
   editorContainer: "flex flex-col flex-1 min-h-0 overflow-hidden",
 
   // Grid Editor Components
-  editor: "flex flex-col h-full overflow-hidden bg-card/25 backdrop-blur-md",
+  editor: "flex flex-col h-full overflow-hidden bg-card/45 backdrop-blur-lg",
   toolbar: "flex items-center justify-between py-1.5 px-2 bg-background/25 backdrop-blur-md border-b border-border/40 gap-2 overflow-x-auto no-scrollbar whitespace-nowrap",
   formulaBar: "flex items-start gap-2 py-1 px-1.5 bg-card/30 backdrop-blur-sm border-b border-border/40 shadow-inner z-20",
   statusBar: "h-7 bg-background/25 backdrop-blur-md border-t border-border/40 flex items-center justify-between px-3 text-[10px] font-bold text-muted uppercase tracking-wider shrink-0 select-none",

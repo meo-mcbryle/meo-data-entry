@@ -640,8 +640,8 @@ export const TableEditor = ({
                 <button
                   onClick={() => setIsFreezeHeaders(!isFreezeHeaders)}
                   className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isFreezeHeaders
-                      ? 'bg-accent/10 border-accent text-accent font-black'
-                      : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
+                    ? 'bg-accent/10 border-accent text-accent font-black'
+                    : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
                     }`}
                 >
                   <ChevronDown size={14} className={isFreezeHeaders ? "" : "rotate-180"} />
@@ -650,8 +650,8 @@ export const TableEditor = ({
                 <button
                   onClick={() => setIsFreezePanes(!isFreezePanes)}
                   className={`flex-1 py-2.5 border rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isFreezePanes
-                      ? 'bg-accent/10 border-accent text-accent font-black'
-                      : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
+                    ? 'bg-accent/10 border-accent text-accent font-black'
+                    : 'bg-muted/5 border-border/70 text-muted hover:bg-muted/10'
                     }`}
                 >
                   <ChevronRightIcon size={14} />
@@ -719,8 +719,8 @@ export const TableEditor = ({
                       key={`toggle-col-${header}`}
                       onClick={() => toggleColumnVisibility(header)}
                       className={`px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold border transition-all cursor-pointer truncate ${isVisible
-                          ? 'bg-accent/15 border-accent/35 text-accent font-bold'
-                          : 'bg-muted/5 border-border/70 text-muted/65 hover:bg-muted/10'
+                        ? 'bg-accent/15 border-accent/35 text-accent font-bold'
+                        : 'bg-muted/5 border-border/70 text-muted/65 hover:bg-muted/10'
                         }`}
                     >
                       {isVisible ? '✓ ' : '✗ '} {header}
@@ -1409,8 +1409,8 @@ export const TableEditor = ({
                             }}
                             title={`${a.charAt(0).toUpperCase() + a.slice(1)} Alignment`}
                             className={`flex-1 py-1.5 flex justify-center items-center rounded-lg transition-all cursor-pointer ${active
-                                ? 'bg-card text-accent shadow-sm border border-border/20 font-bold'
-                                : 'text-muted-foreground hover:text-foreground'
+                              ? 'bg-card text-accent shadow-sm border border-border/20 font-bold'
+                              : 'text-muted-foreground hover:text-foreground'
                               }`}
                           >
                             <Icon size={14} />
@@ -1653,8 +1653,8 @@ export const TableEditor = ({
               }
             }}
             className={`flex-1 bg-transparent border-0 outline-none text-sm font-mono text-foreground placeholder:text-muted/30 placeholder:italic resize-none py-1 min-w-0 ${isFormulaExpanded
-                ? 'overflow-y-auto max-h-14 md:max-h-32'
-                : 'overflow-hidden h-7 max-h-7 whitespace-nowrap'
+              ? 'overflow-y-auto max-h-14 md:max-h-32'
+              : 'overflow-hidden h-7 max-h-7 whitespace-nowrap'
               }`}
           />
           <button
@@ -1670,8 +1670,11 @@ export const TableEditor = ({
         {isLoadingFile && (
           <div className="absolute top-0 left-0 right-0 z-50 h-[2px] overflow-hidden bg-border">
             <div
-              className="h-full bg-accent transition-all duration-150 ease-out"
-              style={{ width: `${loadProgress}%` }}
+              className={`h-full bg-accent ${
+                loadProgress === 100
+                  ? "w-full transition-[width] duration-300 ease-out"
+                  : "animate-progress-trickle"
+              }`}
             />
           </div>
         )}
@@ -1688,279 +1691,278 @@ export const TableEditor = ({
           } as any}
         >
           {/* Real grid — slide-up-fade on mount, keyed per file */}
+          {/* Virtual Scroll Spacer — always rendered so the scrollable height is correct */}
+          <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+
           {!isLoadingFile && (
-            <div key={gridKey} className="slide-up-fade contents">
-              {/* Virtual Scroll Spacer */}
-              <div style={{ height: totalVirtualHeight * zoom, width: '100%', position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} />
+            <table
+              key={gridKey}
+              className="slide-up-fade w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
+              style={{
+                zoom: zoom,
+              } as any}
+            >
+              <thead className={GRID_THEME.tableHeader}>
+                <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card`}>
+                  <th
+                    onClick={() => {
+                      if (rowCount > 0 && visibleHeaders.length > 0) {
+                        setSelection({
+                          startRow: -1,
+                          endRow: rowCount - 1,
+                          startCol: visibleHeaders[0],
+                          endCol: visibleHeaders[visibleHeaders.length - 1]
+                        });
+                        setActiveCell({ row: 0, col: visibleHeaders[0] });
+                      }
+                    }}
+                    className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-0' : ''
+                      }`}
+                  >
+                    <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
+                  </th>
+                  {visibleHeaders.map((header, idx) => {
+                    const headerMeta = cellMetadata[`header:${header}`] || {};
+                    const isColumnActive = activeCell?.col === header;
+                    const isInHeaderLabelSelection = isHeaderInSelection(idx);
 
-              <table
-                className="w-full border-separate border-spacing-0 table-auto min-w-full origin-top-left absolute left-0 top-0"
-                style={{
-                  zoom: zoom,
-                } as any}
-              >
-                <thead className={GRID_THEME.tableHeader}>
-                  <tr className={`${GRID_THEME.tableHeaderRow} relative z-40 bg-card shadow-sm`}>
-                    <th
-                      onClick={() => {
-                        if (rowCount > 0 && visibleHeaders.length > 0) {
-                          setSelection({
-                            startRow: -1,
-                            endRow: rowCount - 1,
-                            startCol: visibleHeaders[0],
-                            endCol: visibleHeaders[visibleHeaders.length - 1]
-                          });
-                          setActiveCell({ row: 0, col: visibleHeaders[0] });
-                        }
-                      }}
-                      className={`w-10 min-w-10 h-5 shadow-[inset_-1px_-1px_0_var(--color-border)] cursor-pointer hover:bg-muted/30 ${GRID_THEME.tableIndexCell} sticky left-0 z-50 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-0' : ''
-                        }`}
-                    >
-                      <div className="w-full h-full flex items-center justify-center opacity-20 text-[8px] font-black text-muted">◢</div>
-                    </th>
-                    {visibleHeaders.map((header, idx) => {
-                      const headerMeta = cellMetadata[`header:${header}`] || {};
-                      const isColumnActive = activeCell?.col === header;
-                      const isInHeaderLabelSelection = isHeaderInSelection(idx);
-
-                      if (headerMeta.mergedIn) return null;
-
-                      return (
-                        <th
-                          key={`col-label-${idx}`}
-                          colSpan={headerMeta.colSpan}
-                          onMouseDown={(e) => {
-                            if (e.button === 0 && rowCount > 0) {
-                              setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
-                              setActiveCell({ row: 0, col: header });
-                              setIsSelecting(true);
-                            }
-                          }}
-                          onMouseEnter={() => {
-                            if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
-                              setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
-                            }
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            const isAlreadySelected = isHeaderInSelection(idx);
-
-                            if (!isAlreadySelected && rowCount > 0) {
-                              setSelection({
-                                startRow: 0,
-                                endRow: rowCount - 1,
-                                startCol: header,
-                                endCol: header
-                              });
-                              setActiveCell({ row: 0, col: header });
-                            }
-                            handleOpenContextMenu(e, 'header', header);
-                          }}
-                          style={{
-                            fontFamily: headerMeta.fontFamily || 'inherit',
-                            width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                            minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
-                          }}
-                          className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
-                            } ${isInHeaderLabelSelection ? 'bg-[color-mix(in_srgb,var(--accent)_30%,var(--card))]' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))]'}` : ""
-                            }`}
-                        >
-                          {getExcelColumnLabel(idx)}
-                          <div
-                            onMouseDown={(e) => startResizing(header, e)}
-                            className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
-                            title="Drag to resize"
-                          />
-                        </th>
-                      );
-                    })}
-                    <th className="border-r border-b border-border bg-card"></th>
-                  </tr>
-                  <tr className="">
-                    <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-30 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-[20px]' : ''
-                      }`}></th>
-                    {visibleHeaders.map((header, colIdx) => {
-                      const headerMeta = cellMetadata[`header:${header}`] || {};
-                      const isColumnActive = activeCell?.col === header;
-
-                      if (headerMeta.mergedIn) return null;
-
-                      const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
-                      const align = cellAlignments[`header:${header}`] || columnAlignments[header] || defaultAlign;
-                      const alignClass = align === 'center' ? 'text-center' :
-                        align === 'right' ? 'text-right' : 'text-left';
-
-                      const isInHeaderSelection = isHeaderInSelection(colIdx);
-
-                      return (
-                        <th
-                          key={header}
-                          colSpan={headerMeta.colSpan}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            if (!isInHeaderSelection && rowCount > 0) {
-                              setSelection({
-                                startRow: 0,
-                                endRow: rowCount - 1,
-                                startCol: header,
-                                endCol: header
-                              });
-                              setActiveCell({ row: 0, col: header });
-                            }
-                            handleOpenContextMenu(e, 'header', header);
-                          }}
-                          onMouseDown={(e) => {
-                            if (e.button === 0) {
-                              setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
-                              setIsSelecting(true);
-                            } else if (e.button === 2) {
-                              if (!isInHeaderSelection) {
-                                setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
-                              }
-                            }
-                          }}
-                          onMouseEnter={() => {
-                            if (isSelecting && selection?.startRow === -1) {
-                              setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
-                            }
-                          }}
-                          style={{
-                            width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
-                            minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
-                          }}
-                          className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))]' : 'text-muted bg-card'
-                            } ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
-                            } ${isInHeaderSelection ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))] ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
-                        >
-                          <div className="flex items-center gap-1">
-                            <input
-                              defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
-                              onBlur={(e) => handleRenameColumn(header, e.target.value)}
-                              className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
-                            />
-                          </div>
-                        </th>
-                      );
-                    })}
-                    <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
-                      }`}>
-                      <div className="flex items-center gap-1 px-1">
-                        <input
-                          value={newColName}
-                          onChange={(e) => setNewColName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleAddColumn(newColName);
-                              setNewColName('');
-                            }
-                          }}
-                          placeholder="Add Column..."
-                          className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
-                        />
-                        <Plus size={14} className="text-accent/60 shrink-0" />
-                      </div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  <tr style={{ height: `${translateY}px` }} className="border-none">
-                    <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
-                  </tr>
-                  {visibleItems.map((item, i) => {
-                    if (item.type === 'section') {
-                      return (
-                        <tr
-                          key={`section-${item.name}-${item.blockIdx}`}
-                          className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
-                          onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
-                        >
-                          <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
-                            <div className="flex items-center justify-between">
-                              <input
-                                defaultValue={item.name}
-                                onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
-                                className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
-                              />
-                              <div className="flex items-center gap-1">
-                                <button
-                                  onClick={() => handleInsertSection(item.name, 'before')}
-                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
-                                  title="Insert Section Before"
-                                >
-                                  <ChevronUp size={12} />
-                                </button>
-                                <button
-                                  onClick={() => handleInsertSection(item.name, 'after')}
-                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
-                                  title="Insert Section After"
-                                >
-                                  <ChevronDown size={12} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteSection(item.name)}
-                                  className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
-                                  title="Delete Section"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    const globalIndex = item.index;
-                    const rowData: any = { _index: globalIndex };
-                    allHeaders.forEach(h => {
-                      const colIdx = masterColumnOrder.indexOf(h);
-                      rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
-                    });
-                    rowData.section = gridData.get(`${globalIndex}:section`);
+                    if (headerMeta.mergedIn) return null;
 
                     return (
-                      <GridRow
-                        key={globalIndex}
-                        row={rowData}
-                        globalIndex={globalIndex}
-                        visibleHeaders={visibleHeaders}
-                        activeCell={activeCell}
-                        selection={selection}
-                        cellMetadata={cellMetadata}
-                        cellAlignments={cellAlignments}
-                        columnAlignments={columnAlignments}
-                        isFreezePanes={isFreezePanes}
-                        dragFillRange={dragFillRange}
-                        isSelecting={isSelecting}
-                        handleUpdateCell={handleUpdateCell}
-                        handleKeyDown={handleKeyDown}
-                        setActiveCell={setActiveCell}
-                        setSelection={setSelection}
-                        setIsSelecting={setIsSelecting}
-                        setDragFillRange={setDragFillRange}
-                        onOpenContextMenu={handleOpenContextMenu}
-                        toggleCellAlignment={toggleCellAlignment}
-                        handleDragFillStart={handleDragFillStart}
-                        removeTableRow={removeTableRow}
-                        setViewingMedia={setViewingMedia}
-                        removeCellMetadata={removeCellMetadata}
-                        evaluateFormula={evaluateFormula}
-                        rowHeights={rowHeights}
-                        startRowResizing={startRowResizing}
-                        handleOpenDropdown={handleOpenDropdown}
-                        onMeasuredHeight={onMeasuredHeight}
-                        masterColumnOrder={masterColumnOrder}
-                        zoom={zoom}
-                        onLocalEditing={handleLocalEditing}
-                      />
+                      <th
+                        key={`col-label-${idx}`}
+                        colSpan={headerMeta.colSpan}
+                        onMouseDown={(e) => {
+                          if (e.button === 0 && rowCount > 0) {
+                            setSelection({ startRow: 0, endRow: rowCount - 1, startCol: header, endCol: header });
+                            setActiveCell({ row: 0, col: header });
+                            setIsSelecting(true);
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (isSelecting && selection && (selection.startRow === 0 || selection.startRow === -1)) {
+                            setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
+                          }
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          const isAlreadySelected = isHeaderInSelection(idx);
+
+                          if (!isAlreadySelected && rowCount > 0) {
+                            setSelection({
+                              startRow: 0,
+                              endRow: rowCount - 1,
+                              startCol: header,
+                              endCol: header
+                            });
+                            setActiveCell({ row: 0, col: header });
+                          }
+                          handleOpenContextMenu(e, 'header', header);
+                        }}
+                        style={{
+                          fontFamily: headerMeta.fontFamily || 'inherit',
+                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                        }}
+                        className={`relative group/col-index text-[9px] font-black border-r border-b border-border h-5 text-center uppercase tracking-tighter cursor-pointer bg-card ${isFreezeHeaders ? 'sticky top-0 z-40' : ''} ${isColumnActive || isInHeaderLabelSelection ? 'active-header' : 'text-muted hover:bg-muted/30 hover:text-foreground'
+                          } ${isInHeaderLabelSelection ? 'bg-[color-mix(in_srgb,var(--accent)_30%,var(--card))]' : ''} ${isFreezePanes && header === "Title / Item" ? `sticky left-10 z-50 shadow-[1px_0_0_0_var(--color-border)] ${isColumnActive ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))]'}` : ""
+                          }`}
+                      >
+                        {getExcelColumnLabel(idx)}
+                        <div
+                          onMouseDown={(e) => startResizing(header, e)}
+                          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-accent z-50 transition-colors group-hover/col-index:bg-muted/40"
+                          title="Drag to resize"
+                        />
+                      </th>
                     );
                   })}
-                  <tr style={{ height: '20px' }} className="border-none">
-                    <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  <th className="border-r border-b border-border bg-card"></th>
+                </tr>
+                <tr className="">
+                  <th className={`w-10 min-w-10 ${GRID_THEME.tableIndexCell} bg-card sticky left-0 z-50 shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)] ${isFreezeHeaders ? 'top-[20px]' : ''
+                    }`}></th>
+                  {visibleHeaders.map((header, colIdx) => {
+                    const headerMeta = cellMetadata[`header:${header}`] || {};
+                    const isColumnActive = activeCell?.col === header;
+
+                    if (headerMeta.mergedIn) return null;
+
+                    const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
+                    const align = cellAlignments[`header:${header}`] || columnAlignments[header] || defaultAlign;
+                    const alignClass = align === 'center' ? 'text-center' :
+                      align === 'right' ? 'text-right' : 'text-left';
+
+                    const isInHeaderSelection = isHeaderInSelection(colIdx);
+
+                    return (
+                      <th
+                        key={header}
+                        colSpan={headerMeta.colSpan}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (!isInHeaderSelection && rowCount > 0) {
+                            setSelection({
+                              startRow: 0,
+                              endRow: rowCount - 1,
+                              startCol: header,
+                              endCol: header
+                            });
+                            setActiveCell({ row: 0, col: header });
+                          }
+                          handleOpenContextMenu(e, 'header', header);
+                        }}
+                        onMouseDown={(e) => {
+                          if (e.button === 0) {
+                            setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                            setIsSelecting(true);
+                          } else if (e.button === 2) {
+                            if (!isInHeaderSelection) {
+                              setSelection({ startRow: -1, endRow: -1, startCol: header, endCol: header });
+                            }
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (isSelecting && selection?.startRow === -1) {
+                            setSelection((prev: any) => prev ? { ...prev, endCol: header } : null);
+                          }
+                        }}
+                        style={{
+                          width: columnWidths[header] ? `${columnWidths[header]}px` : undefined,
+                          minWidth: columnWidths[header] ? `${columnWidths[header]}px` : '120px'
+                        }}
+                        className={`group/header px-2 py-1 text-[11px] font-bold tracking-tight border-r border-b border-border relative antialiased ${isFreezeHeaders ? 'sticky top-[20px] z-30 shadow-sm' : ''} ${isColumnActive ? 'text-accent bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))]' : 'text-muted bg-card'
+                          } ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-40 shadow-[1px_0_0_0_var(--color-border)]" : ""
+                          } ${isInHeaderSelection ? 'bg-[color-mix(in_srgb,var(--accent)_20%,var(--card))] ring-1 ring-inset ring-accent/30 z-10' : 'z-0'}`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <input
+                            defaultValue={header.startsWith('_UNTITLED_') ? '' : header}
+                            onBlur={(e) => handleRenameColumn(header, e.target.value)}
+                            className={`w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none truncate hover:bg-muted/10 ${alignClass}`}
+                          />
+                        </div>
+                      </th>
+                    );
+                  })}
+                  <th className={`p-2 min-w-35 border-r border-b border-border bg-card ${isFreezeHeaders ? 'sticky top-[20px] z-30' : ''
+                    }`}>
+                    <div className="flex items-center gap-1 px-1">
+                      <input
+                        value={newColName}
+                        onChange={(e) => setNewColName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddColumn(newColName);
+                            setNewColName('');
+                          }
+                        }}
+                        placeholder="Add Column..."
+                        className="w-full bg-transparent border-0 focus:ring-1 focus:ring-accent rounded px-1 outline-none text-sm font-bold text-accent placeholder:text-accent/30"
+                      />
+                      <Plus size={14} className="text-accent/60 shrink-0" />
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                <tr style={{ height: `${translateY}px` }} className="border-none">
+                  <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
+                </tr>
+                {visibleItems.map((item, i) => {
+                  if (item.type === 'section') {
+                    return (
+                      <tr
+                        key={`section-${item.name}-${item.blockIdx}`}
+                        className={`group/section h-10 transition-colors ${isSectionInSelection(item.startIndex) ? 'bg-accent/20' : 'bg-muted/30'}`}
+                        onContextMenu={(e) => handleOpenContextMenu(e, 'section', "", undefined, item.name)}
+                      >
+                        <td colSpan={visibleHeaders.length + 2} className="px-3 py-1 border-b border-border">
+                          <div className="flex items-center justify-between">
+                            <input
+                              defaultValue={item.name}
+                              onBlur={(e) => handleRenameSectionBlock(item.startIndex, item.name, e.target.value)}
+                              className="bg-transparent border-0 font-black text-foreground tracking-widest text-[11px] outline-none focus:ring-1 focus:ring-accent rounded px-1 flex-1 uppercase"
+                            />
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleInsertSection(item.name, 'before')}
+                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                title="Insert Section Before"
+                              >
+                                <ChevronUp size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleInsertSection(item.name, 'after')}
+                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-accent transition-all"
+                                title="Insert Section After"
+                              >
+                                <ChevronDown size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSection(item.name)}
+                                className="opacity-0 group-hover/section:opacity-100 p-1 text-muted hover:text-red-500 transition-all"
+                                title="Delete Section"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const globalIndex = item.index;
+                  const rowData: any = { _index: globalIndex };
+                  allHeaders.forEach(h => {
+                    const colIdx = masterColumnOrder.indexOf(h);
+                    rowData[h] = colIdx !== -1 ? gridData.get(toA1Key(globalIndex, colIdx)) : undefined;
+                  });
+                  rowData.section = gridData.get(`${globalIndex}:section`);
+
+                  return (
+                    <GridRow
+                      key={globalIndex}
+                      row={rowData}
+                      globalIndex={globalIndex}
+                      visibleHeaders={visibleHeaders}
+                      activeCell={activeCell}
+                      selection={selection}
+                      cellMetadata={cellMetadata}
+                      cellAlignments={cellAlignments}
+                      columnAlignments={columnAlignments}
+                      isFreezePanes={isFreezePanes}
+                      dragFillRange={dragFillRange}
+                      isSelecting={isSelecting}
+                      handleUpdateCell={handleUpdateCell}
+                      handleKeyDown={handleKeyDown}
+                      setActiveCell={setActiveCell}
+                      setSelection={setSelection}
+                      setIsSelecting={setIsSelecting}
+                      setDragFillRange={setDragFillRange}
+                      onOpenContextMenu={handleOpenContextMenu}
+                      toggleCellAlignment={toggleCellAlignment}
+                      handleDragFillStart={handleDragFillStart}
+                      removeTableRow={removeTableRow}
+                      setViewingMedia={setViewingMedia}
+                      removeCellMetadata={removeCellMetadata}
+                      evaluateFormula={evaluateFormula}
+                      rowHeights={rowHeights}
+                      startRowResizing={startRowResizing}
+                      handleOpenDropdown={handleOpenDropdown}
+                      onMeasuredHeight={onMeasuredHeight}
+                      masterColumnOrder={masterColumnOrder}
+                      zoom={zoom}
+                      onLocalEditing={handleLocalEditing}
+                    />
+                  );
+                })}
+                <tr style={{ height: '20px' }} className="border-none">
+                  <td colSpan={visibleHeaders.length + 2} className="p-0 border-none" />
+                </tr>
+              </tbody>
+            </table>
           )}
 
           {showBackToTop && (

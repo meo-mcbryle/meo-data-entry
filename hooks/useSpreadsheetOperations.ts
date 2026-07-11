@@ -149,7 +149,7 @@ export function useSpreadsheetOperations({
     const colMap = new Map<string, number>(
       ((displaySettings.masterColumnOrder || masterColumnOrder || []) as string[]).map((name: string, i: number) => [name, i])
     );
-    
+
     const normalizeKeys = (metaRecord: Record<string, any> | undefined) => {
       const next: Record<string, any> = {};
       if (!metaRecord) return next;
@@ -270,7 +270,7 @@ export function useSpreadsheetOperations({
     const handleGlobalClick = (e: any) => {
       if (e.target instanceof HTMLElement) {
         if (
-          e.target.closest('.dropdown-container') || 
+          e.target.closest('.dropdown-container') ||
           e.target.closest('.context-menu-container') ||
           e.target.closest('[data-sheet]')
         ) {
@@ -297,7 +297,6 @@ export function useSpreadsheetOperations({
 
   // Load file content effect
   useEffect(() => {
-    let progressInterval: any = null;
     const loadFileContent = async () => {
       if (!selectedId) {
         setGridData(new Map());
@@ -318,9 +317,6 @@ export function useSpreadsheetOperations({
 
       setIsLoadingFile(true);
       setLoadProgress(0);
-      progressInterval = setInterval(() => {
-        setLoadProgress(prev => (prev < 85 ? prev + Math.ceil((85 - prev) * 0.18) : prev));
-      }, 80);
 
       try {
         // 1. Fetch from local Dexie database first
@@ -438,19 +434,15 @@ export function useSpreadsheetOperations({
           console.error("Remote file fetch failed, working offline:", err);
         }
       } finally {
-        if (progressInterval) clearInterval(progressInterval);
         setLoadProgress(100);
         setTimeout(() => {
           setIsLoadingFile(false);
           setTimeout(() => setLoadProgress(0), 400);
-        }, 120);
+        }, 400);
       }
     };
 
     loadFileContent();
-    return () => {
-      if (progressInterval) clearInterval(progressInterval);
-    };
   }, [selectedId, setGridData, setRowCount, resetHistory, setMasterColumnOrder, setCellAlignments, setColumnOrder, setCellMetadata, setRowHeights, setIsLoadingFile, setLoadProgress]);
 
   const handleSave = async () => {
@@ -643,7 +635,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Reserved Name',
         message: "'section' is a reserved column name used for categorization.",
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       return;
     }
@@ -653,7 +645,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Duplicate Column',
         message: `A column named "${finalNewKey}" already exists.`,
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       return;
     }
@@ -721,7 +713,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Reserved Name',
         message: "'section' is a reserved column name used for categorization.",
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       return;
     }
@@ -731,7 +723,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Duplicate Column',
         message: `A column named "${colName}" already exists.`,
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       return;
     }
@@ -786,7 +778,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Reserved Name',
         message: "'section' is a reserved column name used for categorization.",
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       return;
     }
@@ -1017,7 +1009,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Upload Failed',
         message: "File size exceeds the 50MB limit.",
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       if (e.target) e.target.value = '';
       setPendingMedia(null);
@@ -1039,7 +1031,7 @@ export function useSpreadsheetOperations({
         type: 'alert',
         title: 'Upload Failed',
         message: `File type "${file.type}" is not allowed.`,
-        onConfirm: () => {}
+        onConfirm: () => { }
       });
       if (e.target) e.target.value = '';
       setPendingMedia(null);
@@ -1059,7 +1051,7 @@ export function useSpreadsheetOperations({
           type: 'alert',
           title: 'Attachment Limit',
           message: "Maximum limit of 10 attachments reached for this cell.",
-          onConfirm: () => {}
+          onConfirm: () => { }
         });
         return;
       }
@@ -1142,14 +1134,14 @@ export function useSpreadsheetOperations({
           type: 'alert',
           title: 'Upload Failed',
           message: 'Security Policy Error. Please ensure Storage RLS policies are configured in Supabase.',
-          onConfirm: () => {}
+          onConfirm: () => { }
         });
       } else {
         setSpreadsheetDialog({
           type: 'alert',
           title: 'Upload Failed',
           message: err.message,
-          onConfirm: () => {}
+          onConfirm: () => { }
         });
       }
     } finally {

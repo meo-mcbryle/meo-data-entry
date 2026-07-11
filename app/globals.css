@@ -134,6 +134,16 @@ body {
   animation: slide-up-fade 260ms ease-out forwards;
 }
 
+/* Dashboard container fade-in animation */
+@keyframes container-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.container-enter {
+  animation: container-enter 280ms ease-out forwards;
+}
+
 /* Highlight glow for newly selected cells from search */
 @keyframes cell-flash {
   0% {
@@ -172,33 +182,44 @@ body {
 
 /* Glassmorphism background glowing blobs */
 @keyframes blob-slow {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(0px, 0px) scale(1);
   }
+
   33% {
     transform: translate(60px, -80px) scale(1.2);
   }
+
   66% {
     transform: translate(-40px, 50px) scale(0.85);
   }
 }
 
 @keyframes blob-reverse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(0px, 0px) scale(1);
   }
+
   33% {
     transform: translate(-60px, 70px) scale(0.85);
   }
+
   66% {
     transform: translate(50px, -50px) scale(1.15);
   }
 }
 
 @keyframes blob-slow-alt {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(0px, 0px) scale(1);
   }
+
   50% {
     transform: translate(30px, 80px) scale(1.1);
   }
@@ -214,4 +235,18 @@ body {
 
 .animate-blob-slow-alt {
   animation: blob-slow-alt 22s infinite ease-in-out;
-}
+}
+
+/* Smooth loading progress bar animation */
+@keyframes progress-trickle {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 85%;
+  }
+}
+
+.animate-progress-trickle {
+  animation: progress-trickle 3.5s cubic-bezier(0.1, 0.8, 0.1, 1) forwards;
+}

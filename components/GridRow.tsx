@@ -185,22 +185,22 @@ export const GridRow = React.memo(({
   const handleTouchStart = (e: React.TouchEvent, header: string) => {
     const touch = e.touches[0];
     touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    
+
     // Capture element boundary synchronously before React event pooling recycles it
     const rect = e.currentTarget.getBoundingClientRect();
-    
+
     if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
     touchTimerRef.current = setTimeout(() => {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(50); } catch (err) {}
+        try { navigator.vibrate(50); } catch (err) { }
       }
-      
+
       setActiveCell({ row: globalIndex, col: header });
       setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
 
       onOpenContextMenu(
         {
-          preventDefault: () => {},
+          preventDefault: () => { },
           clientX: rect.left + rect.width / 2,
           clientY: rect.top + rect.height / 2
         } as any,
@@ -261,7 +261,7 @@ export const GridRow = React.memo(({
       style={{ height: rowHeights[String(globalIndex)] ? `${rowHeights[String(globalIndex)]}px` : undefined }}
     >
       <td
-        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))] text-muted hover:bg-[color-mix(in_srgb,var(--muted)_30%,var(--card))] hover:text-foreground'} ${isFreezePanes ? 'sticky left-0 z-10 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
+        className={`relative group/row-index w-10 min-w-10 text-[10px] font-bold text-center select-none cursor-pointer ${GRID_THEME.tableIndexCell} ${isRowActive ? 'active-header shadow-[inset_-2px_0_0_0_var(--color-accent)]' : 'bg-[color-mix(in_srgb,var(--muted)_10%,var(--card))] text-muted hover:bg-[color-mix(in_srgb,var(--muted)_30%,var(--card))] hover:text-foreground'} ${isFreezePanes ? 'sticky left-0 z-20 bg-card shadow-[1px_0_0_0_var(--color-border),0_1px_0_0_var(--color-border)]' : ''
           }`}
         onContextMenu={(e) => {
           e.preventDefault();
