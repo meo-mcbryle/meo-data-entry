@@ -59,7 +59,7 @@ export function useSpreadsheetOperations({
   const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
   stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
 
-  const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
+  const [columnAlignments, setColumnAlignments] = useState<Record<string, 'left' | 'center' | 'right' | 'justify'>>({});
   const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [activeCell, setActiveCellState] = useState<{ row: number; col: string } | null>(null);
@@ -598,7 +598,7 @@ export function useSpreadsheetOperations({
     }
   }, [currentPayload, lastSavedPayload, activeNode]);
 
-  const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right') => {
+  const setColumnAlignment = useCallback((header: string, align: 'left' | 'center' | 'right' | 'justify') => {
     setColumnAlignments(prev => ({ ...prev, [header]: align }));
 
     const colIdx = masterColumnOrder.indexOf(header);

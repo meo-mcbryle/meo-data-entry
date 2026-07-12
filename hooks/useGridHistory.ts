@@ -4,7 +4,7 @@ export interface GridStateSnapshot {
   gridData: Map<string, any>;
   rowCount: number;
   cellMetadata: Record<string, any>;
-  cellAlignments: Record<string, 'left' | 'center' | 'right'>;
+  cellAlignments: Record<string, 'left' | 'center' | 'right' | 'justify'>;
   rowHeights: Record<string, number>;
   masterColumnOrder: string[];
   columnOrder: string[];
@@ -14,7 +14,7 @@ export function useGridHistory() {
   const [gridData, setGridData] = useState<Map<string, any>>(new Map());
   const [rowCount, setRowCount] = useState(0);
   const [cellMetadata, setCellMetadata] = useState<Record<string, any>>({});
-  const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right'>>({});
+  const [cellAlignments, setCellAlignments] = useState<Record<string, 'left' | 'center' | 'right' | 'justify'>>({});
   const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
   const [masterColumnOrder, setMasterColumnOrder] = useState<string[]>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);

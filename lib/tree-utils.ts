@@ -44,8 +44,8 @@ export interface FileNode {
   created_at: string;
   content?: GridRowData[]; // Represents an array of row objects
   display_settings?: {
-    columnAlignments?: Record<string, 'left' | 'center' | 'right'>;
-    cellAlignments?: Record<string, 'left' | 'center' | 'right'>;
+    columnAlignments?: Record<string, 'left' | 'center' | 'right' | 'justify'>;
+    cellAlignments?: Record<string, 'left' | 'center' | 'right' | 'justify'>;
     hiddenColumns?: string[];
     columnOrder?: string[];
     selectedYear?: string;
