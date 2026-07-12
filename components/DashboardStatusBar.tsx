@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, User, HardDrive, Wifi } from 'lucide-react';
+import { Clock, User, HardDrive, Wifi, Save, Loader2 } from 'lucide-react';
 import { GRID_THEME } from '@/lib/constants';
 import { FileNode } from '@/lib/tree-utils';
 
@@ -7,6 +7,8 @@ interface DashboardStatusBarProps {
   isSystemOnline: boolean;
   setIsSyncModalOpen: (open: boolean) => void;
   activeNode?: FileNode | null;
+  isSaving?: boolean;
+  hasUnsavedChanges?: boolean;
 }
 
 const formatSize = (bytes: number | null | undefined): string => {
@@ -21,6 +23,8 @@ export const DashboardStatusBar = React.memo(({
   isSystemOnline,
   setIsSyncModalOpen,
   activeNode,
+  isSaving = false,
+  hasUnsavedChanges = false,
 }: DashboardStatusBarProps) => {
   return (
     <footer className={GRID_THEME.statusBar}>
@@ -40,9 +44,13 @@ export const DashboardStatusBar = React.memo(({
       </div>
       <div className="flex items-center gap-4">
         {activeNode && (
-          <div className="flex items-center gap-1.5">
-            <HardDrive size={12} className="text-muted/40" /> {formatSize(activeNode.size_bytes)}
-          </div>
+          <>
+            <div className="flex items-center gap-1.5">
+              <HardDrive size={12} className="text-muted/40" /> {formatSize(activeNode.size_bytes)}
+            </div>
+            <div className="h-3 w-px bg-border" />
+
+          </>
         )}
         {isSystemOnline && (
           <button

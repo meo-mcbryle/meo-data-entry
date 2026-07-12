@@ -5,6 +5,7 @@ import { TableEditor } from '@/components/TableEditor';
 import { ComparisonTable } from '@/components/ComparisonTable';
 import { DashboardStatusBar } from '@/components/DashboardStatusBar';
 import { FullscreenHeader } from '@/components/FullscreenHeader';
+import { DashboardHeader } from '@/components/DashboardHeader';
 import { FileNode } from '@/lib/tree-utils';
 import { TrashNode } from '@/lib/types';
 
@@ -90,14 +91,44 @@ export const DashboardMainArea = React.memo(({
   handleRestore,
   handlePermanentDelete,
 }: DashboardMainAreaProps) => {
+  const handleShare = React.useCallback(() => {
+    if (!selectedId) return;
+    if (typeof window !== 'undefined') {
+      const url = `${window.location.origin}/?id=${selectedId}`;
+      navigator.clipboard.writeText(url);
+      spreadsheet?.setSpreadsheetDialog?.({
+        type: 'alert',
+        title: 'Link Copied',
+        message: 'Shareable link copied to clipboard!',
+        onConfirm: () => { }
+      });
+    }
+  }, [selectedId, spreadsheet]);
+
+  const [activeRibbonTab, setActiveRibbonTab] = React.useState<'home' | 'insert' | 'formulas' | 'data' | 'view' | 'tools'>('home');
+
   if (viewMode === 'logs') {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        {isFullScreen && (
+        {isFullScreen ? (
           <FullscreenHeader
             viewMode="logs"
             activeNode={activeNode}
             onExitFullscreen={() => setIsFullScreen(false)}
+          />
+        ) : (
+          <DashboardHeader
+            viewMode="logs"
+            setViewMode={setViewMode}
+            activeNode={activeNode}
+            isFullScreen={isFullScreen}
+            setIsFullScreen={setIsFullScreen}
+            selectedId={selectedId}
+            comparisonIds={comparisonIds}
+            handleShare={handleShare}
+            handleSave={spreadsheet?.handleSave}
+            isSaving={spreadsheet?.isSaving}
+            hasUnsavedChanges={spreadsheet?.hasUnsavedChanges}
           />
         )}
         <AuditLogs
@@ -109,6 +140,8 @@ export const DashboardMainArea = React.memo(({
         <DashboardStatusBar
           isSystemOnline={isSystemOnline}
           setIsSyncModalOpen={setIsSyncModalOpen}
+          isSaving={spreadsheet?.isSaving}
+          hasUnsavedChanges={spreadsheet?.hasUnsavedChanges}
         />
       </div>
     );
@@ -117,11 +150,25 @@ export const DashboardMainArea = React.memo(({
   if (viewMode === 'trash') {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        {isFullScreen && (
+        {isFullScreen ? (
           <FullscreenHeader
             viewMode="trash"
             activeNode={activeNode}
             onExitFullscreen={() => setIsFullScreen(false)}
+          />
+        ) : (
+          <DashboardHeader
+            viewMode="trash"
+            setViewMode={setViewMode}
+            activeNode={activeNode}
+            isFullScreen={isFullScreen}
+            setIsFullScreen={setIsFullScreen}
+            selectedId={selectedId}
+            comparisonIds={comparisonIds}
+            handleShare={handleShare}
+            handleSave={spreadsheet?.handleSave}
+            isSaving={spreadsheet?.isSaving}
+            hasUnsavedChanges={spreadsheet?.hasUnsavedChanges}
           />
         )}
         <TrashBin
@@ -132,6 +179,8 @@ export const DashboardMainArea = React.memo(({
         <DashboardStatusBar
           isSystemOnline={isSystemOnline}
           setIsSyncModalOpen={setIsSyncModalOpen}
+          isSaving={spreadsheet?.isSaving}
+          hasUnsavedChanges={spreadsheet?.hasUnsavedChanges}
         />
       </div>
     );
@@ -141,7 +190,7 @@ export const DashboardMainArea = React.memo(({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      {isFullScreen && (
+      {isFullScreen ? (
         <FullscreenHeader
           viewMode={viewMode}
           activeNode={activeNode}
@@ -149,6 +198,22 @@ export const DashboardMainArea = React.memo(({
           onSave={spreadsheet.handleSave}
           isSaving={spreadsheet.isSaving}
           hasUnsavedChanges={spreadsheet.hasUnsavedChanges}
+        />
+      ) : (
+        <DashboardHeader
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          activeNode={activeNode}
+          isFullScreen={isFullScreen}
+          setIsFullScreen={setIsFullScreen}
+          selectedId={selectedId}
+          comparisonIds={comparisonIds}
+          handleShare={handleShare}
+          handleSave={spreadsheet.handleSave}
+          isSaving={spreadsheet.isSaving}
+          hasUnsavedChanges={spreadsheet.hasUnsavedChanges}
+          activeRibbonTab={activeRibbonTab}
+          setActiveRibbonTab={setActiveRibbonTab}
         />
       )}
 
@@ -178,6 +243,9 @@ export const DashboardMainArea = React.memo(({
           isFreezePanes={isFreezePanes}
           setIsFreezePanes={setIsFreezePanes}
           spreadsheet={spreadsheet}
+          activeNode={activeNode}
+          activeRibbonTab={activeRibbonTab}
+          setActiveRibbonTab={setActiveRibbonTab}
         />
       ) : viewMode === 'compare' ? (
         <ComparisonTable
@@ -192,6 +260,8 @@ export const DashboardMainArea = React.memo(({
         isSystemOnline={isSystemOnline}
         setIsSyncModalOpen={setIsSyncModalOpen}
         activeNode={activeNode}
+        isSaving={spreadsheet?.isSaving}
+        hasUnsavedChanges={spreadsheet?.hasUnsavedChanges}
       />
     </div>
   );

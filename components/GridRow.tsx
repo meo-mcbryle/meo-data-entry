@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { AlignLeft, AlignCenter, AlignRight, ChevronDown, Calendar, MoreVertical, X } from 'lucide-react';
+import { AlignLeft, AlignCenter, AlignRight, AlignJustify, ChevronDown, Calendar, MoreVertical, X } from 'lucide-react';
 import { toA1Key, fromA1Key, formatNumberDisplay, formatDateDisplay } from '@/lib/excel-utils';
 import { CellMetadata, GridRowData } from '@/lib/tree-utils';
 import { GRID_THEME, LOCATIONS, ALLOCATIONS } from '@/lib/constants';
@@ -117,8 +117,8 @@ export interface GridRowProps {
   activeCell: { row: number, col: string } | null;
   selection: { startRow: number; endRow: number; startCol: string; endCol: string } | null;
   cellMetadata: Record<string, CellMetadata>;
-  cellAlignments: Record<string, 'left' | 'center' | 'right'>;
-  columnAlignments: Record<string, 'left' | 'center' | 'right'>;
+  cellAlignments: Record<string, 'left' | 'center' | 'right' | 'justify'>;
+  columnAlignments: Record<string, 'left' | 'center' | 'right' | 'justify'>;
   isFreezePanes: boolean;
   dragFillRange: { startRow: number; endRow: number; col: string } | null;
   isSelecting: boolean;
@@ -317,8 +317,14 @@ export const GridRow = React.memo(({
 
         if (meta.mergedIn) return null;
         const cellAlign = cellAlignments[cellKey] || cellAlignments[legacyKey] || columnAlignments[header] || ((header === "Title / Item" || header === "Amount") ? "right" : "left");
-        // Fix: Use both text-alignment and flex-justification classes
-        const alignClass = cellAlign === 'center' ? 'text-center justify-center' : cellAlign === 'right' ? 'text-right justify-end' : 'text-left justify-start';
+        const alignClass = cellAlign === 'center'
+          ? 'text-center justify-center'
+          : cellAlign === 'right'
+          ? 'text-right justify-end'
+          : cellAlign === 'justify'
+          ? 'text-justify justify-between'
+          : 'text-left justify-start';
+        const textAlignClass = cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : cellAlign === 'justify' ? 'text-justify' : 'text-left';
 
         const attachmentLink = (meta.attachments?.length ?? 0) > 0 && (
           <a
@@ -394,6 +400,9 @@ export const GridRow = React.memo(({
             className={`${GRID_THEME.tableCell} ${meta.fontFamily ? '' : 'font-sans'} ${isFreezePanes && header === "Title / Item" ? "sticky left-10 z-10 shadow-[1px_0_0_0_var(--color-border)]" : ""} ${isInSelection ? `bg-[color-mix(in_srgb,var(--accent)_10%,var(--card))] z-10 ring-1 ring-inset ring-accent/30` : ''} ${isInDragFill ? 'bg-[color-mix(in_srgb,var(--accent)_5%,var(--card))] ring-1 ring-inset ring-accent/50 z-10' : ''} ${activeCell?.row === globalIndex && activeCell?.col === header ? 'animate-cell-flash' : ''}`}
             style={{
               fontFamily: meta.fontFamily || 'inherit',
+              fontWeight: meta.bold ? 'bold' : 'normal',
+              fontStyle: meta.italic ? 'italic' : 'normal',
+              textDecoration: meta.underline ? 'underline' : 'none',
               height: '1px', /* Forces cell to respect content height */
               ...(activeCell?.row === globalIndex && activeCell?.col === header ? {
                 outline: '2px solid var(--color-accent)',
@@ -403,7 +412,7 @@ export const GridRow = React.memo(({
             }}
           >
             {/* Metadata Clear Button - Visible on hover for cells with formatting or files */}
-            {((meta.attachments?.length ?? 0) > 0 || meta.type || meta.fontFamily) && (
+            {((meta.attachments?.length ?? 0) > 0 || meta.type || meta.fontFamily || meta.bold || meta.italic || meta.underline) && (
               <button onClick={(e) => { e.stopPropagation(); removeCellMetadata(globalIndex, header); }} className="opacity-0 group-hover/cell:opacity-100 p-1 text-muted hover:text-red-500 absolute right-0.5 bottom-0.5 bg-card/80 rounded shadow-sm transition-all z-30 scale-90">
                 <X size={10} />
               </button>
@@ -434,7 +443,7 @@ export const GridRow = React.memo(({
                   onClick={(e) => handleOpenDropdown(e, globalIndex, header, header === 'Location' ? LOCATIONS : ALLOCATIONS)}
                   className={`flex flex-wrap items-center gap-x-2 outline-none w-full h-full text-inherit ${alignClass}`}
                 >
-                  <span className={`wrap-break-word whitespace-normal leading-tight ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}>
+                  <span className={`wrap-break-word whitespace-normal leading-tight ${textAlignClass}`}>
                     {row[header] || <span className="text-muted/40 italic font-normal">Select...</span>}
                   </span>
                 </button>
@@ -457,7 +466,7 @@ export const GridRow = React.memo(({
                   style={{ colorScheme: theme }}
                   className="absolute inset-0 opacity-0 z-20 cursor-pointer w-full h-full"
                 />
-                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex flex-wrap items-center gap-x-2 flex-1 ${cellAlign === 'center' ? 'justify-center' : cellAlign === 'right' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`w-full px-2 py-1.5 text-sm text-foreground ${alignClass} group-hover:bg-accent/10 flex flex-wrap items-center gap-x-2 flex-1`}>
                   {row[header] ? formatDateDisplay(row[header], meta.format) : <span className="text-muted/50 font-normal italic flex items-center gap-1.5"><Calendar size={14} className="shrink-0" /> Set Date...</span>}
                 </div>
               </div>
@@ -472,7 +481,7 @@ export const GridRow = React.memo(({
                     initialValue={row[header]}
                     onSync={(val: any) => handleUpdateCell(globalIndex, header, val)}
                     onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                    className={`${GRID_THEME.tableInput} flex-1 ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
+                    className={`${GRID_THEME.tableInput} flex-1 ${textAlignClass}`}
                     type="number"
                     onLocalEditing={onLocalEditing}
                     onCancel={() => setEditingCol(null)}
@@ -483,7 +492,7 @@ export const GridRow = React.memo(({
                     data-col={header}
                     onClick={(e) => handleCellClick(header, e)}
                     onDoubleClick={() => handleCellDoubleClick(header)}
-                    className={`text-sm text-foreground cursor-text w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
+                    className={`text-sm text-foreground cursor-text w-full ${textAlignClass}`}
                   >
                     {row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}
                   </div>
@@ -497,7 +506,7 @@ export const GridRow = React.memo(({
                     initialValue={row[header]}
                     onSync={(val: any) => handleUpdateCell(globalIndex, header, val)}
                     onKeyDown={(e: any) => handleKeyDown(e, globalIndex, colIndex, visibleHeaders)}
-                    className={`${GRID_THEME.tableInput} flex-1 ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
+                    className={`${GRID_THEME.tableInput} flex-1 ${textAlignClass}`}
                     dataRow={globalIndex} dataCol={header}
                     onLocalEditing={onLocalEditing}
                     onCancel={() => setEditingCol(null)}
@@ -508,7 +517,7 @@ export const GridRow = React.memo(({
                     data-col={header}
                     onClick={(e) => handleCellClick(header, e)}
                     onDoubleClick={() => handleCellDoubleClick(header)}
-                    className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word w-full ${cellAlign === 'center' ? 'text-center' : cellAlign === 'right' ? 'text-right' : 'text-left'}`}
+                    className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word w-full ${textAlignClass}`}
                   >
                     {row[header] || <span className="opacity-0">.</span>}
                   </div>

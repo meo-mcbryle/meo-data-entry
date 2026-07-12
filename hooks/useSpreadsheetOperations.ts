@@ -1528,8 +1528,8 @@ export function useSpreadsheetOperations({
       const defaultAlign = (header === "Title / Item" || header === "Amount") ? "right" : "left";
       const currentAlign = prev[targetKey] || columnAlignments[header] || defaultAlign;
 
-      const nextMap: Record<string, 'left' | 'center' | 'right'> = { left: 'center', center: 'right', right: 'left' };
-      const nextAlign = nextMap[currentAlign];
+      const nextMap: Record<string, 'left' | 'center' | 'right' | 'justify'> = { left: 'center', center: 'right', right: 'justify', justify: 'left' };
+      const nextAlign = nextMap[currentAlign] || 'left';
 
       const isTargetInSelection = selection &&
         rowIndex >= Math.min(selection.startRow, selection.endRow) &&
@@ -1563,7 +1563,7 @@ export function useSpreadsheetOperations({
     });
   }, [columnAlignments, selection, visibleHeaders, masterColumnOrder, setCellAlignments]);
 
-  const setSelectionAlignment = useCallback((align: 'left' | 'center' | 'right') => {
+  const setSelectionAlignment = useCallback((align: 'left' | 'center' | 'right' | 'justify') => {
     if (!selection) return;
     saveStateToHistory();
     setCellAlignments(prev => {

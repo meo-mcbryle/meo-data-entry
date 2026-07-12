@@ -7,7 +7,6 @@ import { ThemeContext } from '@/components/ThemeToggle';
 import { LoginPage } from '@/components/LoginPage';
 import { NavigationSidebar } from '@/components/NavigationSidebar';
 import { UpdateModal } from '@/components/UpdateModal';
-import { DashboardHeader } from '@/components/DashboardHeader';
 import { DashboardMainArea } from '@/components/DashboardMainArea';
 import { DashboardModals } from '@/components/DashboardModals';
 import { GRID_THEME } from '@/lib/constants';
@@ -321,23 +320,6 @@ const DashboardContent = React.memo(({
               {!isFullScreen && (
                 <div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rounded-t-xl opacity-75 z-50 pointer-events-none" />
               )}
-              {/* Toolbar Header */}
-              {!isFullScreen && (
-                <DashboardHeader
-                  viewMode={viewMode === 'explorer' || viewMode === 'settings' ? 'table' : viewMode as any}
-                  setViewMode={setViewMode}
-                  activeNode={activeNode}
-                  isFullScreen={isFullScreen}
-                  setIsFullScreen={setIsFullScreen}
-                  selectedId={selectedId}
-                  comparisonIds={comparisonIds}
-                  handleShare={handleShareCustom}
-                  handleSave={spreadsheet.handleSave}
-                  isSaving={spreadsheet.isSaving}
-                  hasUnsavedChanges={spreadsheet.hasUnsavedChanges}
-                />
-              )}
-
               {/* Main Content Area */}
               <DashboardMainArea
                 viewMode={viewMode === 'explorer' || viewMode === 'settings' ? 'table' : viewMode as any}

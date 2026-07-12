@@ -21,6 +21,8 @@ interface DashboardHeaderProps {
   handleSave: () => void;
   isSaving: boolean;
   hasUnsavedChanges?: boolean;
+  activeRibbonTab?: 'home' | 'insert' | 'formulas' | 'data' | 'view' | 'tools';
+  setActiveRibbonTab?: (tab: 'home' | 'insert' | 'formulas' | 'data' | 'view' | 'tools') => void;
 }
 
 export const DashboardHeader = React.memo(({
@@ -35,6 +37,8 @@ export const DashboardHeader = React.memo(({
   handleSave,
   isSaving,
   hasUnsavedChanges = false,
+  activeRibbonTab,
+  setActiveRibbonTab,
 }: DashboardHeaderProps) => {
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
 
@@ -67,7 +71,7 @@ export const DashboardHeader = React.memo(({
                 {activeNode?.name}
               </h2>
               {/* Save Status Badge */}
-              <div className="flex items-center gap-1.5 ml-2.5 px-2 py-0.5 rounded-full bg-muted/20 border border-border text-[10px] select-none font-bold">
+              <div className="flex items-center justify-center gap-1.5 ml-2.5 w-[115px] shrink-0 py-0.5 rounded-full bg-muted/20 border border-border text-[10px] select-none font-bold">
                 {isSaving ? (
                   <>
                     <span className="w-1.5 h-1.5 rounded-full bg-accent animate-ping" />
@@ -90,6 +94,27 @@ export const DashboardHeader = React.memo(({
 
           <div className="h-4 w-px bg-border mx-1" />
 
+          {viewMode === 'table' && activeRibbonTab && setActiveRibbonTab && (
+            <nav className={GRID_THEME.navContainer}>
+              {(['home', 'insert', 'formulas', 'data', 'view', 'tools'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveRibbonTab(tab)}
+                  className={`px-2.5 py-1 text-[11px] font-bold rounded capitalize transition-colors cursor-pointer ${
+                    activeRibbonTab === tab
+                      ? 'bg-card/75 text-accent shadow-sm ring-1 ring-border/30 backdrop-blur-xs font-black'
+                      : 'text-muted hover:text-foreground hover:bg-muted/5'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
+
+        {/* Right: Action Buttons */}
+        <div className="flex items-center gap-2 shrink-0 ml-4">
           <nav className={GRID_THEME.navContainer}>
             <button
               onClick={() => setViewMode('table')}
@@ -124,10 +149,6 @@ export const DashboardHeader = React.memo(({
               </button>
             )}
           </nav>
-        </div>
-
-        {/* Right: Action Buttons */}
-        <div className="flex items-center gap-2 shrink-0 ml-4">
           {activeNode && (
             <button
               onClick={() => window.open(`/print?id=${selectedId}`, '_blank')}
@@ -158,7 +179,7 @@ export const DashboardHeader = React.memo(({
             <button
               onClick={handleSave}
               disabled={isSaving || !hasUnsavedChanges}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded text-[11px] font-bold transition-all shadow-sm ${
+              className={`flex items-center justify-center gap-2 w-24 shrink-0 py-1.5 rounded text-[11px] font-bold transition-colors shadow-sm ${
                 isSaving
                   ? 'bg-accent/50 text-accent-foreground/50 cursor-not-allowed'
                   : !hasUnsavedChanges
