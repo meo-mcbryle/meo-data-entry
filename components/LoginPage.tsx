@@ -72,7 +72,7 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
       </div>
 
       {/* Futuristic Controls HUD in Top Right */}
-      <div className="absolute top-5 right-5 z-20 flex items-center gap-1 bg-white/10 dark:bg-black/25 backdrop-blur-md rounded-xl border border-white/20 dark:border-white/10 p-1 shadow-lg transition-all duration-300">
+      <div className="absolute top-5 right-5 z-20 flex items-center gap-1 bg-card/70 dark:bg-slate-900/40 backdrop-blur-md rounded-xl border border-border p-1 shadow-lg transition-all duration-300">
         <button
           onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : 'particles')}
           className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg transition-colors cursor-pointer"
@@ -88,13 +88,13 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
       </div>
 
       {/* Glassmorphic Login Card Container */}
-      <div className="relative z-10 w-full max-w-md p-8 mx-4 bg-white/15 dark:bg-slate-950/30 backdrop-blur-2xl border border-white/25 dark:border-white/10 rounded-3xl shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] shadow-inner-white focus-within:border-accent/40 transition-all duration-500 hover:scale-[1.01] hover:shadow-[0_20px_40px_rgba(31,38,135,0.2)] dark:hover:shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-300">
+      <div className="relative z-10 w-full max-w-md p-8 mx-4 bg-card/85 dark:bg-card/45 backdrop-blur-2xl border border-border/80 dark:border-border/40 rounded-3xl shadow-[0_8px_32px_0_rgba(31,38,135,0.08)] dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] focus-within:border-accent/40 transition-all duration-500 hover:scale-[1.01] hover:shadow-[0_20px_40px_rgba(31,38,135,0.12)] dark:hover:shadow-[0_20px_50px_rgba(0,0,0,0.85)] animate-in fade-in zoom-in-95 duration-300">
         
         {/* Ambient top light glow reflection */}
-        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500 to-transparent rounded-t-3xl opacity-80" />
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-accent to-transparent rounded-t-3xl opacity-80" />
 
         <div className="flex flex-col items-center mb-8">
-          <div className="p-3 bg-white/10 dark:bg-black/20 rounded-2xl mb-4 border border-white/20 dark:border-white/10 shadow-inner-white backdrop-blur-md">
+          <div className="p-3 bg-muted/5 dark:bg-black/25 rounded-2xl mb-4 border border-border backdrop-blur-md">
             <img 
               src="/logo.png" 
               alt="LGU Labason Logo" 
@@ -122,7 +122,7 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
               <span className="text-[10px] font-mono text-muted/80">SYS.USR</span>
             </div>
             {/* Input field with glassmorphic styling */}
-            <div className="relative group/field border border-white/15 dark:border-white/5 focus-within:border-accent/70 bg-white/10 dark:bg-black/20 backdrop-blur-md rounded-xl overflow-hidden transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(59,130,246,0.25)]">
+            <div className="relative group/field border border-border/80 dark:border-border/30 focus-within:border-accent bg-muted/5 dark:bg-black/20 backdrop-blur-md rounded-xl overflow-hidden transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(37,99,235,0.15)]">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted/70 group-focus-within/field:text-accent transition-colors" size={16} />
               <input 
                 type="email" 
@@ -143,13 +143,13 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
               <button 
                 type="button" 
                 onClick={() => { setInfo("Password reset must be initiated via administrator portal."); setError(null); }}
-                className="text-[10px] font-mono text-accent dark:text-blue-400 hover:text-accent-foreground/80 dark:hover:text-blue-300 hover:underline transition-colors uppercase tracking-wider cursor-pointer"
+                className="text-[10px] font-mono text-accent dark:text-blue-400 hover:text-accent/80 dark:hover:text-blue-300 hover:underline transition-colors uppercase tracking-wider cursor-pointer"
               >
                 Forgot Password?
               </button>
             </div>
             {/* Input field with glassmorphic styling */}
-            <div className="relative group/field border border-white/15 dark:border-white/5 focus-within:border-accent/70 bg-white/10 dark:bg-black/20 backdrop-blur-md rounded-xl overflow-hidden transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(59,130,246,0.25)]">
+            <div className="relative group/field border border-border/80 dark:border-border/30 focus-within:border-accent bg-muted/5 dark:bg-black/20 backdrop-blur-md rounded-xl overflow-hidden transition-all duration-300 focus-within:shadow-[0_0_15px_rgba(37,99,235,0.15)]">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-muted/70 group-focus-within/field:text-accent transition-colors" size={16} />
               <input 
                 type="password" 
