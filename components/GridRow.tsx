@@ -177,8 +177,7 @@ export const GridRow = React.memo(({
     const didDrag = typeof document !== 'undefined' && document.body.getAttribute('data-dragged') === 'true';
     if (didDrag) return;
 
-    const td = e.currentTarget.closest('td');
-    const wasAlreadyActive = td?.getAttribute('data-was-active') === 'true';
+    const wasAlreadyActive = activeCell?.row === globalIndex && activeCell?.col === header;
     if (wasAlreadyActive) {
       setEditingCol(header);
     } else {
@@ -317,9 +316,6 @@ export const GridRow = React.memo(({
                 if (typeof document !== 'undefined') {
                   document.body.removeAttribute('data-dragged');
                 }
-                const wasAlreadyActive = activeCell?.row === globalIndex && activeCell?.col === header;
-                e.currentTarget.setAttribute('data-was-active', String(wasAlreadyActive));
-
                 setActiveCell({ row: globalIndex, col: header });
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setIsSelecting(true);
