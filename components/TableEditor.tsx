@@ -2299,6 +2299,7 @@ export const TableEditor = ({
             scrollbarGutter: 'stable',
             overflowAnchor: 'none',
             willChange: 'scroll-position',
+            WebkitOverflowScrolling: 'touch',
             '--grid-scrollbar-size': `${Math.max(8, 12 * zoom)}px`,
           } as any}
         >

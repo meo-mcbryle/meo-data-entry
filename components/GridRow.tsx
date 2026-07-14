@@ -191,59 +191,7 @@ export const GridRow = React.memo(({
     setEditingCol(header);
   };
 
-  const touchTimerRef = useRef<any>(null);
-  const touchStartPosRef = useRef<{ x: number, y: number } | null>(null);
 
-  const handleTouchStart = (e: React.TouchEvent, header: string) => {
-    const touch = e.touches[0];
-    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-
-    // Capture element boundary synchronously before React event pooling recycles it
-    const rect = e.currentTarget.getBoundingClientRect();
-
-    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
-    touchTimerRef.current = setTimeout(() => {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(50); } catch (err) { }
-      }
-
-      setActiveCell({ row: globalIndex, col: header });
-      setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
-
-      onOpenContextMenu(
-        {
-          preventDefault: () => { },
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2
-        } as any,
-        'cell',
-        header,
-        globalIndex
-      );
-    }, 600);
-  };
-
-  const handleTouchEnd = (header: string) => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-      touchTimerRef.current = null;
-      setActiveCell({ row: globalIndex, col: header });
-      setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStartPosRef.current) return;
-    const touch = e.touches[0];
-    const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
-    const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
-    if (dx > 10 || dy > 10) {
-      if (touchTimerRef.current) {
-        clearTimeout(touchTimerRef.current);
-        touchTimerRef.current = null;
-      }
-    }
-  };
 
   // Dynamic Height Measurement: Use ResizeObserver to detect the actual rendered height
   useEffect(() => {
@@ -347,9 +295,6 @@ export const GridRow = React.memo(({
         return (
           <td
             key={header} rowSpan={meta.rowSpan} colSpan={meta.colSpan}
-            onTouchStart={(e) => handleTouchStart(e, header)}
-            onTouchEnd={() => handleTouchEnd(header)}
-            onTouchMove={handleTouchMove}
             onContextMenu={(e) => {
               e.preventDefault();
               const startColIdx = selection ? visibleHeaders.indexOf(selection.startCol) : -1;

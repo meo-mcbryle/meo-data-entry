@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 
 // Gear specification interface
 interface GearSpec {
@@ -50,8 +50,42 @@ export const MechanicalBlueprint: React.FC = () => {
     let frameCount = 0;
     let lastTime = performance.now();
 
+    // 3D rotation variables
+    let currentYaw = 0;
+    let currentPitch = 0;
+
     // Mouse telemetry tracking
     const mouse = { x: -1000, y: -1000, active: false };
+
+    // Project 2D coordinates into 3D rotating coordinate space
+    const project3D = (x: number, y: number, z: number = 0) => {
+      const cosY = Math.cos(currentYaw);
+      const sinY = Math.sin(currentYaw);
+      const cosX = Math.cos(currentPitch);
+      const sinX = Math.sin(currentPitch);
+
+      // Shift coordinate system so screen center is at (0, 0)
+      const cx = x - width / 2;
+      const cy = y - height / 2;
+
+      // Rotate around Y axis (Yaw)
+      const x1 = cx * cosY - z * sinY;
+      const z1 = z * cosY + cx * sinY;
+
+      // Rotate around X axis (Pitch)
+      const y1 = cy * cosX - z1 * sinX;
+      const z2 = z1 * cosX + cy * sinX;
+
+      // Perspective scale factor
+      const fov = 850;
+      const scale = fov / (fov + z2);
+
+      return {
+        x: x1 * scale + width / 2,
+        y: y1 * scale + height / 2,
+        scale
+      };
+    };
 
     // Setup Schematic Circuit Nodes
     let nodes: SchematicNode[] = [];
@@ -176,7 +210,6 @@ export const MechanicalBlueprint: React.FC = () => {
           const absY = parent.absY + centerDist * Math.sin(angleToChild);
 
           // Perfect gear meshing angle formula:
-          // theta_child = - (N_parent / N_child) * theta_parent + (1 + N_parent / N_child) * phi + PI - PI / N_child
           const ratio = parent.teeth / gear.teeth;
           const resolvedAngle = -ratio * parent.resolvedAngle + (1 + ratio) * angleToChild + Math.PI - Math.PI / gear.teeth;
 
@@ -192,7 +225,7 @@ export const MechanicalBlueprint: React.FC = () => {
       return Array.from(resolvedMap.values());
     };
 
-    // Draw a mathematically accurate spur gear
+    // Draw a mathematically accurate spur gear in 3D
     const drawGear = (
       absX: number,
       absY: number,
@@ -212,139 +245,178 @@ export const MechanicalBlueprint: React.FC = () => {
       const mainColor = isDark ? "rgba(56, 189, 248, 0.12)" : "rgba(37, 99, 235, 0.08)";
       const accentColor = isDark ? "rgba(56, 189, 248, 0.45)" : "rgba(37, 99, 235, 0.3)";
       const fillColor = isDark ? "rgba(30, 41, 59, 0.08)" : "rgba(241, 245, 249, 0.1)";
+      const thickness = 12; // Cylinder thickness in Z direction
 
-      ctx.save();
-      ctx.translate(absX, absY);
+      // Helper to generate coordinates for a gear face at a specific Z coordinate
+      const getGearFacePoints = (zVal: number) => {
+        const pts: Array<{ x: number; y: number; z: number }> = [];
+        for (let i = 0; i < teeth; i++) {
+          const toothAngle = angle + (i * 2 * Math.PI) / teeth;
+          const w = Math.PI / (2 * teeth);
+          const wTip = Math.PI / (4.2 * teeth);
 
-      // 1. Draw gear fill
-      ctx.beginPath();
-      for (let i = 0; i < teeth; i++) {
-        const toothAngle = angle + (i * 2 * Math.PI) / teeth;
-        const w = Math.PI / (2 * teeth); // half pitch width
-        const wTip = Math.PI / (4.2 * teeth); // tooth tip width
+          const a1 = toothAngle - w;
+          const a2 = toothAngle - wTip;
+          const a3 = toothAngle + wTip;
+          const a4 = toothAngle + w;
 
-        const a1 = toothAngle - w;
-        const a2 = toothAngle - wTip;
-        const a3 = toothAngle + wTip;
-        const a4 = toothAngle + w;
-
-        if (i === 0) {
-          ctx.moveTo(rootRadius * Math.cos(a1), rootRadius * Math.sin(a1));
-        } else {
-          ctx.lineTo(rootRadius * Math.cos(a1), rootRadius * Math.sin(a1));
+          pts.push({ x: absX + rootRadius * Math.cos(a1), y: absY + rootRadius * Math.sin(a1), z: zVal });
+          pts.push({ x: absX + outerRadius * Math.cos(a2), y: absY + outerRadius * Math.sin(a2), z: zVal });
+          pts.push({ x: absX + outerRadius * Math.cos(a3), y: absY + outerRadius * Math.sin(a3), z: zVal });
+          pts.push({ x: absX + rootRadius * Math.cos(a4), y: absY + rootRadius * Math.sin(a4), z: zVal });
         }
-        ctx.lineTo(outerRadius * Math.cos(a2), outerRadius * Math.sin(a2));
-        ctx.lineTo(outerRadius * Math.cos(a3), outerRadius * Math.sin(a3));
-        ctx.lineTo(rootRadius * Math.cos(a4), rootRadius * Math.sin(a4));
-        
-        // Arc along root circle to next tooth start
-        const nextToothAngle = angle + ((i + 1) * 2 * Math.PI) / teeth;
-        const nextA1 = nextToothAngle - w;
-        ctx.arc(0, 0, rootRadius, a4, nextA1, false);
+        return pts;
+      };
+
+      const frontFace = getGearFacePoints(thickness);
+      const backFace = getGearFacePoints(-thickness);
+
+      const frontProj = frontFace.map(p => project3D(p.x, p.y, p.z));
+      const backProj = backFace.map(p => project3D(p.x, p.y, p.z));
+
+      // 1. Fill front face
+      ctx.beginPath();
+      if (frontProj.length > 0) {
+        ctx.moveTo(frontProj[0].x, frontProj[0].y);
+        for (let i = 1; i < frontProj.length; i++) {
+          ctx.lineTo(frontProj[i].x, frontProj[i].y);
+        }
       }
       ctx.closePath();
       ctx.fillStyle = fillColor;
       ctx.fill();
 
-      // 2. Draw gear outline (stroke)
+      // 2. Outline front and back faces
       ctx.strokeStyle = mainColor;
       ctx.lineWidth = 1.0;
+
+      ctx.beginPath();
+      if (frontProj.length > 0) {
+        ctx.moveTo(frontProj[0].x, frontProj[0].y);
+        for (let i = 1; i < frontProj.length; i++) {
+          ctx.lineTo(frontProj[i].x, frontProj[i].y);
+        }
+      }
+      ctx.closePath();
       ctx.stroke();
 
-      // 3. Draw inner details (rim, spokes, hub)
       ctx.beginPath();
-      ctx.arc(0, 0, rimRadius, 0, 2 * Math.PI);
+      if (backProj.length > 0) {
+        ctx.moveTo(backProj[0].x, backProj[0].y);
+        for (let i = 1; i < backProj.length; i++) {
+          ctx.lineTo(backProj[i].x, backProj[i].y);
+        }
+      }
+      ctx.closePath();
       ctx.stroke();
 
-      // Hub
+      // 3. Connect corresponding teeth vertices (extrusion lines)
       ctx.beginPath();
-      ctx.arc(0, 0, hubRadius, 0, 2 * Math.PI);
+      for (let i = 0; i < frontProj.length; i++) {
+        ctx.moveTo(frontProj[i].x, frontProj[i].y);
+        ctx.lineTo(backProj[i].x, backProj[i].y);
+      }
+      ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.06)" : "rgba(37, 99, 235, 0.04)";
       ctx.stroke();
+
+      // Restore main gear outline color
+      ctx.strokeStyle = mainColor;
+
+      // Helper to draw a projected circle at Z
+      const drawProjectedCircle = (radius: number, zVal: number) => {
+        ctx.beginPath();
+        for (let i = 0; i <= 36; i++) {
+          const theta = (i * 2 * Math.PI) / 36;
+          const p = project3D(absX + radius * Math.cos(theta), absY + radius * Math.sin(theta), zVal);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      };
+
+      // Draw inner details (rim, hub, shaft keyway, spokes) on front face
+      drawProjectedCircle(rimRadius, thickness);
+      drawProjectedCircle(hubRadius, thickness);
 
       // Spokes (5 spokes)
       ctx.beginPath();
       for (let s = 0; s < 5; s++) {
         const spokeAngle = angle + (s * 2 * Math.PI) / 5;
-        ctx.moveTo(hubRadius * Math.cos(spokeAngle), hubRadius * Math.sin(spokeAngle));
-        ctx.lineTo(rimRadius * Math.cos(spokeAngle), rimRadius * Math.sin(spokeAngle));
+        const p1 = project3D(absX + hubRadius * Math.cos(spokeAngle), absY + hubRadius * Math.sin(spokeAngle), thickness);
+        const p2 = project3D(absX + rimRadius * Math.cos(spokeAngle), absY + rimRadius * Math.sin(spokeAngle), thickness);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
       }
       ctx.stroke();
 
-      // Shaft with keyway key
-      ctx.beginPath();
-      const kwW = shaftRadius * 0.4; // Keyway width
-      const kwH = shaftRadius * 0.3; // Keyway depth
-      
-      // Draw circular shaft except top keyway
+      // Shaft keyway notch
+      const kwW = shaftRadius * 0.4;
+      const kwH = shaftRadius * 0.3;
       const kwAngleStart = -Math.asin(kwW / (2 * shaftRadius));
       const kwAngleEnd = Math.asin(kwW / (2 * shaftRadius));
-      
-      ctx.arc(0, 0, shaftRadius, kwAngleEnd, 2 * Math.PI + kwAngleStart, false);
-      // Keyway notch box
-      ctx.lineTo(shaftRadius * Math.cos(kwAngleStart), -kwW / 2);
-      ctx.lineTo(shaftRadius + kwH, -kwW / 2);
-      ctx.lineTo(shaftRadius + kwH, kwW / 2);
-      ctx.lineTo(shaftRadius * Math.cos(kwAngleEnd), kwW / 2);
+
+      const keywayPts: Array<{ x: number; y: number }> = [];
+      const numSegs = 18;
+      for (let i = 0; i <= numSegs; i++) {
+        const theta = kwAngleEnd + ((2 * Math.PI + kwAngleStart - kwAngleEnd) * i) / numSegs;
+        keywayPts.push({ x: shaftRadius * Math.cos(theta), y: shaftRadius * Math.sin(theta) });
+      }
+      keywayPts.push({ x: shaftRadius * Math.cos(kwAngleStart), y: -kwW / 2 });
+      keywayPts.push({ x: shaftRadius + kwH, y: -kwW / 2 });
+      keywayPts.push({ x: shaftRadius + kwH, y: kwW / 2 });
+      keywayPts.push({ x: shaftRadius * Math.cos(kwAngleEnd), y: kwW / 2 });
+
+      ctx.beginPath();
+      keywayPts.forEach((pt, idx) => {
+        const p = project3D(absX + pt.x, absY + pt.y, thickness);
+        if (idx === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
       ctx.closePath();
       ctx.stroke();
 
-      // 4. Draw pitch circle (dashed reference line)
-      ctx.beginPath();
-      ctx.arc(0, 0, pitchRadius, 0, 2 * Math.PI);
+      // Dotted pitch circle reference
       ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.08)" : "rgba(37, 99, 235, 0.04)";
       ctx.setLineDash([3, 4]);
-      ctx.stroke();
+      drawProjectedCircle(pitchRadius, thickness);
       ctx.setLineDash([]); // Reset
 
-      // 5. Draw technical overlays if showDetails is active
-      if (showDetails) {
-        // Outer radius reference circle (dotted, cyan)
-        ctx.beginPath();
-        ctx.arc(0, 0, outerRadius + 8, 0, 2 * Math.PI);
-        ctx.strokeStyle = isDark ? "rgba(6, 182, 212, 0.15)" : "rgba(13, 148, 136, 0.1)";
-        ctx.setLineDash([1, 6]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Diameter dimension callout
-        ctx.beginPath();
+      if (showDetails && frontProj.length > 0) {
         const dimAngle = -Math.PI / 4;
-        ctx.moveTo(0, 0);
-        ctx.lineTo((outerRadius + 25) * Math.cos(dimAngle), (outerRadius + 25) * Math.sin(dimAngle));
+        const pCenter = project3D(absX, absY, thickness);
+        const pOuter = project3D(absX + (outerRadius + 25) * Math.cos(dimAngle), absY + (outerRadius + 25) * Math.sin(dimAngle), thickness);
+
         ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.15)" : "rgba(37, 99, 235, 0.1)";
-        ctx.stroke();
-
-        // Horizontal tail for dimension label
-        const tailX = (outerRadius + 25) * Math.cos(dimAngle);
-        const tailY = (outerRadius + 25) * Math.sin(dimAngle);
         ctx.beginPath();
-        ctx.moveTo(tailX, tailY);
-        ctx.lineTo(tailX + 45, tailY);
+        ctx.moveTo(pCenter.x, pCenter.y);
+        ctx.lineTo(pOuter.x, pOuter.y);
         ctx.stroke();
 
-        // Text
+        ctx.beginPath();
+        ctx.moveTo(pOuter.x, pOuter.y);
+        ctx.lineTo(pOuter.x + 45, pOuter.y);
+        ctx.stroke();
+
         ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.45)" : "rgba(100, 116, 139, 0.5)";
         ctx.font = "8px monospace";
         ctx.textAlign = "left";
         ctx.textBaseline = "bottom";
-        ctx.fillText(`Ø ${Math.round(outerRadius * 2)}px`, tailX + 4, tailY - 2);
+        ctx.fillText(`Ø ${Math.round(outerRadius * 2)}px`, pOuter.x + 4, pOuter.y - 2);
 
-        // RPM/System status tags
+        const pTag = project3D(absX + 12, absY + rimRadius + 12, thickness);
         ctx.textBaseline = "top";
         ctx.fillStyle = accentColor;
-        ctx.fillText(`${label}`, 12, rimRadius + 12);
-        
-        // Rotating orientation alignment notch helper
+        ctx.fillText(`${label}`, pTag.x, pTag.y);
+
+        const pNotch = project3D(absX + rimRadius * Math.cos(angle), absY + rimRadius * Math.sin(angle), thickness);
         ctx.beginPath();
-        ctx.arc(rimRadius * Math.cos(angle), rimRadius * Math.sin(angle), 2, 0, 2 * Math.PI);
+        ctx.arc(pNotch.x, pNotch.y, 2 * pNotch.scale, 0, 2 * Math.PI);
         ctx.fillStyle = isDark ? "rgba(34, 211, 238, 0.7)" : "rgba(13, 148, 136, 0.6)";
         ctx.fill();
       }
-
-      ctx.restore();
     };
 
-    // Draw orthogonal grids and peripheral HUD frames
+    // Draw orthogonal grids and peripheral HUD frames in 3D perspective
     const drawHUD = (isDark: boolean) => {
       const gridColor = isDark ? "rgba(56, 189, 248, 0.025)" : "rgba(37, 99, 235, 0.015)";
       const majorGridColor = isDark ? "rgba(56, 189, 248, 0.05)" : "rgba(37, 99, 235, 0.03)";
@@ -354,37 +426,43 @@ export const MechanicalBlueprint: React.FC = () => {
       // Draw faint background grid
       ctx.lineWidth = 0.5;
       
-      // Vertical grid lines
+      // Vertical grid lines projected
       for (let x = 0; x < width; x += gridSpacing) {
+        const p1 = project3D(x, 0, 0);
+        const p2 = project3D(x, height, 0);
         ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
         ctx.strokeStyle = x % (gridSpacing * 4) === 0 ? majorGridColor : gridColor;
         ctx.stroke();
 
         // Top margin tick labels
         if (x % (gridSpacing * 4) === 0 && x > 0 && x < width - 100) {
+          const pLabel = project3D(x, 12, 0);
           ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.25)" : "rgba(100, 116, 139, 0.3)";
           ctx.font = "8px monospace";
           ctx.textAlign = "center";
-          ctx.fillText(`X.${String(x).padStart(4, "0")}`, x, 12);
+          ctx.fillText(`X.${String(x).padStart(4, "0")}`, pLabel.x, pLabel.y);
         }
       }
 
-      // Horizontal grid lines
+      // Horizontal grid lines projected
       for (let y = 0; y < height; y += gridSpacing) {
+        const p1 = project3D(0, y, 0);
+        const p2 = project3D(width, y, 0);
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
         ctx.strokeStyle = y % (gridSpacing * 4) === 0 ? majorGridColor : gridColor;
         ctx.stroke();
 
         // Left margin tick labels
         if (y % (gridSpacing * 4) === 0 && y > 0 && y < height - 50) {
+          const pLabel = project3D(8, y + 3, 0);
           ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.25)" : "rgba(100, 116, 139, 0.3)";
           ctx.font = "8px monospace";
           ctx.textAlign = "left";
-          ctx.fillText(`Y.${String(y).padStart(4, "0")}`, 8, y + 3);
+          ctx.fillText(`Y.${String(y).padStart(4, "0")}`, pLabel.x, pLabel.y);
         }
       }
 
@@ -392,44 +470,53 @@ export const MechanicalBlueprint: React.FC = () => {
       const hudCX = width * 0.9;
       const hudCY = height * 0.15;
       const hudR = 90;
-      
-      ctx.save();
-      ctx.translate(hudCX, hudCY);
-      
-      // Circles
+
+      // Circle drawing helper in 3D projection
+      const drawRadarCircle = (radius: number, dashed = false) => {
+        ctx.beginPath();
+        if (dashed) ctx.setLineDash([2, 2]);
+        for (let i = 0; i <= 36; i++) {
+          const theta = (i * 2 * Math.PI) / 36;
+          const p = project3D(hudCX + radius * Math.cos(theta), hudCY + radius * Math.sin(theta), 0);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+        if (dashed) ctx.setLineDash([]);
+      };
+
       ctx.strokeStyle = isDark ? "rgba(56, 189, 248, 0.08)" : "rgba(37, 99, 235, 0.05)";
       ctx.lineWidth = 0.8;
-      
-      ctx.beginPath();
-      ctx.arc(0, 0, hudR, 0, 2 * Math.PI);
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.arc(0, 0, hudR * 0.6, 0, 2 * Math.PI);
-      ctx.stroke();
 
-      ctx.beginPath();
-      ctx.arc(0, 0, hudR * 0.3, 0, 2 * Math.PI);
-      ctx.setLineDash([2, 2]);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      drawRadarCircle(hudR);
+      drawRadarCircle(hudR * 0.6);
+      drawRadarCircle(hudR * 0.3, true);
 
       // crosshairs
       ctx.beginPath();
-      ctx.moveTo(-hudR - 10, 0);
-      ctx.lineTo(hudR + 10, 0);
-      ctx.moveTo(0, -hudR - 10);
-      ctx.lineTo(0, hudR + 10);
+      const pLeft = project3D(hudCX - hudR - 10, hudCY, 0);
+      const pRight = project3D(hudCX + hudR + 10, hudCY, 0);
+      const pTop = project3D(hudCX, hudCY - hudR - 10, 0);
+      const pBottom = project3D(hudCX, hudCY + hudR + 10, 0);
+      
+      ctx.moveTo(pLeft.x, pLeft.y);
+      ctx.lineTo(pRight.x, pRight.y);
+      ctx.moveTo(pTop.x, pTop.y);
+      ctx.lineTo(pBottom.x, pBottom.y);
       ctx.stroke();
 
-      // Radar rotating sweep wedge
+      // Radar rotating sweep wedge in 3D perspective
+      const pCenter = project3D(hudCX, hudCY, 0);
       const sweepAngle = (baseAngle * 1.5) % (Math.PI * 2);
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, hudR, sweepAngle - 0.25, sweepAngle, false);
+      ctx.moveTo(pCenter.x, pCenter.y);
+      for (let a = sweepAngle - 0.25; a <= sweepAngle; a += 0.05) {
+        const p = project3D(hudCX + hudR * Math.cos(a), hudCY + hudR * Math.sin(a), 0);
+        ctx.lineTo(p.x, p.y);
+      }
       ctx.closePath();
       
-      const sweepGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, hudR);
+      const sweepGrad = ctx.createRadialGradient(pCenter.x, pCenter.y, 5, pCenter.x, pCenter.y, hudR * pCenter.scale);
       sweepGrad.addColorStop(0, isDark ? "rgba(6, 182, 212, 0.1)" : "rgba(13, 148, 136, 0.06)");
       sweepGrad.addColorStop(1, isDark ? "rgba(6, 182, 212, 0.0)" : "rgba(13, 148, 136, 0.0)");
       ctx.fillStyle = sweepGrad;
@@ -437,32 +524,37 @@ export const MechanicalBlueprint: React.FC = () => {
 
       // Sweep leading line
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(hudR * Math.cos(sweepAngle), hudR * Math.sin(sweepAngle));
+      ctx.moveTo(pCenter.x, pCenter.y);
+      const pSweepLead = project3D(hudCX + hudR * Math.cos(sweepAngle), hudCY + hudR * Math.sin(sweepAngle), 0);
+      ctx.lineTo(pSweepLead.x, pSweepLead.y);
       ctx.strokeStyle = isDark ? "rgba(6, 182, 212, 0.25)" : "rgba(13, 148, 136, 0.2)";
       ctx.stroke();
 
       // HUD annotations
+      const pAnnTop = project3D(hudCX, hudCY - hudR - 14, 0);
+      const pAnnBot = project3D(hudCX, hudCY + hudR + 14, 0);
+
       ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.35)" : "rgba(100, 116, 139, 0.4)";
       ctx.font = "7px monospace";
       ctx.textAlign = "center";
-      ctx.fillText("SYS.RADAR.SCAN // R: 1800m", 0, -hudR - 14);
-      ctx.fillText(`AZ: ${(sweepAngle * (180 / Math.PI)).toFixed(1)}°`, 0, hudR + 14);
+      ctx.fillText("SYS.RADAR.SCAN // R: 1800m", pAnnTop.x, pAnnTop.y);
+      ctx.fillText(`AZ: ${(sweepAngle * (180 / Math.PI)).toFixed(1)}°`, pAnnBot.x, pAnnBot.y);
 
       // Blinking radar target
       const blink = Math.sin(frameCount * 0.1) > 0.3;
       if (blink) {
+        const pTarget = project3D(hudCX + hudR * 0.5, hudCY - hudR * 0.3, 0);
         ctx.beginPath();
-        ctx.arc(hudR * 0.5, -hudR * 0.3, 3, 0, 2 * Math.PI);
+        ctx.arc(pTarget.x, pTarget.y, 3 * pTarget.scale, 0, 2 * Math.PI);
         ctx.fillStyle = isDark ? "rgba(34, 211, 238, 0.8)" : "rgba(13, 148, 136, 0.7)";
         ctx.fill();
-        ctx.fillText("TRGT_01", hudR * 0.5, -hudR * 0.3 - 6);
+        ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.35)" : "rgba(100, 116, 139, 0.4)";
+        ctx.font = "7px monospace";
+        ctx.fillText("TRGT_01", pTarget.x, pTarget.y - 6);
       }
-
-      ctx.restore();
     };
 
-    // Draw the orthogonal schematic traces and moving pulses
+    // Draw the orthogonal schematic traces and moving pulses in 3D perspective
     const drawSchematic = (isDark: boolean) => {
       ctx.save();
       
@@ -475,22 +567,25 @@ export const MechanicalBlueprint: React.FC = () => {
           const target = nodes[targetIdx];
           if (!target) return;
           
+          const p1 = project3D(node.x, node.y, 0);
+          const p2 = project3D(target.x, target.y, 0);
+
           ctx.beginPath();
-          ctx.moveTo(node.x, node.y);
-          // Standard blueprint circuit visual: draw layout lines with tiny connection dots
-          ctx.lineTo(target.x, target.y);
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
           ctx.stroke();
         });
 
-        // Draw node nodes (circles)
+        // Draw node circles
+        const pNode = project3D(node.x, node.y, 0);
         ctx.beginPath();
-        ctx.arc(node.x, node.y, 2, 0, 2 * Math.PI);
+        ctx.arc(pNode.x, pNode.y, 2 * pNode.scale, 0, 2 * Math.PI);
         ctx.fillStyle = isDark ? "rgba(6, 182, 212, 0.2)" : "rgba(13, 148, 136, 0.15)";
         ctx.fill();
       });
 
       // Update and draw pulses
-      pulses.forEach((pulse, index) => {
+      pulses.forEach((pulse) => {
         const fromNode = nodes[pulse.fromNode];
         const toNode = nodes[pulse.toNode];
         
@@ -500,9 +595,11 @@ export const MechanicalBlueprint: React.FC = () => {
         const currentX = fromNode.x + (toNode.x - fromNode.x) * pulse.progress;
         const currentY = fromNode.y + (toNode.y - fromNode.y) * pulse.progress;
 
+        const pPulse = project3D(currentX, currentY, 0);
+
         // Draw glowing point
         ctx.beginPath();
-        ctx.arc(currentX, currentY, 2.5, 0, 2 * Math.PI);
+        ctx.arc(pPulse.x, pPulse.y, 2.5 * pPulse.scale, 0, 2 * Math.PI);
         ctx.fillStyle = isDark ? "rgba(34, 211, 238, 0.7)" : "rgba(13, 148, 136, 0.6)";
         ctx.shadowColor = isDark ? "rgba(34, 211, 238, 0.9)" : "rgba(13, 148, 136, 0.7)";
         ctx.shadowBlur = 4;
@@ -514,16 +611,14 @@ export const MechanicalBlueprint: React.FC = () => {
 
         // Recycle pulse
         if (pulse.progress >= 1.0) {
-          // Find next connection from target node
           const nextTargets = toNode.connectedTo;
           if (nextTargets.length > 0) {
             pulse.fromNode = pulse.toNode;
             pulse.toNode = nextTargets[Math.floor(Math.random() * nextTargets.length)];
             pulse.progress = 0;
           } else {
-            // Re-spawn entirely
             const candidates = nodes
-              .map((node, index) => ({ node, index }))
+              .map((n, idx) => ({ node: n, index: idx }))
               .filter(item => item.node.connectedTo.length > 0);
             
             if (candidates.length > 0) {
@@ -568,7 +663,7 @@ export const MechanicalBlueprint: React.FC = () => {
         `ENCRYPTION: AES_256_GCM // SHIELD: ON`,
         `PORTAL.STATE: ESTABLISHING_HANDSHAKE`,
         `TELEMETRY_LOGS: ACTIVE // PIPE_OK`,
-        `FRAME.RENDER: CANVAS2D // FPS: ${fpsRef.current}`
+        `FRAME.RENDER: CANVAS3D_PROJ // FPS: ${fpsRef.current}`
       ];
 
       metricsR.forEach((metric, idx) => {
@@ -577,7 +672,6 @@ export const MechanicalBlueprint: React.FC = () => {
     };
 
     // Blueprint Gear Config definition
-    // Note how we configure System A, System B, and the Massive background Gear meshed together
     const getGearsConfig = (): GearSpec[] => {
       return [
         // Root Gear A (Large, bottom left)
@@ -596,11 +690,11 @@ export const MechanicalBlueprint: React.FC = () => {
         {
           id: "gear-a2",
           parentId: "gear-a1",
-          parentAngle: -Math.PI / 6, // 30 degrees upwards
+          parentAngle: -Math.PI / 6,
           outerRadius: 75,
           teeth: 12,
           direction: -1,
-          speedMultiplier: 0.6, // Speeds are calculated relative to master baseAngle and ratio
+          speedMultiplier: 0.6,
           label: "GEAR_SEC_02",
           showDetails: true
         },
@@ -620,7 +714,7 @@ export const MechanicalBlueprint: React.FC = () => {
         {
           id: "gear-b2",
           parentId: "gear-b1",
-          parentAngle: Math.PI * 0.75, // down-left
+          parentAngle: Math.PI * 0.75,
           outerRadius: 55,
           teeth: 8,
           direction: 1,
@@ -636,7 +730,7 @@ export const MechanicalBlueprint: React.FC = () => {
           outerRadius: 280,
           teeth: 48,
           direction: 1,
-          speedMultiplier: 0.15, // Extremely slow rotation
+          speedMultiplier: 0.15,
           label: "CORE_MATRIX_DRIVE // SYSTEM_PRIMARY",
           showDetails: true
         }
@@ -669,6 +763,12 @@ export const MechanicalBlueprint: React.FC = () => {
 
       // Increment master angle rotation (slow and smooth)
       baseAngle += 0.0035;
+
+      // Interpolate mouse tilt rotation angles for blueprint plane
+      const targetYaw = mouse.x !== -1000 ? (mouse.x - width / 2) * 0.00015 : 0;
+      const targetPitch = mouse.y !== -1000 ? -(mouse.y - height / 2) * 0.00012 : 0;
+      currentYaw += (targetYaw - currentYaw) * 0.05;
+      currentPitch += (targetPitch - currentPitch) * 0.05;
 
       // 1. Draw static grid and circular HUD overlays
       drawHUD(isDark);
