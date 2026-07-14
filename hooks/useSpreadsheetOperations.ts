@@ -1899,7 +1899,7 @@ export function useSpreadsheetOperations({
   const handleOpenContextMenu = useCallback((e: React.MouseEvent, type: 'cell' | 'header' | 'row' | 'section', col: string = "", row?: number, sectionName?: string) => {
     e.preventDefault();
     const menuWidth = 192;
-    const menuHeight = type === 'row' ? 250 : (type === 'header' ? 350 : (type === 'section' ? 180 : 480));
+    const menuHeight = type === 'row' ? 310 : (type === 'header' ? 350 : (type === 'section' ? 180 : 480));
 
     const winW = window.innerWidth;
     const winH = window.innerHeight;
@@ -1907,11 +1907,21 @@ export function useSpreadsheetOperations({
     let x = e.clientX;
     let y = e.clientY;
 
-    if (x + menuWidth > winW) x = winW - menuWidth - 12;
-    if (y + menuHeight > winH) y = winH - menuHeight - 12;
-
-    x = Math.max(12, x);
-    y = Math.max(12, y);
+    if (type === 'row') {
+      if (x + menuWidth > winW) {
+        x = e.clientX - menuWidth;
+      }
+      if (y + menuHeight > winH) {
+        y = e.clientY - menuHeight;
+      }
+      x = Math.max(12, Math.min(x, winW - menuWidth - 12));
+      y = Math.max(12, Math.min(y, winH - menuHeight - 12));
+    } else {
+      if (x + menuWidth > winW) x = winW - menuWidth - 12;
+      if (y + menuHeight > winH) y = winH - menuHeight - 12;
+      x = Math.max(12, x);
+      y = Math.max(12, y);
+    }
 
     setContextMenu({ x, y, row, col, type, sectionName });
   }, []);
