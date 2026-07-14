@@ -164,6 +164,7 @@ export const GridRow = React.memo(({
   const selMinColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.min(startColIdx, endColIdx) : -1;
   const selMaxColIdx = (selection && startColIdx !== -1 && endColIdx !== -1) ? Math.max(startColIdx, endColIdx) : -1;
   const [editingCol, setEditingCol] = useState<string | null>(null);
+  const mouseDownWasActiveRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!activeCell || activeCell.row !== globalIndex) {
@@ -177,7 +178,7 @@ export const GridRow = React.memo(({
     const didDrag = typeof document !== 'undefined' && document.body.getAttribute('data-dragged') === 'true';
     if (didDrag) return;
 
-    const wasAlreadyActive = activeCell?.row === globalIndex && activeCell?.col === header;
+    const wasAlreadyActive = mouseDownWasActiveRef.current;
     if (wasAlreadyActive) {
       setEditingCol(header);
     } else {
@@ -316,6 +317,7 @@ export const GridRow = React.memo(({
                 if (typeof document !== 'undefined') {
                   document.body.removeAttribute('data-dragged');
                 }
+                mouseDownWasActiveRef.current = activeCell?.row === globalIndex && activeCell?.col === header;
                 setActiveCell({ row: globalIndex, col: header });
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setIsSelecting(true);
