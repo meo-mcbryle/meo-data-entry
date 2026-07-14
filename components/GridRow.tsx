@@ -187,10 +187,18 @@ export const GridRow = React.memo(({
     }
   };
 
-  const handleCellDoubleClick = (header: string) => {
-    const wasActive = activeCell?.row === globalIndex && activeCell?.col === header;
-    if (wasActive) {
-      setEditingCol(header);
+  const handleCellDoubleClick = (header: string, e: React.MouseEvent) => {
+    const container = e.currentTarget.closest('.custom-scrollbar-zoomed');
+    if (container) {
+      const isValid = container.getAttribute('data-double-click-valid') === 'true';
+      if (isValid) {
+        setEditingCol(header);
+      }
+    } else {
+      const wasActive = activeCell?.row === globalIndex && activeCell?.col === header;
+      if (wasActive) {
+        setEditingCol(header);
+      }
     }
   };
 
@@ -320,7 +328,33 @@ export const GridRow = React.memo(({
                 if (typeof document !== 'undefined') {
                   document.body.removeAttribute('data-dragged');
                 }
-                mouseDownWasActiveRef.current = activeCell?.row === globalIndex && activeCell?.col === header;
+                const container = e.currentTarget.closest('.custom-scrollbar-zoomed');
+                let wasActive = false;
+                if (container) {
+                  const lastActiveRow = container.getAttribute('data-active-row');
+                  const lastActiveCol = container.getAttribute('data-active-col');
+                  wasActive = lastActiveRow === String(globalIndex) && lastActiveCol === header;
+
+                  const lastClickRow = container.getAttribute('data-last-click-row');
+                  const lastClickCol = container.getAttribute('data-last-click-col');
+                  const lastClickTime = Number(container.getAttribute('data-last-click-time') || 0);
+                  const now = Date.now();
+
+                  const isSameCell = lastClickRow === String(globalIndex) && lastClickCol === header;
+                  const isWithinDoubleTapWindow = (now - lastClickTime) < 300;
+                  const isDoubleTap = isSameCell && isWithinDoubleTapWindow;
+
+                  container.setAttribute('data-double-click-valid', String(isDoubleTap));
+                  container.setAttribute('data-active-row', String(globalIndex));
+                  container.setAttribute('data-active-col', header);
+                  container.setAttribute('data-last-click-row', String(globalIndex));
+                  container.setAttribute('data-last-click-col', header);
+                  container.setAttribute('data-last-click-time', String(now));
+                } else {
+                  wasActive = activeCell?.row === globalIndex && activeCell?.col === header;
+                }
+
+                mouseDownWasActiveRef.current = wasActive;
                 setActiveCell({ row: globalIndex, col: header });
                 setSelection({ startRow: globalIndex, endRow: globalIndex, startCol: header, endCol: header });
                 setIsSelecting(true);
@@ -437,7 +471,7 @@ export const GridRow = React.memo(({
                     data-row={globalIndex}
                     data-col={header}
                     onClick={(e) => handleCellClick(header, e)}
-                    onDoubleClick={() => handleCellDoubleClick(header)}
+                    onDoubleClick={(e) => handleCellDoubleClick(header, e)}
                     className={`text-sm text-foreground cursor-text w-full ${textAlignClass}`}
                   >
                     {row[header] ? formatNumberDisplay(row[header], meta.format) : <span className="text-muted/30">0.00</span>}
@@ -462,7 +496,7 @@ export const GridRow = React.memo(({
                     data-row={globalIndex}
                     data-col={header}
                     onClick={(e) => handleCellClick(header, e)}
-                    onDoubleClick={() => handleCellDoubleClick(header)}
+                    onDoubleClick={(e) => handleCellDoubleClick(header, e)}
                     className={`text-sm text-foreground cursor-text whitespace-pre-wrap wrap-break-word w-full ${textAlignClass}`}
                   >
                     {row[header] || <span className="opacity-0">.</span>}

@@ -230,6 +230,19 @@ export const TableEditor = ({
   }, []);
 
   useEffect(() => {
+    const container = tableContainerRef.current;
+    if (container) {
+      if (activeCell) {
+        container.setAttribute('data-active-row', String(activeCell.row));
+        container.setAttribute('data-active-col', activeCell.col);
+      } else {
+        container.removeAttribute('data-active-row');
+        container.removeAttribute('data-active-col');
+      }
+    }
+  }, [activeCell]);
+
+  useEffect(() => {
     if (!contextMenu) {
       setMobileMenuSubSection(null);
     }
