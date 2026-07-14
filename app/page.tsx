@@ -10,11 +10,11 @@ import { UpdateModal } from '@/components/UpdateModal';
 import { DashboardMainArea } from '@/components/DashboardMainArea';
 import { DashboardModals } from '@/components/DashboardModals';
 import { GRID_THEME } from '@/lib/constants';
-import { Folder, PanelLeftOpen, Table as TableIcon, History, Trash2, User } from 'lucide-react';
+import { Folder, PanelLeftOpen } from 'lucide-react';
 import { CustomDialog } from '@/components/CustomDialog';
-import { ParticleConstellation } from '@/components/ParticleConstellation';
-import { MechanicalBlueprint } from '@/components/MechanicalBlueprint';
 import { MobileSettingsPanel } from '@/components/MobileSettingsPanel';
+import { DashboardBackground } from '@/components/DashboardBackground';
+import { MobileNavigation } from '@/components/MobileNavigation';
 
 // Hooks
 import { useAuditLogs } from '@/hooks/useAuditLogs';
@@ -215,25 +215,7 @@ const DashboardContent = React.memo(({
 
   return (
     <main className={`${GRID_THEME.main} relative antialiased overflow-hidden`}>
-      {/* Background Particle Constellation / Mechanical Blueprint */}
-      {bgStyle === 'particles' ? (
-        <ParticleConstellation />
-      ) : (
-        <MechanicalBlueprint />
-      )}
-
-      {/* Cyber Grid Subtle Overlay */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />
-
-      {/* Glowing Glassmorphic Background Blobs */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        {/* Blob 1: Pink/magenta blob in top-left/center area */}
-        <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] rounded-full bg-pink-500/10 dark:bg-pink-600/5 blur-[120px] animate-blob-slow mix-blend-multiply dark:mix-blend-screen" />
-        {/* Blob 2: Blue/cyan blob in bottom-right/center area */}
-        <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] rounded-full bg-blue-500/10 dark:bg-cyan-600/5 blur-[120px] animate-blob-reverse mix-blend-multiply dark:mix-blend-screen" />
-        {/* Blob 3: Purple/violet blob in middle-left area */}
-        <div className="absolute top-[40%] left-[5%] w-[400px] h-[400px] rounded-full bg-purple-500/8 dark:bg-violet-600/5 blur-[120px] animate-blob-slow-alt mix-blend-multiply dark:mix-blend-screen" />
-      </div>
+      <DashboardBackground bgStyle={bgStyle} />
 
       {!isFullScreen && !isMobile && (
         <div className="flex h-full shrink-0 relative z-20">
@@ -379,57 +361,13 @@ const DashboardContent = React.memo(({
           )
         )}
 
-        {/* Mobile Bottom Navigation Bar */}
-        {isMobile && !isFullScreen && (
-          <div className="fixed bottom-0 left-0 right-0 h-16 bg-card/85 backdrop-blur-xl border-t border-border/40 flex items-center justify-around z-50 px-4 pb-safe shadow-[0_-4px_12px_rgba(0,0,0,0.05)] md:hidden">
-            {/* Explorer (Files) Tab */}
-            <button
-              onClick={() => setViewMode('explorer')}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'explorer' ? 'text-accent font-bold animate-pulse' : 'text-muted'}`}
-            >
-              <Folder size={18} />
-              <span className="text-[9px] font-semibold tracking-tighter">Files</span>
-            </button>
-
-            {/* Sheet (Active Spreadsheet) Tab */}
-            <button
-              onClick={() => activeNode && setViewMode('table')}
-              disabled={!activeNode}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${!activeNode ? 'opacity-35 cursor-not-allowed' : ''
-                } ${viewMode === 'table' || viewMode === 'code' || viewMode === 'compare' ? 'text-accent font-bold' : 'text-muted'}`}
-            >
-              <TableIcon size={18} />
-              <span className="text-[9px] font-semibold tracking-tighter">Sheet</span>
-            </button>
-
-            {/* Logs Tab */}
-            <button
-              onClick={() => setViewMode('logs')}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'logs' ? 'text-purple-500 font-bold animate-pulse' : 'text-muted'}`}
-            >
-              <History size={18} />
-              <span className="text-[9px] font-semibold tracking-tighter">Logs</span>
-            </button>
-
-            {/* Trash Tab */}
-            <button
-              onClick={() => setViewMode('trash')}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'trash' ? 'text-orange-500 font-bold animate-pulse' : 'text-muted'}`}
-            >
-              <Trash2 size={18} />
-              <span className="text-[9px] font-semibold tracking-tighter">Trash</span>
-            </button>
-
-            {/* Settings Tab */}
-            <button
-              onClick={() => setViewMode('settings')}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-3 rounded-lg transition-colors cursor-pointer ${viewMode === 'settings' ? 'text-accent font-bold' : 'text-muted'}`}
-            >
-              <User size={18} />
-              <span className="text-[9px] font-semibold tracking-tighter">Settings</span>
-            </button>
-          </div>
-        )}
+        <MobileNavigation
+          isMobile={isMobile}
+          isFullScreen={isFullScreen}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          activeNode={activeNode}
+        />
 
         {/* Modals & Overlays */}
         <DashboardModals
