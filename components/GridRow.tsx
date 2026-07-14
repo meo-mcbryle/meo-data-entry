@@ -188,7 +188,10 @@ export const GridRow = React.memo(({
   };
 
   const handleCellDoubleClick = (header: string) => {
-    setEditingCol(header);
+    const wasActive = activeCell?.row === globalIndex && activeCell?.col === header;
+    if (wasActive) {
+      setEditingCol(header);
+    }
   };
 
 
