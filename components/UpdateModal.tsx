@@ -255,9 +255,10 @@ function AvailableState({ info }: { info: UpdateInfo }) {
         </div>
       </div>
       {info.releaseNotes && (
-        <div className="rounded-xl p-3 text-[11px] text-muted leading-relaxed max-h-24 overflow-y-auto bg-border/40 border border-border">
-          {info.releaseNotes}
-        </div>
+        <div 
+          className="rounded-xl p-3 text-[11px] text-muted leading-relaxed max-h-24 overflow-y-auto bg-border/40 border border-border [&_p]:mb-1 last:[&_p]:mb-0"
+          dangerouslySetInnerHTML={{ __html: info.releaseNotes }}
+        />
       )}
     </div>
   );
