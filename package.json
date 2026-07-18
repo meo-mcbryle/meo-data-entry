@@ -1,6 +1,6 @@
 {
   "name": "data-dashboard",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -36,6 +36,7 @@
   "build": {
     "appId": "com.meo.dataentry",
     "productName": "MEO Data Entry",
+    "icon": "electron/icon.png",
     "publish": [
       {
         "provider": "github",
