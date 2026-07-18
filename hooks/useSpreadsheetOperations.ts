@@ -56,6 +56,8 @@ export function useSpreadsheetOperations({
     resetHistory
   } = useGridHistory();
 
+  const masterHeaderIndices = useMemo(() => new Map(masterColumnOrder.map((h, i) => [h, i])), [masterColumnOrder]);
+
   const stateRef = useRef({ gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder });
   stateRef.current = { gridData, rowCount, cellMetadata, cellAlignments, rowHeights, masterColumnOrder, columnOrder };
 
@@ -1788,8 +1790,8 @@ export function useSpreadsheetOperations({
   }, []);
 
   const evaluateFormula = useCallback((value: any, rowData: any, formatId?: string) => {
-    return evaluateFormulaLib(value, rowData, gridData, masterColumnOrder, columnOrder, formatId);
-  }, [gridData, masterColumnOrder, columnOrder]);
+    return evaluateFormulaLib(value, rowData, gridData, masterHeaderIndices, columnOrder, formatId);
+  }, [gridData, masterHeaderIndices, columnOrder]);
 
   const startRowResizing = useCallback((row: number, e: React.MouseEvent) => {
     e.preventDefault();

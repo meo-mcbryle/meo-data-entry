@@ -1,13 +1,13 @@
 import React from 'react';
-import { User, Sun, Moon, Layers, Network, LogOut } from 'lucide-react';
+import { User, Sun, Moon, Layers, Network, LogOut, EyeOff } from 'lucide-react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface MobileSettingsPanelProps {
   user: SupabaseUser | null;
   profileAvatar: string | null;
   setShowProfileModal: (show: boolean) => void;
-  bgStyle: 'particles' | 'blueprint';
-  setBgStyle: (style: 'particles' | 'blueprint') => void;
+  bgStyle: 'particles' | 'blueprint' | 'none';
+  setBgStyle: (style: 'particles' | 'blueprint' | 'none') => void;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   handleLogout: () => void;
@@ -71,11 +71,11 @@ export const MobileSettingsPanel: React.FC<MobileSettingsPanelProps> = ({
         <div className="flex items-center justify-between p-3.5 bg-muted/5 border border-border/30 rounded-xl">
           <span className="text-xs font-bold text-foreground">Background Effect</span>
           <button 
-            onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : 'particles')}
+            onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : bgStyle === 'blueprint' ? 'none' : 'particles')}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-card border border-border rounded-lg text-xs font-bold text-foreground shadow-sm cursor-pointer active:scale-95 transition-all"
           >
-            {bgStyle === 'particles' ? <Layers size={13} className="text-purple-500" /> : <Network size={13} className="text-cyan-500" />}
-            {bgStyle === 'particles' ? 'Blueprint' : 'Particles'}
+            {bgStyle === 'particles' ? <Layers size={13} className="text-purple-500" /> : bgStyle === 'blueprint' ? <EyeOff size={13} className="text-muted" /> : <Network size={13} className="text-cyan-500" />}
+            {bgStyle === 'particles' ? 'Blueprint' : bgStyle === 'blueprint' ? 'Static (Off)' : 'Particles'}
           </button>
         </div>
       </div>

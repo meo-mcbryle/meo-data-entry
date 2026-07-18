@@ -15,6 +15,16 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
   const inputRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const latestValueRef = useRef(initialValue ?? '');
+  const isCancelledRef = useRef(false);
+  const onSyncRef = useRef(onSync);
+  const typeRef = useRef(type);
+
+  useEffect(() => {
+    onSyncRef.current = onSync;
+    typeRef.current = type;
+  }, [onSync, type]);
+
   // Reset local state if external data changes (e.g., Undo/Redo)
   useEffect(() => {
     // Numeric Stability: If we are typing a decimal (e.g. "1."), don't let the parent 
@@ -24,25 +34,38 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
       const pLocal = parseFloat(localValue);
       if (pInit === pLocal || (isNaN(pInit) && isNaN(pLocal))) return;
     }
-    if (initialValue !== localValue) setLocalValue(initialValue ?? '');
+    if (initialValue !== localValue) {
+      setLocalValue(initialValue ?? '');
+      latestValueRef.current = initialValue ?? '';
+    }
   }, [initialValue, type]);
 
   // Cleanup timer on unmount to prevent state updates on unmounted component
   useEffect(() => {
     return () => {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      if (!isCancelledRef.current) {
+        const val = latestValueRef.current;
+        const currentType = typeRef.current;
+        onSyncRef.current(currentType === 'number' ? (val === '' ? '' : parseFloat(val)) : val);
+      }
     };
   }, []);
 
+  const syncValue = (val: any) => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    onSync(type === 'number' ? (val === '' ? '' : parseFloat(val)) : val);
+  };
+
   const handleLocalChange = (val: any) => {
     setLocalValue(val);
+    latestValueRef.current = val;
     if (onLocalEditing) onLocalEditing(val);
 
     // Debounce: Wait 300ms before updating global state
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(() => {
-      // Only parse numbers when syncing to the global state to preserve typing state (like decimals)
-      onSync(type === 'number' ? (val === '' ? '' : parseFloat(val)) : val);
+      syncValue(val);
     }, 300);
 
     // Height auto-grow for textareas
@@ -52,19 +75,23 @@ export const CellEditor = ({ initialValue, onSync, onKeyDown, className, isTexta
     }
   };
 
-  const handleBlur = () => {
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    onSync(localValue); // Immediate sync on exit
+  const handleBlur = (e: any) => {
+    syncValue(e.target.value); // Immediate sync on exit
   };
 
   const handleKeyDownLocal = (e: any) => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      isCancelledRef.current = true;
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       setLocalValue(initialValue ?? '');
       onSync(initialValue ?? '');
       if (onCancel) onCancel();
       return;
+    }
+    const navKeys = ['Enter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    if (navKeys.includes(e.key)) {
+      syncValue(e.target.value);
     }
     if (onKeyDown) onKeyDown(e);
   };

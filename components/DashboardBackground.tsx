@@ -3,18 +3,15 @@ import { ParticleConstellation } from './ParticleConstellation';
 import { MechanicalBlueprint } from './MechanicalBlueprint';
 
 interface DashboardBackgroundProps {
-  bgStyle: 'particles' | 'blueprint';
+  bgStyle: 'particles' | 'blueprint' | 'none';
 }
 
 export const DashboardBackground = React.memo(({ bgStyle }: DashboardBackgroundProps) => {
   return (
     <>
       {/* Background Particle Constellation / Mechanical Blueprint */}
-      {bgStyle === 'particles' ? (
-        <ParticleConstellation />
-      ) : (
-        <MechanicalBlueprint />
-      )}
+      {bgStyle === 'particles' && <ParticleConstellation />}
+      {bgStyle === 'blueprint' && <MechanicalBlueprint />}
 
       {/* Cyber Grid Subtle Overlay */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_4%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />

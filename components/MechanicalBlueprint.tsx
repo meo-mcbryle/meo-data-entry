@@ -671,6 +671,32 @@ export const MechanicalBlueprint: React.FC = () => {
       });
     };
 
+    let lastInteractionTime = performance.now();
+    let isPaused = false;
+
+    const resumeAnimation = () => {
+      lastInteractionTime = performance.now();
+      if (isPaused) {
+        isPaused = false;
+        animationFrameId = requestAnimationFrame(draw);
+      }
+    };
+
+    const checkIsEditing = () => {
+      const activeEl = document.activeElement;
+      return !!(
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.getAttribute('contenteditable') === 'true' ||
+          activeEl.closest('[contenteditable="true"]'))
+      );
+    };
+
+    const handleInteraction = () => {
+      resumeAnimation();
+    };
+
     // Blueprint Gear Config definition
     const getGearsConfig = (): GearSpec[] => {
       return [
@@ -744,6 +770,14 @@ export const MechanicalBlueprint: React.FC = () => {
         return;
       }
 
+      const now = performance.now();
+      const isEditing = checkIsEditing();
+
+      if (isEditing || now - lastInteractionTime > 10000) {
+        isPaused = true;
+        return;
+      }
+
       // FPS tracking
       frameCount++;
       if (timestamp - lastTime >= 1000) {
@@ -803,6 +837,7 @@ export const MechanicalBlueprint: React.FC = () => {
       mouse.x = e.clientX;
       mouse.y = e.clientY;
       mouse.active = true;
+      resumeAnimation();
     };
 
     const handleMouseLeave = () => {
@@ -813,6 +848,10 @@ export const MechanicalBlueprint: React.FC = () => {
 
     window.addEventListener("resize", resize);
     window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("keydown", handleInteraction);
+    window.addEventListener("mousedown", handleInteraction);
+    window.addEventListener("scroll", handleInteraction, { passive: true });
+    window.addEventListener("touchstart", handleInteraction, { passive: true });
     document.addEventListener("mouseleave", handleMouseLeave);
 
     // Initial setup
@@ -823,6 +862,10 @@ export const MechanicalBlueprint: React.FC = () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", resize);
       window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("keydown", handleInteraction);
+      window.removeEventListener("mousedown", handleInteraction);
+      window.removeEventListener("scroll", handleInteraction);
+      window.removeEventListener("touchstart", handleInteraction);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
   }, []);

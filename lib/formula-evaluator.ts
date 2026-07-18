@@ -4,7 +4,7 @@ export function evaluateFormula(
   value: any, 
   rowData: any, 
   gridData: Map<string, any>, 
-  masterColumnOrder: string[], 
+  masterColumnOrder: string[] | Map<string, number>, 
   columnOrder: string[], 
   formatId?: string
 ): any {
@@ -12,12 +12,19 @@ export function evaluateFormula(
   try {
     const headers = columnOrder.length > 0 ? columnOrder : ["Title / Item", "Amount", "Location", "Allocation", "Notes"];
 
+    const getColIndex = (colName: string): number => {
+      if (masterColumnOrder instanceof Map) {
+        return masterColumnOrder.get(colName) ?? -1;
+      }
+      return masterColumnOrder.indexOf(colName);
+    };
+
     const resolveSingleValue = (arg: string) => {
       // 1. Handle A1 Cell References using shared utility
       const coords = fromA1Key(arg.toUpperCase());
       if (coords) {
         const colName = headers[coords.colIndex];
-        const mIdx = masterColumnOrder.indexOf(colName);
+        const mIdx = getColIndex(colName);
         if (mIdx !== -1) return gridData.get(toA1Key(coords.row, mIdx));
         return null;
       }
@@ -41,7 +48,7 @@ export function evaluateFormula(
             for (let r = Math.min(sC.row, eC.row); r <= Math.max(sC.row, eC.row); r++) {
               for (let c = Math.min(sC.colIndex, eC.colIndex); c <= Math.max(sC.colIndex, eC.colIndex); c++) {
                 const colName = headers[c];
-                const mIdx = masterColumnOrder.indexOf(colName);
+                const mIdx = getColIndex(colName);
                 const val = mIdx !== -1 ? gridData.get(toA1Key(r, mIdx)) : 0;
                 total += (Number(val) || 0);
               }

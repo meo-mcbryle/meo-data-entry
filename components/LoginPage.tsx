@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Mail, Lock, Loader2, LogIn, Layers, Network, ArrowDownCircle } from 'lucide-react';
+import { Mail, Lock, Loader2, LogIn, Layers, Network, ArrowDownCircle, EyeOff } from 'lucide-react';
 import { MechanicalBlueprint } from './MechanicalBlueprint';
 import { ParticleConstellation } from './ParticleConstellation';
 import { ThemeToggle } from './ThemeToggle';
@@ -17,7 +17,7 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
-  const [bgStyle, setBgStyle] = useState<'blueprint' | 'particles'>('particles');
+  const [bgStyle, setBgStyle] = useState<'blueprint' | 'particles' | 'none'>('particles');
 
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -53,11 +53,8 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
     <div className="relative min-h-screen w-full flex items-center justify-center bg-background overflow-hidden transition-colors duration-500">
 
       {/* High-Tech Background Selector */}
-      {bgStyle === 'particles' ? (
-        <ParticleConstellation />
-      ) : (
-        <MechanicalBlueprint />
-      )}
+      {bgStyle === 'particles' && <ParticleConstellation />}
+      {bgStyle === 'blueprint' && <MechanicalBlueprint />}
 
       {/* Cyber Grid Subtle Overlay (Scales opacity with dark/light themes) */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--color-accent)_5%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--color-accent)_5%,transparent)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0 opacity-40 dark:opacity-25" />
@@ -75,13 +72,13 @@ export const LoginPage = React.memo(({ updateAvailable = false, onShowUpdate }: 
       {/* Futuristic Controls HUD in Top Right */}
       <div className="absolute top-5 right-5 z-20 flex items-center gap-1 bg-card/70 dark:bg-slate-900/40 backdrop-blur-md rounded-xl border border-border p-1 shadow-lg transition-all duration-300">
         <button
-          onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : 'particles')}
+          onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : bgStyle === 'blueprint' ? 'none' : 'particles')}
           className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg transition-colors cursor-pointer"
           aria-label="Toggle Background Style"
         >
-          {bgStyle === 'particles' ? <Layers size={18} /> : <Network size={18} />}
+          {bgStyle === 'particles' ? <Layers size={18} /> : bgStyle === 'blueprint' ? <EyeOff size={18} /> : <Network size={18} />}
           <div className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-            {bgStyle === 'particles' ? "Switch to Blueprint" : "Switch to Particles"}
+            {bgStyle === 'particles' ? "Switch to Blueprint" : bgStyle === 'blueprint' ? "Switch to Static (Off)" : "Switch to Particles"}
           </div>
         </button>
         <div className="w-[1px] h-5 bg-white/20 dark:bg-white/10" />

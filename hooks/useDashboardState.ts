@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 export function useDashboardState() {
   const [isMobile, setIsMobile] = useState(false);
   const [viewMode, setViewMode] = useState<'explorer' | 'settings' | 'code' | 'table' | 'compare' | 'logs' | 'trash'>('table');
-  const [bgStyle, setBgStyle] = useState<'blueprint' | 'particles'>('particles');
+  const [bgStyle, setBgStyle] = useState<'blueprint' | 'particles' | 'none'>('particles');
   const [showGlobalSearch, setShowGlobalSearch] = useState(false);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const [comparisonIds, setComparisonIds] = useState<string[]>([]);

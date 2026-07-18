@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut, Layers, Network
+  PanelLeftClose, PanelLeftOpen, Folder, History, Trash2, Search, FileText, User, LogOut, Layers, Network, EyeOff
 } from 'lucide-react';
 import { FileNode } from '@/lib/tree-utils';
 import { ThemeToggle } from './ThemeToggle';
@@ -18,8 +18,8 @@ interface NavigationSidebarProps {
   profileAvatar: string;
   handleLogout: () => Promise<void>;
   activeNode: FileNode | null;
-  bgStyle: 'blueprint' | 'particles';
-  setBgStyle: (style: 'blueprint' | 'particles') => void;
+  bgStyle: 'blueprint' | 'particles' | 'none';
+  setBgStyle: (style: 'blueprint' | 'particles' | 'none') => void;
   updateAvailable?: boolean;
   onShowUpdate?: (show: boolean) => void;
 }
@@ -168,13 +168,13 @@ export const NavigationSidebar = ({
             </div>
           </button>
           <button
-            onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : 'particles')}
+            onClick={() => setBgStyle(bgStyle === 'particles' ? 'blueprint' : bgStyle === 'blueprint' ? 'none' : 'particles')}
             className="p-2 text-muted hover:text-accent group relative focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-lg transition-colors cursor-pointer"
             aria-label="Toggle Background Style"
           >
-            {bgStyle === 'particles' ? <Layers size={20} /> : <Network size={20} />}
+            {bgStyle === 'particles' ? <Layers size={20} /> : bgStyle === 'blueprint' ? <EyeOff size={20} /> : <Network size={20} />}
             <div className="absolute left-full ml-3 px-2 py-1 bg-foreground text-background text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-100 shadow-2xl uppercase tracking-wider transition-opacity">
-              {bgStyle === 'particles' ? "Switch to Blueprint" : "Switch to Particles"}
+              {bgStyle === 'particles' ? "Switch to Blueprint" : bgStyle === 'blueprint' ? "Switch to Static (Off)" : "Switch to Particles"}
             </div>
           </button>
           <ThemeToggle />

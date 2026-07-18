@@ -252,54 +252,152 @@ export const SyncService = {
 
     reportProgress();
 
-    // Replay queue mutations to Supabase
-    for (const item of queue) {
+    // Replay queue mutations to Supabase in bulk
+    const nodesQueue = queue.filter(item => item.table === 'nodes');
+    const logsQueue = queue.filter(item => item.table === 'audit_logs');
+
+    // 1. Group and consolidate nodes operations by record_id
+    const nodesGrouped = new Map<string, { items: SyncQueueItem[], lastOp: 'INSERT' | 'UPDATE' | 'DELETE' }>();
+    for (const item of nodesQueue) {
+      if (!nodesGrouped.has(item.record_id)) {
+        nodesGrouped.set(item.record_id, { items: [], lastOp: item.operation });
+      }
+      const group = nodesGrouped.get(item.record_id)!;
+      group.items.push(item);
+      group.lastOp = item.operation;
+    }
+
+    const upsertPayloads: any[] = [];
+    const upsertQueueIds: number[] = [];
+    const upsertItems: SyncQueueItem[] = [];
+
+    const deleteIds: string[] = [];
+    const deleteQueueIds: number[] = [];
+    const deleteItems: SyncQueueItem[] = [];
+
+    for (const [recordId, group] of nodesGrouped.entries()) {
+      const queueIds = group.items.map(item => item.id).filter((id): id is number => id !== undefined);
+
+      if (group.lastOp === 'DELETE') {
+        deleteIds.push(recordId);
+        deleteQueueIds.push(...queueIds);
+        deleteItems.push(...group.items);
+      } else {
+        // Merge payloads chronologically to build the final consolidated state
+        let mergedPayload = {};
+        for (const item of group.items) {
+          if (item.payload) {
+            mergedPayload = { ...mergedPayload, ...item.payload };
+          }
+        }
+        upsertPayloads.push(cleanPayload(mergedPayload));
+        upsertQueueIds.push(...queueIds);
+        upsertItems.push(...group.items);
+      }
+    }
+
+    // Step A: Bulk Upsert Nodes
+    if (upsertPayloads.length > 0) {
       try {
-        const payload = cleanPayload(item.payload);
-        if (item.table === 'nodes') {
-          if (item.operation === 'INSERT') {
-            const { error } = await supabase.from('nodes').insert([payload]);
-            if (error) {
-              if (error.code === '23503' && payload && payload.parent_id) {
-                console.warn(`Foreign key violation on insert (parent deleted). Retrying with parent_id = null.`);
-                const repaired = { ...payload, parent_id: null };
-                const { error: retryError } = await supabase.from('nodes').insert([repaired]);
-                if (retryError) throw retryError;
-              } else {
-                throw error;
+        const { error } = await supabase.from('nodes').upsert(upsertPayloads);
+        if (error) throw error;
+        for (const qId of upsertQueueIds) {
+          await LocalDB.clearSyncQueueItem(qId);
+        }
+      } catch (bulkErr: any) {
+        console.warn('Bulk upsert failed, falling back to sequential processing:', bulkErr.message);
+        for (const item of upsertItems) {
+          try {
+            const payload = cleanPayload(item.payload);
+            if (item.operation === 'INSERT') {
+              const { error } = await supabase.from('nodes').insert([payload]);
+              if (error) {
+                if (error.code === '23503' && payload && payload.parent_id) {
+                  console.warn(`Foreign key violation on insert (parent deleted). Retrying with parent_id = null.`);
+                  const repaired = { ...payload, parent_id: null };
+                  const { error: retryError } = await supabase.from('nodes').insert([repaired]);
+                  if (retryError) throw retryError;
+                } else {
+                  throw error;
+                }
+              }
+            } else if (item.operation === 'UPDATE') {
+              const { error } = await supabase.from('nodes').update(payload).eq('id', item.record_id);
+              if (error) {
+                if (error.code === '23503' && payload && payload.parent_id) {
+                  console.warn(`Foreign key violation on update (parent deleted). Retrying with parent_id = null.`);
+                  const repaired = { ...payload, parent_id: null };
+                  const { error: retryError } = await supabase.from('nodes').update(repaired).eq('id', item.record_id);
+                  if (retryError) throw retryError;
+                } else {
+                  throw error;
+                }
               }
             }
-          } else if (item.operation === 'UPDATE') {
-            const { error } = await supabase.from('nodes').update(payload).eq('id', item.record_id);
-            if (error) {
-              if (error.code === '23503' && payload && payload.parent_id) {
-                console.warn(`Foreign key violation on update (parent deleted). Retrying with parent_id = null.`);
-                const repaired = { ...payload, parent_id: null };
-                const { error: retryError } = await supabase.from('nodes').update(repaired).eq('id', item.record_id);
-                if (retryError) throw retryError;
-              } else {
-                throw error;
-              }
+            if (item.id !== undefined) {
+              await LocalDB.clearSyncQueueItem(item.id);
             }
-          } else if (item.operation === 'DELETE') {
+          } catch (seqErr) {
+            console.error(`Sequential sync error on queue item ID ${item.id}:`, seqErr);
+          }
+        }
+      }
+      completedItems += upsertItems.length;
+      reportProgress();
+    }
+
+    // Step B: Bulk Delete Nodes
+    if (deleteIds.length > 0) {
+      try {
+        const { error } = await supabase.from('nodes').delete().in('id', deleteIds);
+        if (error) throw error;
+        for (const qId of deleteQueueIds) {
+          await LocalDB.clearSyncQueueItem(qId);
+        }
+      } catch (bulkErr: any) {
+        console.warn('Bulk delete failed, falling back to sequential processing:', bulkErr.message);
+        for (const item of deleteItems) {
+          try {
             const { error } = await supabase.from('nodes').delete().eq('id', item.record_id);
             if (error) throw error;
-          }
-        } else if (item.table === 'audit_logs') {
-          if (item.operation === 'INSERT') {
-            await supabase.from('audit_logs').insert([payload]);
+            if (item.id !== undefined) {
+              await LocalDB.clearSyncQueueItem(item.id);
+            }
+          } catch (seqErr) {
+            console.error(`Sequential delete error on queue item ID ${item.id}:`, seqErr);
           }
         }
-
-        // Clear item from sync queue
-        if (item.id !== undefined) {
-          await LocalDB.clearSyncQueueItem(item.id);
-        }
-      } catch (err) {
-        console.error(`Sync error on queue item ID ${item.id}:`, err);
       }
-      
-      completedItems++;
+      completedItems += deleteItems.length;
+      reportProgress();
+    }
+
+    // Step C: Bulk Insert Audit Logs
+    if (logsQueue.length > 0) {
+      const logsPayloads = logsQueue.map(item => cleanPayload(item.payload));
+      const logQueueIds = logsQueue.map(item => item.id).filter((id): id is number => id !== undefined);
+
+      try {
+        const { error } = await supabase.from('audit_logs').insert(logsPayloads);
+        if (error) throw error;
+        for (const qId of logQueueIds) {
+          await LocalDB.clearSyncQueueItem(qId);
+        }
+      } catch (bulkErr: any) {
+        console.warn('Bulk audit logs insert failed, falling back to sequential processing:', bulkErr.message);
+        for (const item of logsQueue) {
+          try {
+            const payload = cleanPayload(item.payload);
+            await supabase.from('audit_logs').insert([payload]);
+            if (item.id !== undefined) {
+              await LocalDB.clearSyncQueueItem(item.id);
+            }
+          } catch (seqErr) {
+            console.error(`Sequential audit log insert error on queue item ID ${item.id}:`, seqErr);
+          }
+        }
+      }
+      completedItems += logsQueue.length;
       reportProgress();
     }
 

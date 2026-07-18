@@ -34,6 +34,32 @@ export const ParticleConstellation: React.FC = () => {
     let currentRotY = 0;
     const mouse = { x: -1000, y: -1000, radius: 150 };
 
+    let lastInteractionTime = performance.now();
+    let isPaused = false;
+
+    const resumeAnimation = () => {
+      lastInteractionTime = performance.now();
+      if (isPaused) {
+        isPaused = false;
+        animationFrameId = requestAnimationFrame(draw);
+      }
+    };
+
+    const checkIsEditing = () => {
+      const activeEl = document.activeElement;
+      return !!(
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.getAttribute('contenteditable') === 'true' ||
+          activeEl.closest('[contenteditable="true"]'))
+      );
+    };
+
+    const handleInteraction = () => {
+      resumeAnimation();
+    };
+
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       width = window.innerWidth;
@@ -71,6 +97,14 @@ export const ParticleConstellation: React.FC = () => {
     const draw = () => {
       if (document.hidden) {
         animationFrameId = requestAnimationFrame(draw);
+        return;
+      }
+
+      const now = performance.now();
+      const isEditing = checkIsEditing();
+
+      if (isEditing || now - lastInteractionTime > 10000) {
+        isPaused = true;
         return;
       }
 
@@ -239,6 +273,7 @@ export const ParticleConstellation: React.FC = () => {
     const handleMouseMove = (e: MouseEvent) => {
       mouse.x = e.clientX;
       mouse.y = e.clientY;
+      resumeAnimation();
     };
 
     const handleMouseLeave = () => {
@@ -248,6 +283,10 @@ export const ParticleConstellation: React.FC = () => {
 
     window.addEventListener("resize", resize);
     window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("keydown", handleInteraction);
+    window.addEventListener("mousedown", handleInteraction);
+    window.addEventListener("scroll", handleInteraction, { passive: true });
+    window.addEventListener("touchstart", handleInteraction, { passive: true });
     document.addEventListener("mouseleave", handleMouseLeave);
 
     resize();
@@ -257,6 +296,10 @@ export const ParticleConstellation: React.FC = () => {
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", resize);
       window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("keydown", handleInteraction);
+      window.removeEventListener("mousedown", handleInteraction);
+      window.removeEventListener("scroll", handleInteraction);
+      window.removeEventListener("touchstart", handleInteraction);
       document.removeEventListener("mouseleave", handleMouseLeave);
     };
   }, []);
