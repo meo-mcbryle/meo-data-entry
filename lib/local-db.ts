@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { getDbEncryptionKey, encryptData, decryptData } from './crypto-utils';
 
 export interface LocalNode {
   id: string;
@@ -76,15 +77,34 @@ export const db = new MEODexieDatabase();
 export const LocalDB = {
   // Nodes mutations
   async getNodes(): Promise<LocalNode[]> {
-    return await db.nodes.toArray();
+    const nodes = await db.nodes.toArray();
+    const key = await getDbEncryptionKey();
+    return await Promise.all(nodes.map(async node => ({
+      ...node,
+      content: node.content ? await decryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await decryptData(node.display_settings, key) : undefined,
+    })));
   },
 
   async getNode(id: string): Promise<LocalNode | undefined> {
-    return await db.nodes.get(id);
+    const node = await db.nodes.get(id);
+    if (!node) return undefined;
+    const key = await getDbEncryptionKey();
+    return {
+      ...node,
+      content: node.content ? await decryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await decryptData(node.display_settings, key) : undefined,
+    };
   },
 
   async saveNode(node: LocalNode, bypassSyncQueue = false): Promise<void> {
-    await db.nodes.put(node);
+    const key = await getDbEncryptionKey();
+    const encryptedNode = {
+      ...node,
+      content: node.content ? await encryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await encryptData(node.display_settings, key) : undefined,
+    };
+    await db.nodes.put(encryptedNode);
 
     if (!bypassSyncQueue) {
       await this.queueSync('nodes', 'UPDATE', node.id, {
@@ -107,7 +127,13 @@ export const LocalDB = {
   },
 
   async insertNode(node: LocalNode, bypassSyncQueue = false): Promise<void> {
-    await db.nodes.add(node);
+    const key = await getDbEncryptionKey();
+    const encryptedNode = {
+      ...node,
+      content: node.content ? await encryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await encryptData(node.display_settings, key) : undefined,
+    };
+    await db.nodes.add(encryptedNode);
 
     if (!bypassSyncQueue) {
       await this.queueSync('nodes', 'INSERT', node.id, {
@@ -123,7 +149,7 @@ export const LocalDB = {
   },
 
   async deleteNode(id: string, email: string | null = null, bypassSyncQueue = false): Promise<void> {
-    const node = await db.nodes.get(id);
+    const node = await this.getNode(id);
     if (!node) return;
 
     // Soft delete locally
@@ -133,7 +159,13 @@ export const LocalDB = {
     node.updated_at = new Date().toISOString();
     node.version += 1;
 
-    await db.nodes.put(node);
+    const key = await getDbEncryptionKey();
+    const encryptedNode = {
+      ...node,
+      content: node.content ? await encryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await encryptData(node.display_settings, key) : undefined,
+    };
+    await db.nodes.put(encryptedNode);
 
     if (!bypassSyncQueue) {
       await this.queueSync('nodes', 'UPDATE', id, {
@@ -169,6 +201,7 @@ export const LocalDB = {
 
   // Sync Queue management
   async queueSync(table: 'nodes' | 'audit_logs', operation: 'INSERT' | 'UPDATE' | 'DELETE', record_id: string, payload: any): Promise<void> {
+    const key = await getDbEncryptionKey();
     // If there is already a queue item for this record_id, handle consolidation
     if (operation === 'UPDATE') {
       const existing = await db.sync_queue
@@ -177,25 +210,34 @@ export const LocalDB = {
         .first();
 
       if (existing) {
-        // Merge payloads
-        existing.payload = { ...existing.payload, ...payload };
+        // Decrypt the existing payload to merge it properly
+        const decryptedExisting = existing.payload ? await decryptData(existing.payload, key) : {};
+        const mergedPayload = { ...decryptedExisting, ...payload };
+        
+        existing.payload = await encryptData(mergedPayload, key);
         existing.timestamp = new Date().toISOString();
         await db.sync_queue.put(existing);
         return;
       }
     }
 
+    const encryptedPayload = payload ? await encryptData(payload, key) : null;
     await db.sync_queue.add({
       table,
       operation,
       record_id,
-      payload,
+      payload: encryptedPayload,
       timestamp: new Date().toISOString()
     });
   },
 
   async getSyncQueue(): Promise<SyncQueueItem[]> {
-    return await db.sync_queue.toArray();
+    const items = await db.sync_queue.toArray();
+    const key = await getDbEncryptionKey();
+    return await Promise.all(items.map(async item => ({
+      ...item,
+      payload: item.payload ? await decryptData(item.payload, key) : null
+    })));
   },
 
   async clearSyncQueueItem(id: number): Promise<void> {
@@ -203,14 +245,17 @@ export const LocalDB = {
   },
 
   async saveNodesBulk(nodes: LocalNode[], bypassSyncQueue = false): Promise<void> {
-    await db.nodes.bulkPut(nodes);
+    const key = await getDbEncryptionKey();
+    const encryptedNodes = await Promise.all(nodes.map(async node => ({
+      ...node,
+      content: node.content ? await encryptData(node.content, key) : undefined,
+      display_settings: node.display_settings ? await encryptData(node.display_settings, key) : undefined,
+    })));
+    await db.nodes.bulkPut(encryptedNodes);
 
     if (!bypassSyncQueue) {
-      const syncItems = nodes.map(node => ({
-        table: 'nodes' as const,
-        operation: 'UPDATE' as const,
-        record_id: node.id,
-        payload: {
+      const syncItems = await Promise.all(nodes.map(async node => {
+        const payload = {
           id: node.id,
           name: node.name,
           type: node.type,
@@ -225,8 +270,14 @@ export const LocalDB = {
           updated_at: node.updated_at,
           version: node.version,
           last_synced_hash: node.last_synced_hash
-        },
-        timestamp: new Date().toISOString()
+        };
+        return {
+          table: 'nodes' as const,
+          operation: 'UPDATE' as const,
+          record_id: node.id,
+          payload: await encryptData(payload, key),
+          timestamp: new Date().toISOString()
+        };
       }));
       await db.sync_queue.bulkAdd(syncItems);
     }

@@ -94,7 +94,7 @@ export function useAuthSession() {
                   token_type: 'bearer',
                   expires_in: cachedSession.expires_at - Math.floor(Date.now() / 1000),
                   expires_at: cachedSession.expires_at,
-                  refresh_token: '',
+                  refresh_token: cachedSession.refresh_token || '',
                   user: {
                     id: payload.sub || '',
                     email: payload.email || '',
@@ -104,6 +104,13 @@ export function useAuthSession() {
                     created_at: payload.created_at || ''
                   }
                 };
+
+                // Keep the supabase client aligned with reconstructed session
+                supabase.auth.setSession({
+                  access_token: cachedSession.access_token,
+                  refresh_token: cachedSession.refresh_token || ''
+                }).catch(err => console.warn('Failed to sync reconstructed session to supabase client:', err));
+
                 if (isMounted) { setSession(reconstructedSession); setStatus('ready'); }
                 return;
               }
@@ -131,6 +138,7 @@ export function useAuthSession() {
       } else {
         localStorage.setItem('meo-offline-session', JSON.stringify({
           access_token: currentSession.access_token,
+          refresh_token: currentSession.refresh_token,
           expires_at: currentSession.expires_at
         }));
         if (isMounted) { setSession(currentSession); setStatus('ready'); }
@@ -160,6 +168,35 @@ export function useAuthSession() {
       if (subscription) subscription.unsubscribe();
     };
   }, []);
+
+  // Proactive token refresh loop
+  useEffect(() => {
+    if (!session || !session.expires_at) return;
+
+    // Calculate delay: refresh 5 minutes before expiry
+    const expiryTime = session.expires_at * 1000;
+    const buffer = 5 * 60 * 1000; // 5 minutes
+    const now = Date.now();
+    const delay = expiryTime - now - buffer;
+
+    // If it's already near or past expiry, refresh after 2 seconds
+    const timeoutDelay = delay > 0 ? delay : 2000;
+
+    const timerId = setTimeout(async () => {
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        console.log('Proactively refreshing JWT token...');
+        try {
+          const { error } = await supabase.auth.refreshSession();
+          if (error) throw error;
+          console.log('JWT token refreshed successfully.');
+        } catch (err) {
+          console.warn('Failed to proactively refresh JWT token:', err);
+        }
+      }
+    }, timeoutDelay);
+
+    return () => clearTimeout(timerId);
+  }, [session]);
 
   return {
     session,

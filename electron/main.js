@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, ipcMain } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -138,6 +138,24 @@ ipcMain.handle('download-update', async () => {
 ipcMain.handle('install-update', () => {
   autoUpdater.quitAndInstall(false, true);
 });
+
+// IPC: safeStorage encryption/decryption
+ipcMain.handle('safe-encrypt', (event, plainText) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Encryption is not available on this platform.');
+  }
+  const encryptedBuffer = safeStorage.encryptString(plainText);
+  return encryptedBuffer.toString('base64');
+});
+
+ipcMain.handle('safe-decrypt', (event, encryptedBase64) => {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Encryption is not available on this platform.');
+  }
+  const encryptedBuffer = Buffer.from(encryptedBase64, 'base64');
+  return safeStorage.decryptString(encryptedBuffer);
+});
+
 
 app.whenReady().then(() => {
   // Intercept 'app' protocol to serve Next.js static files under a constant origin

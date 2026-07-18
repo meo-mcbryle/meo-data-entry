@@ -6,6 +6,8 @@ interface Window {
     checkForUpdates: () => Promise<{ status?: string; success?: boolean; message?: string }>;
     downloadUpdate: () => Promise<{ success: boolean; message?: string }>;
     installUpdate: () => void;
+    safeEncrypt: (plainText: string) => Promise<string>;
+    safeDecrypt: (encryptedBase64: string) => Promise<string>;
     onUpdateStatus: (callback: (data: UpdateStatusPayload) => void) => () => void;
   };
 }

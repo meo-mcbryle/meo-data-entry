@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  safeEncrypt: (plainText) => ipcRenderer.invoke('safe-encrypt', plainText),
+  safeDecrypt: (encryptedBase64) => ipcRenderer.invoke('safe-decrypt', encryptedBase64),
   onUpdateStatus: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on('update-status', listener);
