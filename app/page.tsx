@@ -37,6 +37,7 @@ const DashboardContent = React.memo(({
   onShowUpdate: (show: boolean) => void;
 }) => {
   const themeContext = React.useContext(ThemeContext);
+  const [isExitDialogOpen, setIsExitDialogOpen] = useState(false);
 
   // Layout & UI State Hook
   const {
@@ -79,6 +80,21 @@ const DashboardContent = React.memo(({
     user, activeNode, selectedId, logAction, fetchFiles,
     isLoadingFile, setIsLoadingFile, loadProgress, setLoadProgress
   });
+
+  // Listen for Electron close attempts to show styled React confirmation dialog
+  useEffect(() => {
+    if (!window.electronAPI?.onAttemptClose) return;
+
+    const cleanup = window.electronAPI.onAttemptClose(() => {
+      if (spreadsheet.hasUnsavedChanges) {
+        setIsExitDialogOpen(true);
+      } else {
+        window.electronAPI?.confirmClose();
+      }
+    });
+
+    return cleanup;
+  }, [spreadsheet.hasUnsavedChanges]);
 
   // 4. Dashboard Layout Hook
   const {
@@ -406,6 +422,23 @@ const DashboardContent = React.memo(({
           }}
           onCancel={() => {
             setPendingSelectId(null);
+          }}
+        />
+
+        <CustomDialog
+          isOpen={isExitDialogOpen}
+          type="confirm"
+          title="Unsaved Changes"
+          message="You have unsaved changes. Are you sure you want to exit? Your unsaved progress will be lost."
+          confirmText="Discard & Exit"
+          cancelText="Keep Working"
+          isDestructive={true}
+          onConfirm={() => {
+            setIsExitDialogOpen(false);
+            window.electronAPI?.confirmClose();
+          }}
+          onCancel={() => {
+            setIsExitDialogOpen(false);
           }}
         />
       </div>

@@ -87,18 +87,9 @@ function createWindow() {
   }
 
   mainWindow.on('close', (event) => {
-    if (hasUnsavedChanges) {
-      const choice = dialog.showMessageBoxSync(mainWindow, {
-        type: 'question',
-        buttons: ['Yes, Exit', 'No, Keep Working'],
-        title: 'Confirm Exit',
-        message: 'You have unsaved changes. Are you sure you want to close the app?',
-        defaultId: 1,
-        cancelId: 1
-      });
-      if (choice === 1) {
-        event.preventDefault();
-      }
+    if (!isReadyToClose && hasUnsavedChanges) {
+      event.preventDefault();
+      mainWindow.webContents.send('attempt-close');
     }
   });
 
@@ -108,8 +99,17 @@ function createWindow() {
 }
 
 let hasUnsavedChanges = false;
+let isReadyToClose = false;
+
 ipcMain.on('update-unsaved-status', (event, value) => {
   hasUnsavedChanges = value;
+});
+
+ipcMain.on('confirm-close', () => {
+  isReadyToClose = true;
+  if (mainWindow) {
+    mainWindow.close();
+  }
 });
 
 // IPC: expose app version to renderer
