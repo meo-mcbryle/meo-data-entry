@@ -117,17 +117,61 @@ ipcMain.handle('get-app-version', () => app.getVersion());
 
 // IPC: get system info (OS username and OS platform details)
 ipcMain.handle('get-system-info', () => {
+  const getFriendlyOSName = () => {
+    try {
+      const platform = os.platform();
+      const release = os.release();
+      if (platform === 'win32') {
+        const parts = release.split('.');
+        const major = parseInt(parts[0], 10);
+        const build = parseInt(parts[2] || '0', 10);
+        if (major === 10) {
+          return build >= 22000 ? 'Windows 11' : 'Windows 10';
+        }
+        if (major === 6) {
+          if (release.startsWith('6.3')) return 'Windows 8.1';
+          if (release.startsWith('6.2')) return 'Windows 8';
+          if (release.startsWith('6.1')) return 'Windows 7';
+        }
+        return `Windows (${release})`;
+      }
+      if (platform === 'darwin') {
+        const major = parseInt(release.split('.')[0], 10);
+        const macOSNames = {
+          24: 'macOS 15 (Sequoia)',
+          23: 'macOS 14 (Sonoma)',
+          22: 'macOS 13 (Ventura)',
+          21: 'macOS 12 (Monterey)',
+          20: 'macOS 11 (Big Sur)',
+          19: 'macOS 10.15 (Catalina)',
+          18: 'macOS 10.14 (Mojave)',
+        };
+        return macOSNames[major] || `macOS (Darwin ${release})`;
+      }
+      if (platform === 'linux') {
+        return `Linux (kernel ${release})`;
+      }
+      return `${os.type()} (${platform})`;
+    } catch (e) {
+      return `${os.type() || 'Unknown'} (${os.platform() || 'Unknown'})`;
+    }
+  };
+
   try {
     return {
       osUsername: os.userInfo().username,
       osPlatform: os.platform(),
-      osType: os.type()
+      osType: os.type(),
+      osRelease: os.release(),
+      friendlyOS: getFriendlyOSName()
     };
   } catch (e) {
     return {
       osUsername: 'Unknown',
       osPlatform: os.platform() || 'Unknown',
-      osType: os.type() || 'Unknown'
+      osType: os.type() || 'Unknown',
+      osRelease: os.release() || 'Unknown',
+      friendlyOS: getFriendlyOSName()
     };
   }
 });
