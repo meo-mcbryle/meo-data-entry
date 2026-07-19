@@ -8,6 +8,7 @@ interface Window {
     installUpdate: () => void;
     safeEncrypt: (plainText: string) => Promise<string>;
     safeDecrypt: (encryptedBase64: string) => Promise<string>;
+    updateUnsavedStatus: (hasUnsavedChanges: boolean) => void;
     onUpdateStatus: (callback: (data: UpdateStatusPayload) => void) => () => void;
   };
 }

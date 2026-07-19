@@ -564,8 +564,10 @@ export function useSpreadsheetOperations({
     return currentPayload !== lastSavedPayload;
   }, [currentPayload, lastSavedPayload, activeNode]);
 
-  // Prevent accidental reload or close
+  // Prevent accidental reload or close in web browser
   useEffect(() => {
+    if (window.electronAPI) return; // Electron handles this via main process close event
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
         e.preventDefault();
@@ -575,6 +577,13 @@ export function useSpreadsheetOperations({
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Keep Electron main process informed about unsaved changes
+  useEffect(() => {
+    if (window.electronAPI?.updateUnsavedStatus) {
+      window.electronAPI.updateUnsavedStatus(hasUnsavedChanges);
+    }
   }, [hasUnsavedChanges]);
 
   // Ctrl+S keyboard shortcut to save

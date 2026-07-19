@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, protocol, net, ipcMain, safeStorage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -86,10 +86,31 @@ function createWindow() {
     mainWindow.loadURL('app://local/index.html');
   }
 
+  mainWindow.on('close', (event) => {
+    if (hasUnsavedChanges) {
+      const choice = dialog.showMessageBoxSync(mainWindow, {
+        type: 'question',
+        buttons: ['Yes, Exit', 'No, Keep Working'],
+        title: 'Confirm Exit',
+        message: 'You have unsaved changes. Are you sure you want to close the app?',
+        defaultId: 1,
+        cancelId: 1
+      });
+      if (choice === 1) {
+        event.preventDefault();
+      }
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
+
+let hasUnsavedChanges = false;
+ipcMain.on('update-unsaved-status', (event, value) => {
+  hasUnsavedChanges = value;
+});
 
 // IPC: expose app version to renderer
 ipcMain.handle('get-app-version', () => app.getVersion());
