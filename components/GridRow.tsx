@@ -167,6 +167,7 @@ export interface GridRowProps {
   handleOpenDropdown: (e: React.MouseEvent, row: number, col: string, options: string[]) => void;
   onMeasuredHeight: (index: number, height: number) => void;
   masterColumnOrder: string[];
+  masterHeaderIndices: Map<string, number>;
   zoom: number;
   onLocalEditing?: (val: string) => void;
 }
@@ -178,7 +179,7 @@ export const GridRow = React.memo(({
   setActiveCell, setSelection, setIsSelecting, onOpenContextMenu, setDragFillRange,
   toggleCellAlignment, handleDragFillStart, removeTableRow,
   setViewingMedia, removeCellMetadata, evaluateFormula,
-  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder, zoom,
+  rowHeights, startRowResizing, handleOpenDropdown, onMeasuredHeight, masterColumnOrder, masterHeaderIndices, zoom,
   onLocalEditing
 }: GridRowProps) => {
   const { theme } = useTheme();
@@ -296,7 +297,7 @@ export const GridRow = React.memo(({
       </td>
       {visibleHeaders.map((header: string, colIndex: number) => {
         // Performance: Use index from stable master order for A1 keys
-        const cellKey = toA1Key(globalIndex, masterColumnOrder.indexOf(header));
+        const cellKey = toA1Key(globalIndex, masterHeaderIndices.get(header) ?? -1);
         const legacyKey = `${globalIndex}:${header}`;
         const meta: CellMetadata = cellMetadata[cellKey] || cellMetadata[legacyKey] || {};
         const isEditing = editingCol === header;
@@ -573,23 +574,26 @@ export const GridRow = React.memo(({
     prev.selection?.endRow !== next.selection?.endRow
   )) return false;
 
-  // 4. Performance Fix: Instead of checking the whole alignments object,
-  // check if any alignment relevant to THIS row changed.
-  const hasAlignChange = prev.visibleHeaders.some((h: string) => {
-    const colIdx = prev.masterColumnOrder.indexOf(h);
-    const key = toA1Key(prev.globalIndex, colIdx);
-    return prev.cellAlignments[key] !== next.cellAlignments[key] ||
-      prev.columnAlignments[h] !== next.columnAlignments[h];
-  });
-  if (hasAlignChange) return false;
+  // 4. Performance Fix: Only check cell-by-cell alignments if the alignments objects actually changed.
+  if (prev.cellAlignments !== next.cellAlignments || prev.columnAlignments !== next.columnAlignments) {
+    const hasAlignChange = prev.visibleHeaders.some((h: string) => {
+      const colIdx = prev.masterHeaderIndices.get(h) ?? -1;
+      const key = toA1Key(prev.globalIndex, colIdx);
+      return prev.cellAlignments[key] !== next.cellAlignments[key] ||
+        prev.columnAlignments[h] !== next.columnAlignments[h];
+    });
+    if (hasAlignChange) return false;
+  }
 
-  // 5. Performance Fix: Only re-render if metadata specifically for THIS row changed
-  const hasMetaChange = prev.visibleHeaders.some((h: string) => {
-    const colIdx = prev.masterColumnOrder.indexOf(h);
-    const key = toA1Key(prev.globalIndex, colIdx);
-    return prev.cellMetadata[key] !== next.cellMetadata[key];
-  });
-  if (hasMetaChange) return false;
+  // 5. Performance Fix: Only check cell-by-cell metadata if the metadata object actually changed.
+  if (prev.cellMetadata !== next.cellMetadata) {
+    const hasMetaChange = prev.visibleHeaders.some((h: string) => {
+      const colIdx = prev.masterHeaderIndices.get(h) ?? -1;
+      const key = toA1Key(prev.globalIndex, colIdx);
+      return prev.cellMetadata[key] !== next.cellMetadata[key];
+    });
+    if (hasMetaChange) return false;
+  }
 
   // 6. Check if height specifically for THIS row changed
   if (prev.rowHeights[String(prev.globalIndex)] !== next.rowHeights[String(next.globalIndex)]) return false;
@@ -614,7 +618,7 @@ export const GridRow = React.memo(({
   return (
     prev.isFreezePanes === next.isFreezePanes &&
     prev.visibleHeaders === next.visibleHeaders &&
-    prev.masterColumnOrder === next.masterColumnOrder &&
+    prev.masterHeaderIndices === next.masterHeaderIndices &&
     prev.zoom === next.zoom
   );
 });

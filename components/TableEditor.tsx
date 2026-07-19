@@ -625,6 +625,7 @@ export const TableEditor = ({
     const visibleItems = flatItems.slice(startIndex, endIndex);
     const translateY = itemOffsets[startIndex] || 0;
     const headerColIndices = useMemo(() => new Map(allHeaders.map(h => [h, masterColumnOrder.indexOf(h)])), [allHeaders, masterColumnOrder]);
+    const masterHeaderIndices = useMemo(() => new Map(masterColumnOrder.map((h, i) => [h, i])), [masterColumnOrder]);
 
     return (
       <div className={`${GRID_THEME.editor} ${isFullScreen ? '' : 'border border-border rounded-lg shadow-sm'}`}>
@@ -2092,6 +2093,7 @@ export const TableEditor = ({
                       handleOpenDropdown={handleOpenDropdown}
                       onMeasuredHeight={onMeasuredHeight}
                       masterColumnOrder={masterColumnOrder}
+                      masterHeaderIndices={masterHeaderIndices}
                       zoom={zoom}
                       onLocalEditing={handleLocalEditing}
                     />

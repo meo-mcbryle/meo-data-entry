@@ -21,12 +21,20 @@ export const getExcelColumnLabel = (index: number): string => {
   return label;
 };
 
-/**
- * Converts 0-based row and column indices to Excel A1 notation.
- * Example: toA1Key(0, 1) -> 'B1'
- */
+const a1KeyCache: Record<number, Record<number, string>> = {};
+
 export const toA1Key = (rowIndex: number, colIndex: number): string => {
-  return getExcelColumnLabel(colIndex) + (rowIndex + 1);
+  let rowCache = a1KeyCache[rowIndex];
+  if (!rowCache) {
+    rowCache = {};
+    a1KeyCache[rowIndex] = rowCache;
+  }
+  let val = rowCache[colIndex];
+  if (val === undefined) {
+    val = getExcelColumnLabel(colIndex) + (rowIndex + 1);
+    rowCache[colIndex] = val;
+  }
+  return val;
 };
 
 /**
